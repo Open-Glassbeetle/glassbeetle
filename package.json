@@ -1,0 +1,29 @@
+{
+  "name": "glassbeetle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NestJS backend + Angular frontend running inside a Tauri desktop shell.",
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "start": "npm run dev",
+    "dev": "concurrently -k -s first -n api,web,gui -c blue,magenta,green \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:gui\"",
+    "dev:api": "npm run start:dev -w @glassbeetle/api",
+    "dev:web": "npm run start -w @glassbeetle/web",
+    "dev:gui": "wait-on -t 180000 http-get://localhost:3000/api/health http-get://localhost:4200 && npm run tauri:dev -w @glassbeetle/desktop",
+    "build": "npm run build -w @glassbeetle/api && npm run build -w @glassbeetle/web",
+    "build:desktop": "npm run build -w @glassbeetle/api && npm run tauri:build -w @glassbeetle/desktop",
+    "test": "npm run test -w @glassbeetle/api && npm run test -w @glassbeetle/web",
+    "clean": "rm -rf apps/api/dist apps/web/dist apps/desktop/src-tauri/target"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^9.0.1"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

@@ -1,0 +1,76 @@
+<main class="shell">
+  <header class="masthead">
+    <h1>Glassbeetle</h1>
+    <p class="tagline">NestJS API &middot; Angular UI &middot; Tauri shell</p>
+  </header>
+
+  <section class="tiles">
+    <article class="tile">
+      <span class="dot dot--online"></span>
+      <h2>Frontend</h2>
+      <p class="detail">Angular is rendering this view.</p>
+    </article>
+
+    <article class="tile">
+      <span class="dot" [class.dot--online]="inTauri()" [class.dot--idle]="!inTauri()"></span>
+      <h2>Desktop shell</h2>
+      <p class="detail">
+        {{ inTauri() ? 'Running inside the Tauri window.' : 'Running in a plain browser tab.' }}
+      </p>
+    </article>
+
+    <article class="tile">
+      <span
+        class="dot"
+        [class.dot--online]="apiState() === 'online'"
+        [class.dot--offline]="apiState() === 'offline'"
+        [class.dot--idle]="apiState() === 'checking'"
+      ></span>
+      <h2>Backend</h2>
+
+      @switch (apiState()) {
+        @case ('checking') {
+          <p class="detail">Contacting the API&hellip;</p>
+        }
+        @case ('online') {
+          <p class="detail">
+            <code>{{ health()?.service }}</code> up for {{ health()?.uptimeSeconds }}s
+          </p>
+        }
+        @case ('offline') {
+          <p class="detail detail--error">{{ apiError() }}</p>
+        }
+      }
+
+      <button type="button" class="button button--ghost" (click)="refreshHealth()">
+        Re-check
+      </button>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>Rust IPC</h2>
+    <p class="detail">
+      Calls the <code>greet</code> command defined in
+      <code>apps/desktop/src-tauri/src/lib.rs</code>.
+    </p>
+
+    <div class="row">
+      <input
+        class="input"
+        type="text"
+        aria-label="Name to greet"
+        [ngModel]="name()"
+        (ngModelChange)="name.set($event)"
+        (keyup.enter)="greet()"
+      />
+      <button type="button" class="button" (click)="greet()">Greet</button>
+    </div>
+
+    @if (greeting()) {
+      <p class="result">{{ greeting() }}</p>
+    }
+  </section>
+
+  <router-outlet />
+</main>
