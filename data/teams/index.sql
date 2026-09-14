@@ -1,0 +1,1 @@
+CREATE INDEX idx_team_members_agent_id ON team_members(agent_id);

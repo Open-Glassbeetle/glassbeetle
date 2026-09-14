@@ -1,0 +1,1 @@
+CREATE INDEX idx_models_provider_id ON models(provider_id);
