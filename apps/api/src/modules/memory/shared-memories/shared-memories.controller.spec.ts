@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SharedMemoriesController } from './shared-memories.controller';
+import { SharedMemoriesController } from './shared-memories.controller.js';
 
 describe('SharedMemoriesController', () => {
   let controller: SharedMemoriesController;

@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AdapterFactoryService } from './adapter-factory.service';
+import { AdapterFactoryService } from './adapter-factory.service.js';
 
 describe('AdapterFactoryService', () => {
   let service: AdapterFactoryService;

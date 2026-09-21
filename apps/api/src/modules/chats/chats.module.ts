@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ChatsController } from './chats.controller';
-import { ChatsService } from './chats.service';
-import { MessagesController } from './messages/messages.controller';
-import { MessagesService } from './messages/messages.service';
-import { CompletionsController } from './completions/completions.controller';
+import { ChatsController } from './chats.controller.js';
+import { ChatsService } from './chats.service.js';
+import { MessagesController } from './messages/messages.controller.js';
+import { MessagesService } from './messages/messages.service.js';
+import { CompletionsController } from './completions/completions.controller.js';
 
 @Module({
   controllers: [ChatsController, MessagesController, CompletionsController],

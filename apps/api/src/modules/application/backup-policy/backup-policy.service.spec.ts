@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BackupPolicyService } from './backup-policy.service';
+import { BackupPolicyService } from './backup-policy.service.js';
 
 describe('BackupPolicyService', () => {
   let service: BackupPolicyService;

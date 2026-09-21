@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ArtifactsController } from './artifacts.controller';
-import { ArtifactsService } from './artifacts.service';
+import { ArtifactsController } from './artifacts.controller.js';
+import { ArtifactsService } from './artifacts.service.js';
 
 @Module({
   controllers: [ArtifactsController],

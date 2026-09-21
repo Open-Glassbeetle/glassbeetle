@@ -17,3 +17,10 @@ npm-debug.log*
 .DS_Store
 .idea/
 *.swp
+
+# local configuration
+.env
+.env.local
+
+# generated api spec
+apps/api/openapi.json

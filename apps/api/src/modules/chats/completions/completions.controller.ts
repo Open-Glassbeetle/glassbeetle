@@ -1,4 +1,4 @@
 import { Controller } from '@nestjs/common';
 
-@Controller('completions')
+@Controller('chats/:chatId')
 export class CompletionsController {}

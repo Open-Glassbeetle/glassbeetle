@@ -1,4 +1,4 @@
 import { Controller } from '@nestjs/common';
 
-@Controller('shared-memories')
+@Controller('memories')
 export class SharedMemoriesController {}

@@ -1,4 +1,4 @@
 import { Controller } from '@nestjs/common';
 
-@Controller('credentials')
+@Controller('providers/:providerId/credential')
 export class CredentialsController {}

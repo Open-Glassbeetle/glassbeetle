@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AgentMemoriesController } from './agent-memories.controller';
+import { AgentMemoriesController } from './agent-memories.controller.js';
 
 describe('AgentMemoriesController', () => {
   let controller: AgentMemoriesController;
