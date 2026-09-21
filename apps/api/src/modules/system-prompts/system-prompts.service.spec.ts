@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SystemPromptsService } from './system-prompts.service';
+import { SystemPromptsService } from './system-prompts.service.js';
 
 describe('SystemPromptsService', () => {
   let service: SystemPromptsService;

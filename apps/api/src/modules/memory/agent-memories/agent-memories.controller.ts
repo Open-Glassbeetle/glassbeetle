@@ -1,4 +1,4 @@
 import { Controller } from '@nestjs/common';
 
-@Controller('agent-memories')
+@Controller('agents/:agentId/memories')
 export class AgentMemoriesController {}

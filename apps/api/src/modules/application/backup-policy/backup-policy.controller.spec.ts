@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BackupPolicyController } from './backup-policy.controller';
+import { BackupPolicyController } from './backup-policy.controller.js';
 
 describe('BackupPolicyController', () => {
   let controller: BackupPolicyController;

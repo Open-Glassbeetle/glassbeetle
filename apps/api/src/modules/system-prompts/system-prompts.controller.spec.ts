@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SystemPromptsController } from './system-prompts.controller';
+import { SystemPromptsController } from './system-prompts.controller.js';
 
 describe('SystemPromptsController', () => {
   let controller: SystemPromptsController;

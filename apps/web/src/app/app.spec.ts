@@ -6,9 +6,12 @@ import {
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
+import { environment } from '../environments/environment';
 import { App } from './app';
 
-const HEALTH_URL = 'http://localhost:3000/api/health';
+// Derived from the environment so the version prefix cannot drift out of sync
+// with the API again.
+const HEALTH_URL = `${environment.apiBaseUrl}/health`;
 
 describe('App', () => {
   let httpMock: HttpTestingController;

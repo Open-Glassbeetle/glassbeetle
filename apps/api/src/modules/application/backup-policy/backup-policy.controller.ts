@@ -1,4 +1,4 @@
 import { Controller } from '@nestjs/common';
 
-@Controller('backup-policy')
+@Controller('application/backup-policy')
 export class BackupPolicyController {}
