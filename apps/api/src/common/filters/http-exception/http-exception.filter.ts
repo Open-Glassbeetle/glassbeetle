@@ -12,6 +12,7 @@ import {
   titleForStatus,
   type ApiErrorResponse,
 } from '../../http/api-error.js';
+import { getCorrelationId } from '../../logging/request-context.js';
 import { nowIso } from '../../persistence/timestamps.js';
 
 /**
@@ -58,9 +59,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const body = this.buildBody(exception, request?.url ?? '');
 
+    const cid = getCorrelationId();
+    const cidPrefix = cid ? `[${cid}] ` : '';
+
     if (body.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
-        `${request?.method ?? 'UNKNOWN'} ${body.path} failed: ${describe(exception)}`,
+        `${cidPrefix}${request?.method ?? 'UNKNOWN'} ${body.path} failed: ${describe(exception)}`,
         toStack(exception),
       );
     }
@@ -70,7 +74,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // client has already received.
     if (response.headersSent) {
       this.logger.warn(
-        `Exception after response started for ${body.path}; destroying the connection`,
+        `${cidPrefix}Exception after response started for ${body.path}; destroying the connection`,
       );
       response.destroy();
 

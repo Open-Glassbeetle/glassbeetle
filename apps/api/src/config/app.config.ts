@@ -15,6 +15,8 @@ export const APP_CONFIG_NAMESPACE = 'app';
  */
 export type NodeEnv = 'development' | 'production' | 'test';
 
+export type LogLevelType = 'debug' | 'log' | 'info' | 'warn' | 'error';
+
 /**
  * Fully resolved application configuration.
  *
@@ -32,6 +34,10 @@ export interface AppConfig {
   readonly databasePath: string;
   /** Origins permitted to make cross-origin requests to the API. */
   readonly corsOrigins: readonly string[];
+  /** Configured operational log level. */
+  readonly logLevel: LogLevelType;
+  /** Whether body contents (prompts, messages) are logged. */
+  readonly logBody: boolean;
 }
 
 /**
@@ -71,12 +77,27 @@ export default registerAs(APP_CONFIG_NAMESPACE, (): AppConfig => {
     ? env.GLASSBEETLE_DATABASE_PATH.trim()
     : resolveDefaultDatabasePath(dataDir);
 
+  const rawLogLevel = env.GLASSBEETLE_LOG_LEVEL?.trim().toLowerCase();
+  const logLevel: LogLevelType =
+    rawLogLevel === 'debug' ||
+    rawLogLevel === 'log' ||
+    rawLogLevel === 'info' ||
+    rawLogLevel === 'warn' ||
+    rawLogLevel === 'error'
+      ? (rawLogLevel as LogLevelType)
+      : 'log';
+
+  const rawLogBody = env.GLASSBEETLE_LOG_BODY?.trim().toLowerCase();
+  const logBody = rawLogBody === 'true' || rawLogBody === '1';
+
   return {
     nodeEnv: (env.NODE_ENV as NodeEnv | undefined) ?? 'development',
     port: env.PORT ? Number(env.PORT) : DEFAULT_PORT,
     dataDir,
     databasePath,
     corsOrigins: parseCorsOrigins(env.GLASSBEETLE_CORS_ORIGINS),
+    logLevel,
+    logBody,
   };
 });
 
