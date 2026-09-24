@@ -4,9 +4,11 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
 import { configureApp, registerNotFoundFallback } from './../src/bootstrap.js';
+import { DatabaseService } from './../src/database/database.service.js';
 
-describe('AppController (e2e)', () => {
+describe('Health and Root endpoints (e2e)', () => {
   let app: INestApplication<App>;
+  let dbService: DatabaseService;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -14,11 +16,11 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    // Apply the same global configuration production uses, so these tests
-    // exercise the real request pipeline rather than a bare one.
     configureApp(app);
     await app.init();
     registerNotFoundFallback(app);
+
+    dbService = app.get(DatabaseService);
   });
 
   it('/api/v1 (GET)', () => {
@@ -28,7 +30,7 @@ describe('AppController (e2e)', () => {
       .expect('Glassbeetle API');
   });
 
-  it('/api/v1/health (GET)', () => {
+  it('/api/v1/health (GET) - healthy response when database is reachable', () => {
     return request(app.getHttpServer())
       .get('/api/v1/health')
       .expect(200)
@@ -37,6 +39,31 @@ describe('AppController (e2e)', () => {
         expect(res.body.service).toBe('glassbeetle-api');
         expect(typeof res.body.uptimeSeconds).toBe('number');
         expect(typeof res.body.timestamp).toBe('string');
+        expect(res.body.checks).toEqual({
+          database: {
+            status: 'up',
+          },
+        });
+      });
+  });
+
+  it('/api/v1/health (GET) - returns 503 degraded status when database check fails', () => {
+    vi.spyOn(dbService, 'get').mockImplementation(() => {
+      throw new Error('Database disconnected');
+    });
+
+    return request(app.getHttpServer())
+      .get('/api/v1/health')
+      .expect(503)
+      .expect((res) => {
+        expect(res.body.status).toBe('degraded');
+        expect(res.body.service).toBe('glassbeetle-api');
+        expect(typeof res.body.uptimeSeconds).toBe('number');
+        expect(typeof res.body.timestamp).toBe('string');
+        expect(res.body.checks.database).toEqual({
+          status: 'down',
+          error: 'Database disconnected',
+        });
       });
   });
 
