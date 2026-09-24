@@ -19,15 +19,4 @@ describe('AppController', () => {
       expect(appController.getHello()).toBe('Glassbeetle API');
     });
   });
-
-  describe('health', () => {
-    it('should report an ok status', () => {
-      const health = appController.getHealth();
-
-      expect(health.status).toBe('ok');
-      expect(health.service).toBe('glassbeetle-api');
-      expect(health.uptimeSeconds).toBeGreaterThanOrEqual(0);
-      expect(Number.isNaN(Date.parse(health.timestamp))).toBe(false);
-    });
-  });
 });

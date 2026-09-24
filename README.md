@@ -1,5 +1,7 @@
 # Glassbeetle
 
+[![CI](https://github.com/Open-Glassbeetle/glassbeetle/actions/workflows/ci.yml/badge.svg)](https://github.com/Open-Glassbeetle/glassbeetle/actions/workflows/ci.yml)
+
 A NestJS backend, an Angular frontend, and a Tauri desktop shell in one npm
 workspace — all three start with a single command.
 

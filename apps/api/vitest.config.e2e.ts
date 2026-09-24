@@ -20,5 +20,6 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    setupFiles: ['./test/harness/e2e-setup.ts'],
   },
 });

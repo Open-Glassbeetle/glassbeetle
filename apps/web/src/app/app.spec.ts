@@ -60,6 +60,9 @@ describe('App', () => {
       service: 'glassbeetle-api',
       uptimeSeconds: 12,
       timestamp: new Date().toISOString(),
+      checks: {
+        database: { status: 'up' },
+      },
     });
     fixture.detectChanges();
 
