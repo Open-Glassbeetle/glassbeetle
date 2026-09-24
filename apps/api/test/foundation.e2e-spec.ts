@@ -78,6 +78,27 @@ describe('API foundation (e2e)', () => {
     });
   });
 
+  describe('correlation ID', () => {
+    it('returns a generated X-Request-Id header when none is provided', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/health')
+        .expect(200);
+
+      expect(res.headers['x-request-id']).toBeDefined();
+      expect(res.headers['x-request-id'].length).toBeGreaterThan(10);
+    });
+
+    it('preserves an inbound X-Request-Id header', async () => {
+      const customId = 'e2e-client-req-999';
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/health')
+        .set('X-Request-Id', customId)
+        .expect(200);
+
+      expect(res.headers['x-request-id']).toBe(customId);
+    });
+  });
+
   describe('request validation', () => {
     it('accepts a valid body', async () => {
       const res = await request(app.getHttpServer())

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AppConfigModule } from './config/config.module.js';
@@ -7,6 +7,7 @@ import { CryptoModule } from './crypto/crypto.module.js';
 import { FileStorageModule } from './file-storage/file-storage.module.js';
 import { ModelAdaptersModule } from './model-adapters/model-adapters.module.js';
 import { CommonModule } from './common/common.module.js';
+import { RequestLoggingMiddleware } from './common/logging/request-logging.middleware.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { AgentsModule } from './modules/agents/agents.module.js';
 import { MemoryModule } from './modules/memory/memory.module.js';
@@ -42,6 +43,10 @@ import { ApplicationModule } from './modules/application/application.module.js';
     ApplicationModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, RequestLoggingMiddleware],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestLoggingMiddleware).forRoutes('*');
+  }
+}

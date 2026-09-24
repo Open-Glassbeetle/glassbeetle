@@ -70,6 +70,98 @@ response:
   returns a credential's plaintext, and none should be added. `masked_preview`
   is the only credential value that may be returned.
 
+## Collection endpoints (Pagination, Filtering, Sorting)
+
+All eleven list endpoints in the API (`/agents`, `/memories`, `/teams`, `/chats`, `/projects`, `/artifacts`, `/providers`, `/models`, `/system-prompts`, `/chats/:chatId/messages`, `/application/backups`) share a unified envelope, pagination model, and SQL fragment helper.
+
+### Envelope Shape
+
+List endpoints return a JSON wrapper object instead of a bare array:
+
+```json
+{
+  "items": [],
+  "total": 42,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Construct this using `createPaginatedResponse(items, total, limit, offset)` from `src/common/pagination/paginated-response.dto.ts`.
+
+### Pagination Parameters & Bounds
+
+- **Style**: Offset/Limit (`?limit=50&offset=0`).
+- **Default limit**: `50` items.
+- **Maximum limit**: `100` items (requests with `limit > 100` or `limit < 1` are rejected with `400 Bad Request`).
+- **Default offset**: `0` (requests with `offset < 0` are rejected with `400 Bad Request`).
+
+### Sorting & Safety
+
+- **Query shape**: `?sort=createdAt&order=desc` (where `order` is `'asc'` or `'desc'`).
+- **Whitelisting**: Every list endpoint defines a map of allowed sort keys to database columns. User-supplied sort strings are **never** interpolated directly into SQL. An unknown sort field returns `400 Bad Request`.
+- **Tie-breaking**: `buildPaginationSqlFragment` automatically appends `, id <ORDER>` to guarantee deterministic sorting even when multiple rows share identical timestamps.
+
+### Filtering & Booleans
+
+- Query filters use simple query parameters: `?projectId=...`, `?enabled=true`.
+- Booleans in query strings (`?enabled=true` or `?enabled=1`) must be decorated with `@TransformBoolean()` from `src/common/pagination/boolean-query.decorator.ts`.
+- **Total Counts**: Executing a 2nd `SELECT COUNT(*)` query in SQLite is cheap on local desktop installations; do not hesitate to issue a count query for `total`.
+
+### Worked Example for Contributors
+
+```ts
+// 1. DTO: src/modules/agents/dto/list-agents-query.dto.ts
+import { IsOptional, IsString } from 'class-validator';
+import { PaginationQueryDto } from '../../../common/pagination/pagination-query.dto.js';
+
+export class ListAgentsQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  modelId?: string;
+}
+
+// 2. Service: src/modules/agents/agents.service.ts
+import { buildPaginationSqlFragment } from '../../common/pagination/sql-query-builder.js';
+import { createPaginatedResponse, PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
+
+const ALLOWED_SORT_COLUMNS = {
+  createdAt: 'created_at',
+  name: 'name',
+  id: 'id',
+};
+
+async findAll(query: ListAgentsQueryDto): Promise<PaginatedResponse<AgentDto>> {
+  const sqlFragment = buildPaginationSqlFragment({
+    query,
+    allowedSortColumns: ALLOWED_SORT_COLUMNS,
+    defaultSortKey: 'createdAt',
+    defaultOrder: 'desc',
+  });
+
+  const conditions: string[] = [];
+  const queryParams: any[] = [];
+
+  if (query.modelId) {
+    conditions.push('model_id = ?');
+    queryParams.push(query.modelId);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const totalRow = this.db.get<{ total: number }>(
+    `SELECT COUNT(*) as total FROM agents ${whereClause}`,
+    queryParams,
+  );
+  const total = totalRow?.total ?? 0;
+
+  const sql = `SELECT * FROM agents ${whereClause} ${sqlFragment.clauseSql}`;
+  const rows = this.db.all<AgentRow>(sql, [...queryParams, ...sqlFragment.params]);
+
+  return createPaginatedResponse(rows.map(mapAgentRow), total, query.limit, query.offset);
+}
+```
+
 ## Request validation
 
 A global `ValidationPipe` runs on every route with:

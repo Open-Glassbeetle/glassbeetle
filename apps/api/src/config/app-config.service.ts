@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   APP_CONFIG_NAMESPACE,
   type AppConfig,
+  type LogLevelType,
   type NodeEnv,
 } from './app.config.js';
 
@@ -50,5 +51,15 @@ export class AppConfigService {
   /** Origins permitted to make cross-origin requests. */
   get corsOrigins(): readonly string[] {
     return this.config.corsOrigins;
+  }
+
+  /** Configured operational log level. */
+  get logLevel(): LogLevelType {
+    return this.config.logLevel;
+  }
+
+  /** Whether request/response body logging is enabled. */
+  get logBody(): boolean {
+    return this.config.logBody;
   }
 }

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
@@ -25,7 +26,7 @@ async function exportDocument(): Promise<void> {
       `${JSON.stringify(document, null, 2)}\n`,
       'utf8',
     );
-    console.log(`[openapi] wrote ${outputPath}`);
+    new Logger('OpenApi').log(`wrote ${outputPath}`);
   } finally {
     await app.close();
   }

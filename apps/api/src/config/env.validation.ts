@@ -19,6 +19,14 @@ export enum NodeEnvironment {
   Test = 'test',
 }
 
+export enum LogLevel {
+  Debug = 'debug',
+  Log = 'log',
+  Info = 'info',
+  Warn = 'warn',
+  Error = 'error',
+}
+
 /**
  * Shape of the environment variables the API reads.
  *
@@ -50,6 +58,16 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   GLASSBEETLE_CORS_ORIGINS?: string;
+
+  @IsOptional()
+  @IsEnum(LogLevel, {
+    message: `GLASSBEETLE_LOG_LEVEL must be one of: ${Object.values(LogLevel).join(', ')}`,
+  })
+  GLASSBEETLE_LOG_LEVEL?: LogLevel;
+
+  @IsOptional()
+  @IsString()
+  GLASSBEETLE_LOG_BODY?: string;
 }
 
 /**

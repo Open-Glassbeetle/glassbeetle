@@ -139,6 +139,7 @@ export function buildCorsOptions(allowedOrigins: readonly string[]) {
       callback(null, false);
     },
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Accept', 'X-Request-Id', 'x-request-id'],
+    exposedHeaders: ['X-Request-Id', 'x-request-id'],
   };
 }
