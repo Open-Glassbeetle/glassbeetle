@@ -64,11 +64,37 @@ Some columns exist for the server's benefit only and must never appear in a
 response:
 
 - `agents.picture_path`, `projects.image_path`, `artifacts.file_path`,
-  `backups.file_path` — local filesystem paths. Expose a reference or a boolean
+  `backups.file_path` — local filesystem references. Expose an API download reference or a boolean
   instead; a path leaks the layout of the user's machine.
 - `provider_credentials.encrypted_value`, `.nonce` — there is no endpoint that
   returns a credential's plaintext, and none should be added. `masked_preview`
   is the only credential value that may be returned.
+
+## File storage and stored references
+
+Files (agent profile pictures, project images, artifact blobs, and backup archives) are managed through `FileStorageService` (`apps/api/src/file-storage/`).
+
+### Database Reference Format
+
+Database columns (`agents.picture_path`, `projects.image_path`, `artifacts.file_path`, `backups.file_path`) **must store POSIX-formatted relative references within the storage root** (e.g. `pictures/018f3a9e-0000-7000-8000-000000000001.jpg`), **never** absolute filesystem paths.
+
+**Why?**
+1. **Portability**: If the user moves their data directory or restores a backup on another machine, references remain intact.
+2. **Security & Privacy**: Storing or exposing absolute paths leaks the local machine layout (e.g. `/Users/alice/...` or `C:\Users\bob\...`).
+
+### Containment and Security Model
+
+- **Internally Generated Filenames**: On-disk paths are never derived from client-supplied filenames. `FileStorageService.write()` generates a UUIDv7 identifier and appends an extension derived from the file's verified magic bytes.
+- **Magic Byte Sniffing**: Content types are detected from the file's actual byte signatures, preventing disguised payloads.
+- **Strict Containment Check**: All read, write, stat, stream, and delete operations assert that the resolved path resides strictly inside the configured storage root, rejecting traversal sequences (`../`), absolute paths, sibling prefix collisions, and symlink escapes.
+- **Atomic Writes**: Writes are staged in a temporary file in the bucket directory and atomically renamed.
+- **Silent Missing Deletion**: Deleting a non-existent file succeeds silently without throwing.
+
+### Orphaned Files & Lifecycle
+
+SQLite foreign keys with `ON DELETE CASCADE` or `ON DELETE SET NULL` clean up database rows but do not delete files on disk. Deleting an entity (e.g. an agent) leaves its stored file behind unless explicitly cleaned up.
+
+Consumers and deletion endpoints are expected to invoke `fileStorageService.delete(row.picture_path)` when deleting or replacing resources.
 
 ## Collection endpoints (Pagination, Filtering, Sorting)
 
