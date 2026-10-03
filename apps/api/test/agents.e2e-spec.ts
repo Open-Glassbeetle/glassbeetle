@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './harness/index.js';
 
-describe('Agents collection endpoint (e2e)', () => {
+describe('Agents endpoints (e2e)', () => {
   let testApp: TestApp;
 
   beforeAll(async () => {
@@ -186,6 +186,154 @@ describe('Agents collection endpoint (e2e)', () => {
 
         expect(response.body.statusCode).toBe(400);
       });
+    });
+  });
+
+  describe('POST /api/v1/agents', () => {
+    it('creates an agent with minimal valid payload and sets Location header', async () => {
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: 'Minimal Bot' })
+        .expect(201);
+
+      const agent = response.body;
+      expect(agent.id).toBeDefined();
+      expect(typeof agent.id).toBe('string');
+      expect(agent.id).toHaveLength(36);
+      expect(agent.name).toBe('Minimal Bot');
+      expect(agent.personality).toBeNull();
+      expect(agent.instructions).toBeNull();
+      expect(agent.systemPromptId).toBeNull();
+      expect(agent.modelId).toBeNull();
+      expect(agent.temperature).toBeNull();
+      expect(agent.maxTokens).toBeNull();
+      expect(agent.modelParams).toBeNull();
+      expect(agent.hasPicture).toBe(false);
+      expect(agent.createdAt).toBeDefined();
+      expect(agent.updatedAt).toBeDefined();
+
+      // Verify Location header
+      expect(response.headers['location']).toBe(`/api/v1/agents/${agent.id}`);
+
+      // Verify readable via collection endpoint
+      const listRes = await testApp
+        .request()
+        .get('/api/v1/agents')
+        .expect(200);
+
+      expect(listRes.body.total).toBe(1);
+      expect(listRes.body.items[0].id).toBe(agent.id);
+    });
+
+    it('creates an agent with all optional fields and round-trips modelParams', async () => {
+      const model = testApp.fixtures.createModel();
+      const prompt = testApp.fixtures.createSystemPrompt();
+
+      const payload = {
+        name: 'Full Agent',
+        personality: 'Helpful and friendly',
+        instructions: 'Speak clearly',
+        systemPromptId: prompt.id,
+        modelId: model.id,
+        temperature: 0.7,
+        maxTokens: 2048,
+        modelParams: {
+          top_p: 0.9,
+          stop: ['STOP'],
+          context: { level: 2 },
+        },
+      };
+
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send(payload)
+        .expect(201);
+
+      const agent = response.body;
+      expect(agent.name).toBe('Full Agent');
+      expect(agent.personality).toBe('Helpful and friendly');
+      expect(agent.instructions).toBe('Speak clearly');
+      expect(agent.systemPromptId).toBe(prompt.id);
+      expect(agent.modelId).toBe(model.id);
+      expect(agent.temperature).toBe(0.7);
+      expect(agent.maxTokens).toBe(2048);
+      expect(agent.modelParams).toEqual(payload.modelParams);
+      expect(agent.hasPicture).toBe(false);
+    });
+
+    it('rejects creation when name is missing with 400 Bad Request', async () => {
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({})
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.error).toBe('Bad Request');
+    });
+
+    it('rejects creation when name is empty string with 400 Bad Request', async () => {
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: '' })
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+    });
+
+    it('rejects client-supplied server-managed fields with 400 Bad Request', async () => {
+      // Trying to supply id
+      const resId = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: 'Agent', id: '018f3a9e-0000-7000-8000-000000000001' })
+        .expect(400);
+      expect(resId.body.statusCode).toBe(400);
+
+      // Trying to supply createdAt
+      const resCreated = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: 'Agent', createdAt: '2026-10-04T00:00:00.000Z' })
+        .expect(400);
+      expect(resCreated.body.statusCode).toBe(400);
+
+      // Trying to supply picturePath
+      const resPicture = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: 'Agent', picturePath: 'pictures/avatar.png' })
+        .expect(400);
+      expect(resPicture.body.statusCode).toBe(400);
+    });
+
+    it('rejects non-existent modelId with 422 Unprocessable Entity', async () => {
+      const badModelId = '018f3a9e-0000-7000-8000-999999999999';
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: 'Agent', modelId: badModelId })
+        .expect(422);
+
+      expect(response.body.statusCode).toBe(422);
+      expect(response.body.code).toBe('MODEL_NOT_FOUND');
+      expect(response.body.message).toContain(badModelId);
+    });
+
+    it('rejects non-existent systemPromptId with 422 Unprocessable Entity', async () => {
+      const badPromptId = '018f3a9e-0000-7000-8000-888888888888';
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: 'Agent', systemPromptId: badPromptId })
+        .expect(422);
+
+      expect(response.body.statusCode).toBe(422);
+      expect(response.body.code).toBe('SYSTEM_PROMPT_NOT_FOUND');
+      expect(response.body.message).toContain(badPromptId);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, UnprocessableEntityException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
@@ -7,6 +7,7 @@ import {
   escapeLikePattern,
   ALLOWED_AGENT_SORT_COLUMNS,
 } from './agents.service.js';
+import type { CreateAgentDto } from './dto/create-agent.dto.js';
 
 describe('AgentsService', () => {
   let db: DatabaseService;
@@ -358,6 +359,175 @@ describe('AgentsService', () => {
           'updatedAt',
         ]);
       });
+    });
+  });
+
+  describe('findById', () => {
+    it('returns null when agent does not exist', async () => {
+      const found = await service.findById('non-existent-id');
+      expect(found).toBeNull();
+    });
+
+    it('returns the agent when found', async () => {
+      const agent = fixtures.createAgent({ name: 'Find Me' });
+      const found = await service.findById(agent.id);
+
+      expect(found).not.toBeNull();
+      expect(found?.id).toBe(agent.id);
+      expect(found?.name).toBe('Find Me');
+    });
+  });
+
+  describe('create', () => {
+    it('creates an agent with minimal input (name only)', async () => {
+      const dto: CreateAgentDto = { name: 'Minimal Bot' };
+      const created = await service.create(dto);
+
+      expect(created).toBeDefined();
+      expect(typeof created.id).toBe('string');
+      expect(created.id).toHaveLength(36);
+      expect(created.name).toBe('Minimal Bot');
+      expect(created.personality).toBeNull();
+      expect(created.instructions).toBeNull();
+      expect(created.systemPromptId).toBeNull();
+      expect(created.modelId).toBeNull();
+      expect(created.temperature).toBeNull();
+      expect(created.maxTokens).toBeNull();
+      expect(created.modelParams).toBeNull();
+      expect(created.hasPicture).toBe(false);
+      expect(typeof created.createdAt).toBe('string');
+      expect(typeof created.updatedAt).toBe('string');
+      expect(created.createdAt).toBe(created.updatedAt);
+
+      // Verify row exists in DB
+      const dbRow = db.get<{ id: string; name: string }>(
+        'SELECT id, name FROM agents WHERE id = ?',
+        [created.id],
+      );
+      expect(dbRow).toBeDefined();
+      expect(dbRow?.name).toBe('Minimal Bot');
+    });
+
+    it('creates an agent with all optional fields and persists modelParams as JSON', async () => {
+      const model = fixtures.createModel();
+      const prompt = fixtures.createSystemPrompt();
+
+      const dto: CreateAgentDto = {
+        name: 'Full Feature Agent',
+        personality: 'Analytical and patient',
+        instructions: 'Format all math in LaTeX',
+        systemPromptId: prompt.id,
+        modelId: model.id,
+        temperature: 0.6,
+        maxTokens: 3000,
+        modelParams: {
+          top_p: 0.95,
+          stop: ['END'],
+          metadata: { version: 1 },
+        },
+      };
+
+      const created = await service.create(dto);
+
+      expect(created.name).toBe('Full Feature Agent');
+      expect(created.personality).toBe('Analytical and patient');
+      expect(created.instructions).toBe('Format all math in LaTeX');
+      expect(created.systemPromptId).toBe(prompt.id);
+      expect(created.modelId).toBe(model.id);
+      expect(created.temperature).toBe(0.6);
+      expect(created.maxTokens).toBe(3000);
+      expect(created.modelParams).toEqual({
+        top_p: 0.95,
+        stop: ['END'],
+        metadata: { version: 1 },
+      });
+      expect(created.hasPicture).toBe(false);
+
+      // Verify DB stored JSON text for model_params
+      const rawRow = db.get<{ model_params: string }>(
+        'SELECT model_params FROM agents WHERE id = ?',
+        [created.id],
+      );
+      expect(rawRow?.model_params).toBe(
+        '{"top_p":0.95,"stop":["END"],"metadata":{"version":1}}',
+      );
+    });
+
+    it('rejects non-existent modelId with 422 UnprocessableEntityException', async () => {
+      const nonExistentModelId = '018f3a9e-0000-7000-8000-999999999999';
+      const dto: CreateAgentDto = {
+        name: 'Agent With Bad Model',
+        modelId: nonExistentModelId,
+      };
+
+      await expect(service.create(dto)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+
+      try {
+        await service.create(dto);
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(422);
+        const res = err.getResponse();
+        expect(res.code).toBe('MODEL_NOT_FOUND');
+        expect(res.message).toContain(nonExistentModelId);
+      }
+    });
+
+    it('rejects non-existent systemPromptId with 422 UnprocessableEntityException', async () => {
+      const nonExistentPromptId = '018f3a9e-0000-7000-8000-888888888888';
+      const dto: CreateAgentDto = {
+        name: 'Agent With Bad Prompt',
+        systemPromptId: nonExistentPromptId,
+      };
+
+      await expect(service.create(dto)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+
+      try {
+        await service.create(dto);
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(422);
+        const res = err.getResponse();
+        expect(res.code).toBe('SYSTEM_PROMPT_NOT_FOUND');
+        expect(res.message).toContain(nonExistentPromptId);
+      }
+    });
+
+    it('ensures creation is atomic: rolls back if insert fails', async () => {
+      const initialCount = db.get<{ total: number }>(
+        'SELECT COUNT(*) AS total FROM agents',
+      )?.total;
+
+      // Force an error inside transaction by spying on db.run
+      const originalRun = db.run.bind(db);
+      db.run = () => {
+        throw new Error('Simulated database write failure');
+      };
+
+      try {
+        await expect(service.create({ name: 'Failing Agent' })).rejects.toThrow(
+          'Simulated database write failure',
+        );
+      } finally {
+        db.run = originalRun;
+      }
+
+      // Assert no row was created in agents table
+      const afterCount = db.get<{ total: number }>(
+        'SELECT COUNT(*) AS total FROM agents',
+      )?.total;
+      expect(afterCount).toBe(initialCount);
+    });
+
+    it('created row is readable afterwards through findAll', async () => {
+      const created = await service.create({ name: 'Listable Agent' });
+
+      const listResult = await service.findAll({});
+      expect(listResult.total).toBe(1);
+      expect(listResult.items[0].id).toBe(created.id);
+      expect(listResult.items[0].name).toBe('Listable Agent');
     });
   });
 });
