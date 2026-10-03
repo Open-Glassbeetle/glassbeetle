@@ -96,6 +96,47 @@ SQLite foreign keys with `ON DELETE CASCADE` or `ON DELETE SET NULL` clean up da
 
 Consumers and deletion endpoints are expected to invoke `fileStorageService.delete(row.picture_path)` when deleting or replacing resources.
 
+## Credential encryption at rest
+
+Provider credentials (API keys for OpenAI, Anthropic, Google, etc.) represent sensitive user secrets that cost money if compromised. They are protected using authenticated encryption at rest via `EncryptionService` (`apps/api/src/crypto/`).
+
+### Cryptographic Scheme & Format Layout
+
+- **Cipher**: AES-256-GCM (`node:crypto`) with 256-bit keys.
+- **Nonce (IV)**: 12-byte (96-bit) cryptographically random bytes generated fresh on every encryption operation (`randomBytes(12)`). Nonce reuse is strictly prevented.
+- **Additional Authenticated Data (AAD)**: The `provider_id` is bound as AAD during encryption and decryption, preventing an attacker from transplanting ciphertext from one provider row to another.
+- **Fail Loudly**: Decryption errors (tampering, corrupt tag, wrong key, truncated payload) throw `DecryptionError` immediately and never return garbage or empty strings.
+- **No Secret Leakage**: Plaintext secrets, keys, and ciphertexts are never logged and never included in error messages.
+
+#### On-Disk Layout (`provider_credentials` table)
+
+| Column | Type | Content Layout |
+| --- | --- | --- |
+| `encrypted_value` | `BLOB NOT NULL` | `[0]`: Format Version (`0x01`)<br>`[1 .. len-16]`: AES-256-GCM Ciphertext<br>`[len-16 .. len]`: GCM Auth Tag (16 bytes) |
+| `nonce` | `BLOB NOT NULL` | 12 raw bytes (96-bit GCM Initialization Vector) |
+| `masked_preview` | `TEXT` | Safe preview produced by `maskKey()` (e.g. `sk-ant-…4f2a`) |
+
+The leading version byte (`0x01`) provides future-proof extensibility for key rotation, algorithm migration, or re-encryption.
+
+### Master Key Management & Threat Model
+
+The 256-bit master key is stored in a dedicated file (`master.key`) inside the application data directory (`<dataDir>/master.key`), configurable via `GLASSBEETLE_MASTER_KEY_FILE` or direct override `GLASSBEETLE_MASTER_KEY`. On first startup, the key is automatically generated using `randomBytes(32)` and written with restrictive permissions (`0600` on POSIX: readable and writable only by the file owner).
+
+#### Threats it protects against:
+1. **Database copy exfiltration**: If `glassbeetle.db` is leaked, accidentally committed to version control, copied to an unencrypted backup, synced via cloud storage, or exfiltrated via SQL injection, provider credentials cannot be decrypted without the separate `master.key` file.
+2. **Accidental exposure**: Local SQLite inspection tools, query logging, and diagnostic database dumps expose only high-entropy binary blobs, not API keys.
+3. **Tampering and Row Swapping**: AES-GCM tag verification detects any modification to ciphertext, nonce, or tag. AAD binding prevents moving credentials between providers.
+
+#### Threats it does NOT protect against:
+1. **Local user compromise**: An attacker or process executing with the user's OS permissions can read both the SQLite database and `master.key`.
+2. **Root / Administrator access**: A privileged administrator account bypasses file mode restrictions.
+3. **Process memory inspection**: Active plaintext keys temporarily reside in process memory during provider API invocations.
+
+#### Backup Considerations:
+- A backup archive containing only the SQLite database cannot restore usable credentials on another machine without the master key.
+- A backup archive containing both the database and `master.key` negates the separation of data and key at rest.
+- Recommended approach for backup issues: Backups should either require a user-supplied export passphrase to encrypt credentials within export archives, or intentionally exclude provider credentials, requiring users to re-enter them upon restoring.
+
 ## Collection endpoints (Pagination, Filtering, Sorting)
 
 All eleven list endpoints in the API (`/agents`, `/memories`, `/teams`, `/chats`, `/projects`, `/artifacts`, `/providers`, `/models`, `/system-prompts`, `/chats/:chatId/messages`, `/application/backups`) share a unified envelope, pagination model, and SQL fragment helper.

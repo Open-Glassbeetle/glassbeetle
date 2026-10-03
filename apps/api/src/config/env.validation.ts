@@ -57,6 +57,14 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  GLASSBEETLE_MASTER_KEY_FILE?: string;
+
+  @IsOptional()
+  @IsString()
+  GLASSBEETLE_MASTER_KEY?: string;
+
+  @IsOptional()
+  @IsString()
   GLASSBEETLE_CORS_ORIGINS?: string;
 
   @IsOptional()
@@ -120,6 +128,16 @@ export function validateEnv(
     assertAbsolutePath(
       'GLASSBEETLE_DATABASE_PATH',
       config.GLASSBEETLE_DATABASE_PATH.trim(),
+    );
+  }
+
+  if (
+    typeof config.GLASSBEETLE_MASTER_KEY_FILE === 'string' &&
+    config.GLASSBEETLE_MASTER_KEY_FILE.trim()
+  ) {
+    assertAbsolutePath(
+      'GLASSBEETLE_MASTER_KEY_FILE',
+      config.GLASSBEETLE_MASTER_KEY_FILE.trim(),
     );
   }
 

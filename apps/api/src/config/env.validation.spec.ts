@@ -41,6 +41,12 @@ describe('validateEnv', () => {
       validateEnv({ GLASSBEETLE_DATABASE_PATH: 'glassbeetle.db' }),
     ).toThrow(/GLASSBEETLE_DATABASE_PATH must be an absolute path/);
   });
+
+  it('rejects a relative master key file path', () => {
+    expect(() =>
+      validateEnv({ GLASSBEETLE_MASTER_KEY_FILE: 'master.key' }),
+    ).toThrow(/GLASSBEETLE_MASTER_KEY_FILE must be an absolute path/);
+  });
 });
 
 describe('parseCorsOrigins', () => {

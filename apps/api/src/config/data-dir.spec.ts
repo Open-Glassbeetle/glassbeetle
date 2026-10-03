@@ -1,6 +1,7 @@
 import {
   resolveDefaultDataDir,
   resolveDefaultDatabasePath,
+  resolveDefaultMasterKeyPath,
 } from './data-dir.js';
 
 describe('resolveDefaultDataDir', () => {
@@ -59,3 +60,12 @@ describe('resolveDefaultDatabasePath', () => {
     ).toBe('/home/ada/.local/share/glassbeetle/glassbeetle.db');
   });
 });
+
+describe('resolveDefaultMasterKeyPath', () => {
+  it('places master.key inside the data directory', () => {
+    expect(
+      resolveDefaultMasterKeyPath('/home/ada/.local/share/glassbeetle'),
+    ).toBe('/home/ada/.local/share/glassbeetle/master.key');
+  });
+});
+
