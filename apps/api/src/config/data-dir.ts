@@ -64,3 +64,17 @@ export function resolveDefaultDatabasePath(dataDir: string): string {
   return pathModule.join(dataDir, DATABASE_FILE_NAME);
 }
 
+/**
+ * Default filename of the master encryption key inside the data directory.
+ */
+export const MASTER_KEY_FILE_NAME = 'master.key';
+
+/**
+ * Resolves the default master encryption key path for a given data directory.
+ */
+export function resolveDefaultMasterKeyPath(dataDir: string): string {
+  const pathModule = dataDir.includes('\\') ? win32 : posix;
+  return pathModule.join(dataDir, MASTER_KEY_FILE_NAME);
+}
+
+

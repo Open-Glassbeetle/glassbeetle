@@ -48,6 +48,11 @@ export class AppConfigService {
     return this.config.databasePath;
   }
 
+  /** Absolute path of the encryption master key file. */
+  get masterKeyPath(): string {
+    return this.config.masterKeyPath;
+  }
+
   /** Origins permitted to make cross-origin requests. */
   get corsOrigins(): readonly string[] {
     return this.config.corsOrigins;

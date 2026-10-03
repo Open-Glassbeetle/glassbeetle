@@ -3,6 +3,7 @@ import { registerAs } from '@nestjs/config';
 import {
   resolveDefaultDataDir,
   resolveDefaultDatabasePath,
+  resolveDefaultMasterKeyPath,
 } from './data-dir.js';
 
 /**
@@ -32,6 +33,8 @@ export interface AppConfig {
   readonly dataDir: string;
   /** Absolute path of the SQLite database file. */
   readonly databasePath: string;
+  /** Absolute path of the encryption master key file. */
+  readonly masterKeyPath: string;
   /** Origins permitted to make cross-origin requests to the API. */
   readonly corsOrigins: readonly string[];
   /** Configured operational log level. */
@@ -77,6 +80,10 @@ export default registerAs(APP_CONFIG_NAMESPACE, (): AppConfig => {
     ? env.GLASSBEETLE_DATABASE_PATH.trim()
     : resolveDefaultDatabasePath(dataDir);
 
+  const masterKeyPath = env.GLASSBEETLE_MASTER_KEY_FILE?.trim()
+    ? env.GLASSBEETLE_MASTER_KEY_FILE.trim()
+    : resolveDefaultMasterKeyPath(dataDir);
+
   const rawLogLevel = env.GLASSBEETLE_LOG_LEVEL?.trim().toLowerCase();
   const logLevel: LogLevelType =
     rawLogLevel === 'debug' ||
@@ -95,6 +102,7 @@ export default registerAs(APP_CONFIG_NAMESPACE, (): AppConfig => {
     port: env.PORT ? Number(env.PORT) : DEFAULT_PORT,
     dataDir,
     databasePath,
+    masterKeyPath,
     corsOrigins: parseCorsOrigins(env.GLASSBEETLE_CORS_ORIGINS),
     logLevel,
     logBody,
