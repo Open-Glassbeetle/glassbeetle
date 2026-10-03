@@ -1,4 +1,8 @@
-import { BadRequestException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
@@ -375,6 +379,77 @@ describe('AgentsService', () => {
       expect(found).not.toBeNull();
       expect(found?.id).toBe(agent.id);
       expect(found?.name).toBe('Find Me');
+    });
+  });
+
+  describe('findOne', () => {
+    it('returns an existing agent with full resource mapping', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Existing Agent',
+        personality: 'Friendly bot',
+        instructions: 'Help users',
+        temperature: 0.5,
+        max_tokens: 1500,
+        model_params: '{"top_p":0.9}',
+        picture_path: 'pictures/existing.png',
+      });
+
+      const result = await service.findOne(agent.id);
+
+      expect(result.id).toBe(agent.id);
+      expect(result.name).toBe('Existing Agent');
+      expect(result.personality).toBe('Friendly bot');
+      expect(result.instructions).toBe('Help users');
+      expect(result.temperature).toBe(0.5);
+      expect(result.maxTokens).toBe(1500);
+      expect(result.modelParams).toEqual({ top_p: 0.9 });
+      expect(result.hasPicture).toBe(true);
+      expect((result as Record<string, unknown>).picture_path).toBeUndefined();
+      expect((result as Record<string, unknown>).picturePath).toBeUndefined();
+    });
+
+    it('throws NotFoundException when agent does not exist', async () => {
+      const missingId = '018f3a9e-0000-7000-8000-000000000999';
+
+      await expect(service.findOne(missingId)).rejects.toThrow(
+        NotFoundException,
+      );
+
+      try {
+        await service.findOne(missingId);
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+        expect(res.message).toContain(missingId);
+      }
+    });
+
+    it('returns an agent with null modelId and null systemPromptId normally without error', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Unconfigured Agent',
+        model_id: null,
+        system_prompt_id: null,
+        personality: null,
+        instructions: null,
+      });
+
+      const result = await service.findOne(agent.id);
+
+      expect(result).toBeDefined();
+      expect(result.id).toBe(agent.id);
+      expect(result.modelId).toBeNull();
+      expect(result.systemPromptId).toBeNull();
+      expect(result.personality).toBeNull();
+      expect(result.instructions).toBeNull();
+    });
+
+    it('safely handles an ID containing SQL metacharacters and throws NotFoundException', async () => {
+      const sqlInjectionId = "018f3a9e' OR '1'='1";
+
+      await expect(service.findOne(sqlInjectionId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

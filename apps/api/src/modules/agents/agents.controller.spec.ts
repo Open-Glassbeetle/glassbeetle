@@ -42,6 +42,7 @@ describe('AgentsController', () => {
           provide: AgentsService,
           useValue: {
             findAll: vi.fn().mockResolvedValue(mockResponse),
+            findOne: vi.fn().mockResolvedValue(mockAgent),
             create: vi.fn().mockResolvedValue(mockAgent),
           },
         },
@@ -63,6 +64,15 @@ describe('AgentsController', () => {
 
       expect(service.findAll).toHaveBeenCalledWith(query);
       expect(result).toBe(mockResponse);
+    });
+  });
+
+  describe('findOne', () => {
+    it('delegates to agentsService.findOne and returns agent', async () => {
+      const result = await controller.findOne(mockAgent.id);
+
+      expect(service.findOne).toHaveBeenCalledWith(mockAgent.id);
+      expect(result).toBe(mockAgent);
     });
   });
 

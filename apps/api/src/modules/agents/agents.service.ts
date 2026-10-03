@@ -1,4 +1,8 @@
-import { Injectable, UnprocessableEntityException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import {
   createPaginatedResponse,
   type PaginatedResponse,
@@ -117,6 +121,21 @@ export class AgentsService {
       return null;
     }
     return mapAgentRowToResponse(row);
+  }
+
+  /**
+   * Retrieves a single agent by ID.
+   * Throws NotFoundException if no agent exists with the given ID.
+   */
+  async findOne(id: string): Promise<AgentResponseDto> {
+    const agent = await this.findById(id);
+    if (!agent) {
+      throw new NotFoundException({
+        code: 'AGENT_NOT_FOUND',
+        message: `Agent with ID "${id}" not found`,
+      });
+    }
+    return agent;
   }
 
   /**

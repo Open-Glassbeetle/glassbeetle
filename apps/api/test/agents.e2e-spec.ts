@@ -189,6 +189,86 @@ describe('Agents endpoints (e2e)', () => {
     });
   });
 
+  describe('GET /api/v1/agents/:agentId', () => {
+    it('returns the agent resource for an existing ID with 200 OK', async () => {
+      const agent = testApp.fixtures.createAgent({
+        name: 'Scully',
+        personality: 'Skeptic and medical doctor',
+        instructions: 'Apply the scientific method',
+        temperature: 0.3,
+        max_tokens: 2000,
+        model_params: '{"top_p":0.8}',
+        picture_path: 'pictures/scully.jpg',
+      });
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+
+      const body = response.body;
+      expect(body.id).toBe(agent.id);
+      expect(body.name).toBe('Scully');
+      expect(body.personality).toBe('Skeptic and medical doctor');
+      expect(body.instructions).toBe('Apply the scientific method');
+      expect(body.temperature).toBe(0.3);
+      expect(body.maxTokens).toBe(2000);
+      expect(body.modelParams).toEqual({ top_p: 0.8 });
+      expect(body.hasPicture).toBe(true);
+      expect(body.picture_path).toBeUndefined();
+      expect(body.picturePath).toBeUndefined();
+      expect(body.createdAt).toBe(agent.created_at);
+      expect(body.updatedAt).toBe(agent.updated_at);
+    });
+
+    it('returns 404 with standard error envelope for an unknown agent ID', async () => {
+      const unknownId = '018f3a9e-0000-7000-8000-000000000404';
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/agents/${unknownId}`)
+        .expect(404);
+
+      expect(response.body).toMatchObject({
+        statusCode: 404,
+        error: 'Not Found',
+        code: 'AGENT_NOT_FOUND',
+        path: `/api/v1/agents/${unknownId}`,
+      });
+      expect(response.body.message).toContain(unknownId);
+      expect(typeof response.body.timestamp).toBe('string');
+    });
+
+    it('safely handles an ID containing SQL metacharacters and returns 404', async () => {
+      const injectionAttempt = "nonexistent' OR '1'='1";
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/agents/${encodeURIComponent(injectionAttempt)}`)
+        .expect(404);
+
+      expect(response.body.statusCode).toBe(404);
+      expect(response.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('returns an agent with null modelId and null systemPromptId normally with 200', async () => {
+      const agent = testApp.fixtures.createAgent({
+        name: 'Detached Agent',
+        model_id: null,
+        system_prompt_id: null,
+      });
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+
+      expect(response.body.id).toBe(agent.id);
+      expect(response.body.modelId).toBeNull();
+      expect(response.body.systemPromptId).toBeNull();
+    });
+  });
+
   describe('POST /api/v1/agents', () => {
     it('creates an agent with minimal valid payload and sets Location header', async () => {
       const response = await testApp
@@ -224,6 +304,13 @@ describe('Agents endpoints (e2e)', () => {
 
       expect(listRes.body.total).toBe(1);
       expect(listRes.body.items[0].id).toBe(agent.id);
+
+      // Verify readable via single-resource endpoint
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(getRes.body.name).toBe('Minimal Bot');
     });
 
     it('creates an agent with all optional fields and round-trips modelParams', async () => {

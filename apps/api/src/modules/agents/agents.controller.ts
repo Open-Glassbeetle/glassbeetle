@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Query,
   Res,
@@ -11,8 +12,10 @@ import {
 import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
@@ -45,6 +48,27 @@ export class AgentsController {
     @Query() query: ListAgentsQueryDto,
   ): Promise<PaginatedResponse<AgentResponseDto>> {
     return this.agentsService.findAll(query);
+  }
+
+  @Get(':agentId')
+  @ApiOperation({
+    summary: 'Retrieve an agent',
+    description: 'Retrieves a single agent by its unique identifier.',
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'Unique agent identifier',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiOkResponse({
+    description: 'Agent found and returned',
+    type: AgentResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'No agent found with that ID',
+  })
+  async findOne(@Param('agentId') agentId: string): Promise<AgentResponseDto> {
+    return this.agentsService.findOne(agentId);
   }
 
   @Post()
