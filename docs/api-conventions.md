@@ -246,6 +246,14 @@ Unmatched routes also return this envelope — see `registerNotFoundFallback`.
 It must be registered *after* `app.init()`, or it shadows the routes it exists
 to fall back from.
 
+## Streaming and realtime transport
+
+Completions and live progress updates use **Server-Sent Events (SSE)** over standard HTTP endpoints (e.g. `POST /api/v1/chats/:chatId/completions`). WebSockets are not used.
+
+Errors that occur before response headers are sent return the standard JSON error envelope above. Errors occurring after the stream starts are transmitted in-band via structured `event: error` SSE payloads.
+
+For full architectural details, protocol wire frames, SQLite persistence timing, disconnect behavior, and multi-agent team turn coordination, see [`docs/realtime-transport.md`](realtime-transport.md).
+
 ## Configuration
 
 Settings are read through `AppConfigService`
