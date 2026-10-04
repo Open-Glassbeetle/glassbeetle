@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { FileStorageService } from '../src/file-storage/file-storage.service.js';
 import { createTestApp, type TestApp } from './harness/index.js';
 
 describe('Agents endpoints (e2e)', () => {
@@ -686,5 +687,145 @@ describe('Agents endpoints (e2e)', () => {
       expect(response.body.message).toContain(badPromptId);
     });
   });
+
+  describe('DELETE /api/v1/agents/:agentId', () => {
+    it('removes the agent and returns 204 No Content', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'To Be Deleted' });
+
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}`)
+        .expect(204);
+
+      // Verify agent is gone from DB via GET endpoint
+      await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(404);
+    });
+
+    it('returns 404 Not Found for non-existent agentId', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      const response = await testApp
+        .request()
+        .delete(`/api/v1/agents/${nonExistentId}`)
+        .expect(404);
+
+      expect(response.body.statusCode).toBe(404);
+      expect(response.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('cascades across referencing tables (memories, team_members, messages, artifacts, usage_events)', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Cascaded Agent' });
+
+      const memory = testApp.fixtures.createAgentMemory({
+        agent_id: agent.id,
+        content: 'Agent secret',
+      });
+      const team = testApp.fixtures.createTeam();
+      testApp.fixtures.createTeamMember(team.id, agent.id);
+
+      const teamChat = testApp.fixtures.createChat({ team_id: team.id });
+      const message = testApp.fixtures.createMessage({
+        chat_id: teamChat.id,
+        agent_id: agent.id,
+      });
+      const artifact = testApp.fixtures.createArtifact({
+        agent_id: agent.id,
+      });
+      const event = testApp.fixtures.createUsageEvent({
+        agent_id: agent.id,
+      });
+
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}`)
+        .expect(204);
+
+      // 1. agent_memories: deleted (CASCADE)
+      const memoryRow = testApp.db.get(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [memory.id],
+      );
+      expect(memoryRow).toBeUndefined();
+
+      // 2. team_members: deleted (CASCADE)
+      const memberRow = testApp.db.get(
+        'SELECT * FROM team_members WHERE team_id = ? AND agent_id = ?',
+        [team.id, agent.id],
+      );
+      expect(memberRow).toBeUndefined();
+
+      // 3. messages: agent_id set to null (SET NULL)
+      const msgRow = testApp.db.get<{ agent_id: string | null }>(
+        'SELECT agent_id FROM messages WHERE id = ?',
+        [message.id],
+      );
+      expect(msgRow).toBeDefined();
+      expect(msgRow?.agent_id).toBeNull();
+
+      // 4. artifacts: agent_id set to null (SET NULL)
+      const artRow = testApp.db.get<{ agent_id: string | null }>(
+        'SELECT agent_id FROM artifacts WHERE id = ?',
+        [artifact.id],
+      );
+      expect(artRow).toBeDefined();
+      expect(artRow?.agent_id).toBeNull();
+
+      // 5. usage_events: agent_id set to null (SET NULL)
+      const evRow = testApp.db.get<{ agent_id: string | null }>(
+        'SELECT agent_id FROM usage_events WHERE id = ?',
+        [event.id],
+      );
+      expect(evRow).toBeDefined();
+      expect(evRow?.agent_id).toBeNull();
+    });
+
+    it('unlinks the agent picture file from storage on deletion', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      // Write sample picture file to pictures bucket
+      const stored = await fileStorage.write(
+        'pictures',
+        Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]), // JPEG header
+      );
+
+      const agent = testApp.fixtures.createAgent({
+        name: 'Picture Agent',
+        picture_path: stored.reference,
+      });
+
+      expect(await fileStorage.exists(stored.reference)).toBe(true);
+
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}`)
+        .expect(204);
+
+      // Verify picture file was deleted from disk
+      expect(await fileStorage.exists(stored.reference)).toBe(false);
+    });
+
+    it('documents agent-owned chat behavior: deleting agent fails due to chats table CHECK constraint conflict', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Chat Owner Agent' });
+      testApp.fixtures.createChat({ agent_id: agent.id });
+
+      // When deleting an agent owning chats, SQLite triggers ON DELETE SET NULL on chats.agent_id,
+      // which results in both agent_id and team_id being NULL, violating:
+      // CHECK ((agent_id IS NOT NULL AND team_id IS NULL) OR (agent_id IS NULL AND team_id IS NOT NULL))
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}`)
+        .expect(500);
+
+      // Assert agent is still present in database
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(getRes.body.id).toBe(agent.id);
+    });
+  });
 });
+
 

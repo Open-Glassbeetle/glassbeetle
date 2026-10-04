@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -13,6 +14,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -143,5 +145,35 @@ export class AgentsController {
   ): Promise<AgentResponseDto> {
     return this.agentsService.update(agentId, dto);
   }
+
+  @Delete(':agentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Delete an agent',
+    description: `Permanently deletes an agent resource and unlinks any stored profile picture file.
+
+Cascade behavior across referencing tables:
+- \`agent_memories\` (agent_id NOT NULL): CASCADE — the agent's private memories are destroyed.
+- \`team_members\` (agent_id NOT NULL): CASCADE — team memberships are removed.
+- \`chats\` (agent_id nullable): SET NULL — chats survive, orphaned (Note: deleting an agent with agent-owned chats violates the chats CHECK constraint; see issue #29).
+- \`messages\` (agent_id nullable): SET NULL — messages survive, attribution lost.
+- \`artifacts\` (agent_id nullable): SET NULL — artifacts survive, attribution lost.
+- \`usage_events\` (agent_id nullable): SET NULL — analytics history survives, attribution lost.`,
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'Unique agent identifier',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiNoContentResponse({
+    description: 'Agent successfully deleted',
+  })
+  @ApiNotFoundResponse({
+    description: 'No agent found with that ID',
+  })
+  async delete(@Param('agentId') agentId: string): Promise<void> {
+    await this.agentsService.delete(agentId);
+  }
 }
+
 

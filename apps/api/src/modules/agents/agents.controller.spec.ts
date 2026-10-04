@@ -46,6 +46,7 @@ describe('AgentsController', () => {
             findOne: vi.fn().mockResolvedValue(mockAgent),
             create: vi.fn().mockResolvedValue(mockAgent),
             update: vi.fn().mockResolvedValue(mockAgent),
+            delete: vi.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -105,5 +106,14 @@ describe('AgentsController', () => {
       expect(result).toBe(mockAgent);
     });
   });
+
+  describe('delete', () => {
+    it('delegates to agentsService.delete and returns void', async () => {
+      await controller.delete(mockAgent.id);
+
+      expect(service.delete).toHaveBeenCalledWith(mockAgent.id);
+    });
+  });
 });
+
 

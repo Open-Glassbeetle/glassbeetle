@@ -1,6 +1,8 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -11,6 +13,7 @@ import { buildPaginationSqlFragment } from '../../common/pagination/sql-query-bu
 import { newId } from '../../common/persistence/identifiers.js';
 import { nowIso } from '../../common/persistence/timestamps.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { FileStorageService } from '../../file-storage/file-storage.service.js';
 import type { AgentResponseDto } from './dto/agent-response.dto.js';
 import {
   applyAgentUpdates,
@@ -43,7 +46,12 @@ export function escapeLikePattern(term: string): string {
 
 @Injectable()
 export class AgentsService {
-  constructor(private readonly db: DatabaseService) {}
+  private readonly logger = new Logger(AgentsService.name);
+
+  constructor(
+    private readonly db: DatabaseService,
+    @Optional() private readonly fileStorage?: FileStorageService,
+  ) {}
 
   /**
    * Retrieves a paginated list of agents matching optional query filters.
@@ -318,5 +326,48 @@ export class AgentsService {
       return mapAgentRowToResponse(persisted);
     });
   }
+
+  /**
+   * Permanently deletes an agent by ID.
+   *
+   * Database cascades automatically remove referencing rows:
+   * - `agent_memories`: CASCADE — private memories are destroyed.
+   * - `team_members`: CASCADE — team memberships are removed.
+   * - `messages`: SET NULL — messages survive, attribution lost.
+   * - `artifacts`: SET NULL — artifacts survive, attribution lost.
+   * - `usage_events`: SET NULL — analytics history survives, attribution lost.
+   * - `chats`: ON DELETE SET NULL on `chats.agent_id` violates the `chats` table CHECK constraint
+   *   requiring either `agent_id` or `team_id` to be non-null. Therefore, deleting an agent
+   *   with agent-owned chats fails with SQLITE_CONSTRAINT_CHECK.
+   *
+   * If a picture file exists on disk, it is unlinked after the database row is deleted.
+   * Missing files or unlinking errors are logged as warnings and do not fail the request.
+   *
+   * Throws NotFoundException (404) if no agent with the given ID exists.
+   */
+  async delete(id: string): Promise<void> {
+    const deletedRow = this.db.get<{ picture_path: string | null }>(
+      'DELETE FROM agents WHERE id = ? RETURNING picture_path',
+      [id],
+    );
+
+    if (!deletedRow) {
+      throw new NotFoundException({
+        code: 'AGENT_NOT_FOUND',
+        message: `Agent with ID "${id}" not found`,
+      });
+    }
+
+    if (deletedRow.picture_path && this.fileStorage) {
+      try {
+        await this.fileStorage.delete(deletedRow.picture_path);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to delete picture file "${deletedRow.picture_path}" for agent "${id}": ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
 }
+
 
