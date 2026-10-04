@@ -1,4 +1,6 @@
+import { tmpdir } from 'node:os';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { resolveDefaultDataDir } from '../src/config/data-dir.js';
 import { FileStorageService } from '../src/file-storage/file-storage.service.js';
 import { createTestApp, type TestApp } from './harness/index.js';
 
@@ -15,6 +17,234 @@ describe('Agents endpoints (e2e)', () => {
 
   beforeEach(() => {
     testApp.reset();
+  });
+
+  describe('Test isolation & database safety assertions', () => {
+    it('asserts foreign-key enforcement is enabled in the test SQLite database (PRAGMA foreign_keys = ON)', () => {
+      // Foreign-key enforcement must be active, otherwise ON DELETE CASCADE/SET NULL tests pass vacuously
+      const result = testApp.db.get<{ foreign_keys: number }>(
+        'PRAGMA foreign_keys',
+      );
+      expect(result?.foreign_keys).toBe(1);
+    });
+
+    it('asserts test database runs in an isolated temporary location and never touches user data directory', () => {
+      // Safety constraint: test runs must never touch or mutate the user's real data directory
+      const dbPath = (testApp.db as any).dbInstance?.name;
+      expect(dbPath).toContain(tmpdir());
+      expect(dbPath).not.toContain(resolveDefaultDataDir());
+    });
+
+    it('rejects foreign-key violations at the database layer directly', () => {
+      expect(() => {
+        testApp.db.run(
+          'INSERT INTO agents (id, name, model_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+          [
+            '018f3a9e-0000-7000-8000-000000000999',
+            'Invalid FK Agent',
+            '018f3a9e-0000-7000-8000-nonexistent01',
+            '2026-10-04T00:00:00.000Z',
+            '2026-10-04T00:00:00.000Z',
+          ],
+        );
+      }).toThrow(/FOREIGN KEY/);
+    });
+  });
+
+  describe('Full Agent Lifecycle & Cross-Endpoint Consistency', () => {
+    it('covers create -> read -> list -> update -> delete and asserts representation is identical across create, list, and get', async () => {
+      const provider = testApp.fixtures.createProvider();
+      const model = testApp.fixtures.createModel({ provider_id: provider.id });
+      const prompt = testApp.fixtures.createSystemPrompt();
+
+      const createPayload = {
+        name: 'Lifecycle Assistant',
+        personality: 'Methodical and inquisitive',
+        instructions: 'Always cite sources in IEEE style',
+        systemPromptId: prompt.id,
+        modelId: model.id,
+        temperature: 0.65,
+        maxTokens: 4096,
+        modelParams: {
+          top_p: 0.9,
+          frequency_penalty: 0.5,
+          custom_tags: ['research', 'v1'],
+        },
+      };
+
+      // 1. CREATE
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send(createPayload)
+        .expect(201);
+
+      const created = createRes.body;
+      expect(createRes.headers.location).toBe(`/api/v1/agents/${created.id}`);
+      expect(created.id).toBeDefined();
+      expect(created.name).toBe(createPayload.name);
+      expect(created.personality).toBe(createPayload.personality);
+      expect(created.instructions).toBe(createPayload.instructions);
+      expect(created.systemPromptId).toBe(prompt.id);
+      expect(created.modelId).toBe(model.id);
+      expect(created.temperature).toBe(0.65);
+      expect(created.maxTokens).toBe(4096);
+      expect(created.modelParams).toEqual(createPayload.modelParams);
+      expect(created.hasPicture).toBe(false);
+      expect(created.picture_path).toBeUndefined();
+      expect(typeof created.createdAt).toBe('string');
+      expect(typeof created.updatedAt).toBe('string');
+
+      // 2. GET (Single-resource read)
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${created.id}`)
+        .expect(200);
+
+      const fetched = getRes.body;
+      // Representation must be IDENTICAL between create and get
+      expect(fetched).toEqual(created);
+
+      // 3. LIST (Collection read)
+      const listRes = await testApp
+        .request()
+        .get('/api/v1/agents')
+        .expect(200);
+
+      expect(listRes.body.total).toBe(1);
+      const listed = listRes.body.items.find((item: any) => item.id === created.id);
+      expect(listed).toBeDefined();
+      // Representation must be IDENTICAL across create, get, and list
+      expect(listed).toEqual(created);
+
+      // 4. UPDATE (Partial update via PATCH)
+      const updatePayload = {
+        name: 'Updated Lifecycle Assistant',
+        temperature: 0.1,
+      };
+
+      const patchRes = await testApp
+        .request()
+        .patch(`/api/v1/agents/${created.id}`)
+        .send(updatePayload)
+        .expect(200);
+
+      const updated = patchRes.body;
+      expect(updated.id).toBe(created.id);
+      expect(updated.name).toBe('Updated Lifecycle Assistant');
+      expect(updated.temperature).toBe(0.1);
+      expect(updated.personality).toBe(created.personality);
+      expect(updated.instructions).toBe(created.instructions);
+      expect(updated.systemPromptId).toBe(created.systemPromptId);
+      expect(updated.modelId).toBe(created.modelId);
+      expect(updated.maxTokens).toBe(created.maxTokens);
+      expect(updated.modelParams).toEqual(created.modelParams);
+      expect(updated.hasPicture).toBe(created.hasPicture);
+      expect(updated.createdAt).toBe(created.createdAt);
+      expect(updated.updatedAt).not.toBe(created.updatedAt);
+
+      // Verify GET reflects the updated representation identically
+      const getAfterUpdate = await testApp
+        .request()
+        .get(`/api/v1/agents/${created.id}`)
+        .expect(200);
+      expect(getAfterUpdate.body).toEqual(updated);
+
+      // 5. DELETE
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${created.id}`)
+        .expect(204);
+
+      // 6. CONFIRM GONE
+      await testApp
+        .request()
+        .get(`/api/v1/agents/${created.id}`)
+        .expect(404);
+
+      const listAfterDelete = await testApp
+        .request()
+        .get('/api/v1/agents')
+        .expect(200);
+      expect(listAfterDelete.body.total).toBe(0);
+      expect(listAfterDelete.body.items).toHaveLength(0);
+    });
+  });
+
+  describe('Referential integrity & ON DELETE SET NULL on referenced models and prompts', () => {
+    it('survives deletion of referenced system prompt with systemPromptId set to null', async () => {
+      const prompt = testApp.fixtures.createSystemPrompt({
+        name: 'Referenced Prompt',
+      });
+      const agent = testApp.fixtures.createAgent({
+        name: 'Prompt Consumer',
+        system_prompt_id: prompt.id,
+      });
+
+      // Confirm initial state
+      const beforeRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(beforeRes.body.systemPromptId).toBe(prompt.id);
+
+      // Delete the referenced system prompt
+      testApp.db.run('DELETE FROM system_prompts WHERE id = ?', [prompt.id]);
+
+      // Agent survives and systemPromptId is now null
+      const afterRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(afterRes.body.id).toBe(agent.id);
+      expect(afterRes.body.systemPromptId).toBeNull();
+    });
+
+    it('survives deletion of referenced model with modelId set to null', async () => {
+      const provider = testApp.fixtures.createProvider();
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        name: 'Referenced Model',
+      });
+      const agent = testApp.fixtures.createAgent({
+        name: 'Model Consumer',
+        model_id: model.id,
+      });
+
+      // Confirm initial state
+      const beforeRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(beforeRes.body.modelId).toBe(model.id);
+
+      // Delete the referenced model
+      testApp.db.run('DELETE FROM models WHERE id = ?', [model.id]);
+
+      // Agent survives and modelId is now null
+      const afterRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(afterRes.body.id).toBe(agent.id);
+      expect(afterRes.body.modelId).toBeNull();
+    });
+
+    it('survives deletion of provider (cascading to model, which sets agent modelId to null)', async () => {
+      const provider = testApp.fixtures.createProvider({ name: 'Root Provider' });
+      const model = testApp.fixtures.createModel({ provider_id: provider.id });
+      const agent = testApp.fixtures.createAgent({ model_id: model.id });
+
+      // Deleting provider triggers ON DELETE CASCADE on models, which triggers ON DELETE SET NULL on agents
+      testApp.db.run('DELETE FROM providers WHERE id = ?', [provider.id]);
+
+      const afterRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(afterRes.body.id).toBe(agent.id);
+      expect(afterRes.body.modelId).toBeNull();
+    });
   });
 
   describe('GET /api/v1/agents', () => {
@@ -1113,6 +1343,148 @@ describe('Agents endpoints (e2e)', () => {
 
       expect(response.body.statusCode).toBe(404);
       expect(response.body.code).toBe('AGENT_NOT_FOUND');
+    });
+  });
+
+  describe('Field round-tripping for every column in data/agents/agents.sql', () => {
+    it('creates an agent with every optional field and verifies exact database persistence and API read round-trip', async () => {
+      const provider = testApp.fixtures.createProvider();
+      const model = testApp.fixtures.createModel({ provider_id: provider.id });
+      const prompt = testApp.fixtures.createSystemPrompt();
+
+      const complexModelParams = {
+        top_p: 0.95,
+        frequency_penalty: 0.25,
+        presence_penalty: 0.5,
+        stop: ['\n\nUser:', '<|end|>'],
+        nested: {
+          profile: {
+            deepKey: 'deepValue',
+            numerical: 1337,
+          },
+        },
+      };
+
+      const payload = {
+        name: 'Full Roundtrip Agent',
+        personality: 'Analytical, formal, and precise',
+        instructions: 'Write answers adhering to RFC specifications.',
+        systemPromptId: prompt.id,
+        modelId: model.id,
+        temperature: 0.35,
+        maxTokens: 8192,
+        modelParams: complexModelParams,
+      };
+
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send(payload)
+        .expect(201);
+
+      const agentId = createRes.body.id;
+
+      // 1. Verify GET /api/v1/agents/:id round-trip
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agentId}`)
+        .expect(200);
+
+      expect(getRes.body.id).toBe(agentId);
+      expect(getRes.body.name).toBe(payload.name);
+      expect(getRes.body.personality).toBe(payload.personality);
+      expect(getRes.body.instructions).toBe(payload.instructions);
+      expect(getRes.body.systemPromptId).toBe(prompt.id);
+      expect(getRes.body.modelId).toBe(model.id);
+      expect(getRes.body.temperature).toBe(0.35);
+      expect(getRes.body.maxTokens).toBe(8192);
+      expect(getRes.body.modelParams).toEqual(complexModelParams);
+      expect(getRes.body.hasPicture).toBe(false);
+      expect(getRes.body.picture_path).toBeUndefined();
+
+      // 2. Verify raw SQLite database columns in data/agents/agents.sql
+      const row = testApp.db.get<{
+        id: string;
+        name: string;
+        personality: string;
+        instructions: string;
+        system_prompt_id: string;
+        model_id: string;
+        temperature: number;
+        max_tokens: number;
+        model_params: string;
+        picture_path: string | null;
+        created_at: string;
+        updated_at: string;
+      }>('SELECT * FROM agents WHERE id = ?', [agentId]);
+
+      expect(row).toBeDefined();
+      expect(row?.id).toBe(agentId);
+      expect(row?.name).toBe(payload.name);
+      expect(row?.personality).toBe(payload.personality);
+      expect(row?.instructions).toBe(payload.instructions);
+      expect(row?.system_prompt_id).toBe(prompt.id);
+      expect(row?.model_id).toBe(model.id);
+      expect(row?.temperature).toBe(0.35);
+      expect(row?.max_tokens).toBe(8192);
+      expect(JSON.parse(row!.model_params)).toEqual(complexModelParams);
+      expect(row?.picture_path).toBeNull();
+      expect(row?.created_at).toBe(getRes.body.createdAt);
+      expect(row?.updated_at).toBe(getRes.body.updatedAt);
+    });
+  });
+
+  describe('Not-Found (404) paths across all endpoints accepting :agentId', () => {
+    const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+    const validPng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    ]);
+
+    it('GET /api/v1/agents/:agentId returns 404 for unknown agent ID', async () => {
+      const res = await testApp
+        .request()
+        .get(`/api/v1/agents/${nonExistentId}`)
+        .expect(404);
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('PATCH /api/v1/agents/:agentId returns 404 for unknown agent ID', async () => {
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${nonExistentId}`)
+        .send({ name: 'Will Not Update' })
+        .expect(404);
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('DELETE /api/v1/agents/:agentId returns 404 for unknown agent ID', async () => {
+      const res = await testApp
+        .request()
+        .delete(`/api/v1/agents/${nonExistentId}`)
+        .expect(404);
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('PUT /api/v1/agents/:agentId/picture returns 404 for unknown agent ID', async () => {
+      const res = await testApp
+        .request()
+        .put(`/api/v1/agents/${nonExistentId}/picture`)
+        .attach('file', validPng, 'pic.png')
+        .expect(404);
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('DELETE /api/v1/agents/:agentId/picture returns 404 for unknown agent ID', async () => {
+      const res = await testApp
+        .request()
+        .delete(`/api/v1/agents/${nonExistentId}/picture`)
+        .expect(404);
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
     });
   });
 });
