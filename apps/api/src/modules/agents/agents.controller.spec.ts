@@ -47,6 +47,11 @@ describe('AgentsController', () => {
             create: vi.fn().mockResolvedValue(mockAgent),
             update: vi.fn().mockResolvedValue(mockAgent),
             delete: vi.fn().mockResolvedValue(undefined),
+            uploadPicture: vi.fn().mockResolvedValue({
+              ...mockAgent,
+              hasPicture: true,
+            }),
+            deletePicture: vi.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -112,6 +117,46 @@ describe('AgentsController', () => {
       await controller.delete(mockAgent.id);
 
       expect(service.delete).toHaveBeenCalledWith(mockAgent.id);
+    });
+  });
+
+  describe('uploadPicture', () => {
+    const mockFile = {
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      originalname: 'pic.png',
+      mimetype: 'image/png',
+      size: 4,
+    } as Express.Multer.File;
+
+    it('delegates to agentsService.uploadPicture and returns updated agent', async () => {
+      const result = await controller.uploadPicture(mockAgent.id, mockFile);
+
+      expect(service.uploadPicture).toHaveBeenCalledWith(
+        mockAgent.id,
+        mockFile,
+      );
+      expect(result.hasPicture).toBe(true);
+    });
+
+    it('rejects when file is undefined or empty with BadRequestException', async () => {
+      await expect(
+        controller.uploadPicture(mockAgent.id, undefined),
+      ).rejects.toThrow();
+
+      await expect(
+        controller.uploadPicture(mockAgent.id, {
+          ...mockFile,
+          buffer: Buffer.alloc(0),
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('deletePicture', () => {
+    it('delegates to agentsService.deletePicture and returns void', async () => {
+      await controller.deletePicture(mockAgent.id);
+
+      expect(service.deletePicture).toHaveBeenCalledWith(mockAgent.id);
     });
   });
 });

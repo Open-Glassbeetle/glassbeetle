@@ -41,12 +41,19 @@ export interface AppConfig {
   readonly logLevel: LogLevelType;
   /** Whether body contents (prompts, messages) are logged. */
   readonly logBody: boolean;
+  /** Maximum size for uploaded agent pictures in bytes. */
+  readonly maxPictureSizeBytes: number;
 }
 
 /**
  * Default port, matching what the Angular dev server and the Tauri shell expect.
  */
 export const DEFAULT_PORT = 3000;
+
+/**
+ * Default maximum size for agent profile pictures in bytes (5 MB).
+ */
+export const DEFAULT_MAX_PICTURE_SIZE_BYTES = 5 * 1024 * 1024;
 
 /**
  * Origins the desktop application legitimately reaches the API from.
@@ -97,6 +104,10 @@ export default registerAs(APP_CONFIG_NAMESPACE, (): AppConfig => {
   const rawLogBody = env.GLASSBEETLE_LOG_BODY?.trim().toLowerCase();
   const logBody = rawLogBody === 'true' || rawLogBody === '1';
 
+  const maxPictureSizeBytes = env.GLASSBEETLE_MAX_PICTURE_SIZE_BYTES
+    ? Number(env.GLASSBEETLE_MAX_PICTURE_SIZE_BYTES)
+    : DEFAULT_MAX_PICTURE_SIZE_BYTES;
+
   return {
     nodeEnv: (env.NODE_ENV as NodeEnv | undefined) ?? 'development',
     port: env.PORT ? Number(env.PORT) : DEFAULT_PORT,
@@ -106,6 +117,7 @@ export default registerAs(APP_CONFIG_NAMESPACE, (): AppConfig => {
     corsOrigins: parseCorsOrigins(env.GLASSBEETLE_CORS_ORIGINS),
     logLevel,
     logBody,
+    maxPictureSizeBytes,
   };
 });
 

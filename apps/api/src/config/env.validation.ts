@@ -76,6 +76,13 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   GLASSBEETLE_LOG_BODY?: string;
+
+  @IsOptional()
+  @IsInt({ message: 'GLASSBEETLE_MAX_PICTURE_SIZE_BYTES must be an integer' })
+  @Min(1, {
+    message: 'GLASSBEETLE_MAX_PICTURE_SIZE_BYTES must be greater than 0',
+  })
+  GLASSBEETLE_MAX_PICTURE_SIZE_BYTES?: number;
 }
 
 /**

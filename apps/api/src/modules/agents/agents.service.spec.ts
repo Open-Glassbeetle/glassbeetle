@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   NotFoundException,
+  PayloadTooLargeException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,6 +12,7 @@ import {
   AgentsService,
   escapeLikePattern,
   ALLOWED_AGENT_SORT_COLUMNS,
+  ALLOWED_PICTURE_MIME_TYPES,
 } from './agents.service.js';
 import type { CreateAgentDto } from './dto/create-agent.dto.js';
 
@@ -1129,6 +1131,355 @@ describe('AgentsService', () => {
       expect(chatRow?.agent_id).toBe(agent.id);
     });
   });
+
+  describe('uploadPicture', () => {
+    let mockFileStorage: {
+      write: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+    };
+    let mockConfigService: any;
+    let serviceWithStorage: AgentsService;
+
+    const validPngBuffer = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    const validJpegBuffer = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+    ]);
+
+    function createMockFile(options: {
+      buffer: Buffer;
+      originalname?: string;
+      mimetype?: string;
+    }): Express.Multer.File {
+      return {
+        buffer: options.buffer,
+        originalname: options.originalname ?? 'avatar.png',
+        mimetype: options.mimetype ?? 'image/png',
+        size: options.buffer.length,
+        fieldname: 'file',
+        encoding: '7bit',
+        destination: '',
+        filename: '',
+        path: '',
+        stream: null as any,
+      };
+    }
+
+    beforeEach(() => {
+      mockFileStorage = {
+        write: vi.fn(async (bucket: string, content: Buffer) => ({
+          reference: `${bucket}/018f3a9e-0000-7000-8000-000000000099.png`,
+          size: content.length,
+          contentType: 'image/png',
+        })),
+        delete: vi.fn(async () => {}),
+      };
+
+      mockConfigService = {
+        maxPictureSizeBytes: 1024 * 1024, // 1 MB limit
+      };
+
+      serviceWithStorage = new AgentsService(
+        db,
+        mockFileStorage as unknown as FileStorageService,
+        mockConfigService,
+      );
+    });
+
+    it('uploads a valid image and asserts the row and the stored file', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Profile Picture Agent',
+        picture_path: null,
+      });
+
+      const file = createMockFile({ buffer: validPngBuffer });
+      const result = await serviceWithStorage.uploadPicture(agent.id, file);
+
+      // Verify file storage write was called
+      expect(mockFileStorage.write).toHaveBeenCalledWith(
+        'pictures',
+        validPngBuffer,
+        expect.objectContaining({
+          maxBytes: 1024 * 1024,
+          allowedMimeTypes: ALLOWED_PICTURE_MIME_TYPES,
+        }),
+      );
+
+      // Verify returned response
+      expect(result.id).toBe(agent.id);
+      expect(result.hasPicture).toBe(true);
+      // picture_path must never appear in response
+      expect((result as any).picture_path).toBeUndefined();
+
+      // Verify database row
+      const dbRow = db.get<{ picture_path: string; updated_at: string }>(
+        'SELECT picture_path, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBe(
+        'pictures/018f3a9e-0000-7000-8000-000000000099.png',
+      );
+      expect(dbRow?.updated_at).toBe(result.updatedAt);
+    });
+
+    it('uploads a replacement, replaces the picture and deletes the old file', async () => {
+      const oldPicturePath = 'pictures/old-avatar-001.png';
+      const agent = fixtures.createAgent({
+        name: 'Replacing Agent',
+        picture_path: oldPicturePath,
+      });
+
+      const file = createMockFile({ buffer: validJpegBuffer, originalname: 'new.jpg' });
+      const result = await serviceWithStorage.uploadPicture(agent.id, file);
+
+      // Verify write was called for the new file
+      expect(mockFileStorage.write).toHaveBeenCalledWith(
+        'pictures',
+        validJpegBuffer,
+        expect.any(Object),
+      );
+
+      // Verify delete was called for the old file
+      expect(mockFileStorage.delete).toHaveBeenCalledWith(oldPicturePath);
+
+      // Verify database row updated
+      const dbRow = db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBe(
+        'pictures/018f3a9e-0000-7000-8000-000000000099.png',
+      );
+      expect(result.hasPicture).toBe(true);
+    });
+
+    it('rejects a text file renamed to .png with Content-Type: image/png (byte-level sniffing)', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Adversarial Agent',
+        picture_path: null,
+      });
+
+      const fakeImageBuffer = Buffer.from(
+        'This is plain text pretending to be a PNG image.',
+      );
+      const file = createMockFile({
+        buffer: fakeImageBuffer,
+        originalname: 'evil.png',
+        mimetype: 'image/png',
+      });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, file);
+        expect.unreachable('Should have rejected non-image content');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+        const res = err.getResponse();
+        expect(res.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(res.message).toContain("Unsupported image format 'text/plain'");
+      }
+
+      // Storage write never called
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+
+      // DB row untouched
+      const dbRow = db.get<{ picture_path: string | null }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('rejects SVG files due to stored-XSS risk in desktop webview', async () => {
+      const agent = fixtures.createAgent({ name: 'SVG Agent' });
+
+      const svgBuffer = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      );
+      const file = createMockFile({
+        buffer: svgBuffer,
+        originalname: 'vector.svg',
+        mimetype: 'image/svg+xml',
+      });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, file);
+        expect.unreachable('Should have rejected SVG file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+        const res = err.getResponse();
+        expect(res.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(res.message).toContain('image/svg+xml');
+      }
+
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects a file exceeding the configured size limit', async () => {
+      const agent = fixtures.createAgent({ name: 'Oversized Agent' });
+
+      // 1 MB + 1 byte (limit is 1 MB)
+      const oversizedBuffer = Buffer.alloc(1024 * 1024 + 1);
+      // Valid PNG header so it wouldn't fail content type check
+      validPngBuffer.copy(oversizedBuffer, 0, 0, validPngBuffer.length);
+
+      const file = createMockFile({ buffer: oversizedBuffer });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, file);
+        expect.unreachable('Should have rejected oversized file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(PayloadTooLargeException);
+        expect(err.getStatus()).toBe(413);
+        const res = err.getResponse();
+        expect(res.code).toBe('FILE_TOO_LARGE');
+      }
+
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+    });
+
+    it('never derives stored path from client-supplied filename (e.g. traversal with ../)', async () => {
+      const agent = fixtures.createAgent({ name: 'Traversal Agent' });
+
+      const file = createMockFile({
+        buffer: validPngBuffer,
+        originalname: '../../../../../../etc/passwd',
+      });
+
+      const result = await serviceWithStorage.uploadPicture(agent.id, file);
+
+      expect(result.hasPicture).toBe(true);
+      const dbRow = db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).not.toContain('..');
+      expect(dbRow?.picture_path).not.toContain('passwd');
+      expect(dbRow?.picture_path).toMatch(/^pictures\//);
+    });
+
+    it('rejects upload when file is missing or has empty buffer with 400', async () => {
+      const agent = fixtures.createAgent({ name: 'Empty File Agent' });
+
+      const emptyFile = createMockFile({ buffer: Buffer.alloc(0) });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, emptyFile);
+        expect.unreachable('Should have rejected empty file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+        const res = err.getResponse();
+        expect(res.code).toBe('MISSING_FILE');
+      }
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, null as any);
+        expect.unreachable('Should have rejected null file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+      }
+    });
+
+    it('returns 404 for unknown agent ID on upload without writing file', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+      const file = createMockFile({ buffer: validPngBuffer });
+
+      try {
+        await serviceWithStorage.uploadPicture(nonExistentId, file);
+        expect.unreachable('Should have thrown 404');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(NotFoundException);
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+      }
+
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deletePicture', () => {
+    let mockFileStorage: {
+      delete: ReturnType<typeof vi.fn>;
+    };
+    let serviceWithStorage: AgentsService;
+
+    beforeEach(() => {
+      mockFileStorage = {
+        delete: vi.fn(async () => {}),
+      };
+
+      serviceWithStorage = new AgentsService(
+        db,
+        mockFileStorage as unknown as FileStorageService,
+      );
+    });
+
+    it('removes picture and unlinks file and clears database column', async () => {
+      const picturePath = 'pictures/agent-avatar-123.png';
+      const agent = fixtures.createAgent({
+        name: 'Picture Delete Agent',
+        picture_path: picturePath,
+      });
+
+      await serviceWithStorage.deletePicture(agent.id);
+
+      // Verify file storage delete was called
+      expect(mockFileStorage.delete).toHaveBeenCalledWith(picturePath);
+
+      // Verify database row updated to NULL
+      const dbRow = db.get<{ picture_path: string | null; updated_at: string }>(
+        'SELECT picture_path, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('is idempotent: removes picture from agent that has none, returning without error', async () => {
+      const agent = fixtures.createAgent({
+        name: 'No Picture Agent',
+        picture_path: null,
+      });
+
+      // Should succeed silently without throwing
+      await expect(
+        serviceWithStorage.deletePicture(agent.id),
+      ).resolves.toBeUndefined();
+
+      // No delete on storage called
+      expect(mockFileStorage.delete).not.toHaveBeenCalled();
+
+      // Row picture_path still NULL
+      const dbRow = db.get<{ picture_path: string | null }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('returns 404 for unknown agent ID on deletePicture', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      try {
+        await serviceWithStorage.deletePicture(nonExistentId);
+        expect.unreachable('Should have thrown 404');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(NotFoundException);
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+      }
+
+      expect(mockFileStorage.delete).not.toHaveBeenCalled();
+    });
+  });
 });
+
 
 

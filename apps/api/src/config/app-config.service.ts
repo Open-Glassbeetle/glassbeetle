@@ -67,4 +67,9 @@ export class AppConfigService {
   get logBody(): boolean {
     return this.config.logBody;
   }
+
+  /** Maximum size for uploaded agent pictures in bytes. */
+  get maxPictureSizeBytes(): number {
+    return this.config.maxPictureSizeBytes;
+  }
 }

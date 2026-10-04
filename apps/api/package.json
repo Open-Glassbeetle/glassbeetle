@@ -41,6 +41,7 @@
     "@swc/core": "^1.16.2",
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.0",
+    "@types/multer": "^2.3.0",
     "@types/node": "^24.0.0",
     "@types/supertest": "^7.0.0",
     "@vitest/coverage-v8": "^4.1.2",

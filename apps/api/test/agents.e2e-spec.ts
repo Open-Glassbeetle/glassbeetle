@@ -826,6 +826,295 @@ describe('Agents endpoints (e2e)', () => {
       expect(getRes.body.id).toBe(agent.id);
     });
   });
+
+  describe('PUT /api/v1/agents/:agentId/picture', () => {
+    const validPng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    const validJpeg = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+    ]);
+
+    it('uploads a valid picture, stores file in storage, updates database row, and returns 200 OK', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const agent = testApp.fixtures.createAgent({
+        name: 'Picture Upload Agent',
+        created_at: '2026-10-04T10:00:00.000Z',
+        updated_at: '2026-10-04T10:00:00.000Z',
+      });
+
+      const response = await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', validPng, 'avatar.png')
+        .expect(200);
+
+      // Verify response envelope
+      expect(response.body.id).toBe(agent.id);
+      expect(response.body.hasPicture).toBe(true);
+      expect(response.body.name).toBe('Picture Upload Agent');
+      expect(response.body.picture_path).toBeUndefined();
+      expect(response.body.updatedAt).not.toBe('2026-10-04T10:00:00.000Z');
+
+      // Verify database row
+      const dbRow = testApp.db.get<{ picture_path: string; updated_at: string }>(
+        'SELECT picture_path, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toMatch(/^pictures\/.*\.png$/);
+      expect(await fileStorage.exists(dbRow!.picture_path)).toBe(true);
+
+      // Verify stored bytes
+      const fileBytes = await fileStorage.read(dbRow!.picture_path);
+      expect(fileBytes).toEqual(validPng);
+    });
+
+    it('accepts upload with field name "picture" in addition to "file"', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Alternative Field Agent' });
+
+      const response = await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('picture', validJpeg, 'photo.jpg')
+        .expect(200);
+
+      expect(response.body.id).toBe(agent.id);
+      expect(response.body.hasPicture).toBe(true);
+    });
+
+    it('replaces an existing picture, writes the new file and deletes the old file from storage', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const agent = testApp.fixtures.createAgent({ name: 'Replace Agent' });
+
+      // First upload
+      await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', validPng, 'first.png')
+        .expect(200);
+
+      const firstRow = testApp.db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      const firstPath = firstRow!.picture_path;
+      expect(await fileStorage.exists(firstPath)).toBe(true);
+
+      // Second upload (replacement)
+      const secondResponse = await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', validJpeg, 'second.jpg')
+        .expect(200);
+
+      expect(secondResponse.body.hasPicture).toBe(true);
+
+      const secondRow = testApp.db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      const secondPath = secondRow!.picture_path;
+
+      // Old file must be gone
+      expect(await fileStorage.exists(firstPath)).toBe(false);
+      // New file must exist
+      expect(await fileStorage.exists(secondPath)).toBe(true);
+      expect(secondPath).not.toBe(firstPath);
+    });
+
+    it('rejects a non-image file disguised as image (magic bytes sniffing) with 400', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const agent = testApp.fixtures.createAgent({ name: 'Spoofed Agent' });
+
+      const textBuffer = Buffer.from('Just some plain text pretending to be PNG');
+
+      const response = await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', textBuffer, 'innocent.png')
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+
+      // Database row untouched
+      const dbRow = testApp.db.get<{ picture_path: string | null }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('rejects an SVG file due to stored-XSS concern with 400', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'SVG Agent' });
+
+      const svgBuffer = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      );
+
+      const response = await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', svgBuffer, 'image.svg')
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+    });
+
+    it('rejects a file exceeding the maximum size limit with 413 Payload Too Large', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Big File Agent' });
+
+      // 5 MB + 1024 bytes (exceeds default 5 MB limit)
+      const hugeBuffer = Buffer.alloc(5 * 1024 * 1024 + 1024);
+      validPng.copy(hugeBuffer, 0, 0, validPng.length);
+
+      const response = await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', hugeBuffer, 'huge.png')
+        .expect(413);
+
+      expect(response.body.statusCode).toBe(413);
+      expect(response.body.code).toBe('FILE_TOO_LARGE');
+    });
+
+    it('rejects request with no file attached with 400 Bad Request', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'No File Agent' });
+
+      const response = await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.code).toBe('MISSING_FILE');
+    });
+
+    it('stores file using server-generated UUIDv7 even if client filename has directory traversal ../', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const agent = testApp.fixtures.createAgent({ name: 'Traversal Agent' });
+
+      await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', validPng, '../../../../../../etc/shadow.png')
+        .expect(200);
+
+      const dbRow = testApp.db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toMatch(/^pictures\/[0-9a-f-]+\.png$/);
+      expect(await fileStorage.exists(dbRow!.picture_path)).toBe(true);
+    });
+
+    it('returns 404 Not Found for non-existent agent ID on upload', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      const response = await testApp
+        .request()
+        .put(`/api/v1/agents/${nonExistentId}/picture`)
+        .attach('file', validPng, 'avatar.png')
+        .expect(404);
+
+      expect(response.body.statusCode).toBe(404);
+      expect(response.body.code).toBe('AGENT_NOT_FOUND');
+    });
+  });
+
+  describe('DELETE /api/v1/agents/:agentId/picture', () => {
+    const validPng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    ]);
+
+    it('removes the picture, unlinks the file from storage, sets picture_path to NULL and refreshes updated_at', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const agent = testApp.fixtures.createAgent({
+        name: 'Delete Picture Agent',
+        created_at: '2026-10-04T10:00:00.000Z',
+        updated_at: '2026-10-04T10:00:00.000Z',
+      });
+
+      // Upload first
+      await testApp
+        .request()
+        .put(`/api/v1/agents/${agent.id}/picture`)
+        .attach('file', validPng, 'avatar.png')
+        .expect(200);
+
+      const storedRow = testApp.db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      const filePath = storedRow!.picture_path;
+      expect(await fileStorage.exists(filePath)).toBe(true);
+
+      // Now remove the picture
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/picture`)
+        .expect(204);
+
+      // File must be deleted from storage
+      expect(await fileStorage.exists(filePath)).toBe(false);
+
+      // Database row must have NULL picture_path
+      const dbRow = testApp.db.get<{ picture_path: string | null; updated_at: string }>(
+        'SELECT picture_path, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+      expect(dbRow?.updated_at).not.toBe('2026-10-04T10:00:00.000Z');
+
+      // GET /api/v1/agents/:id confirms hasPicture is false
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(getRes.body.hasPicture).toBe(false);
+    });
+
+    it('is idempotent: removing a picture from an agent that has none returns 204 No Content', async () => {
+      const agent = testApp.fixtures.createAgent({
+        name: 'Agent Without Picture',
+        picture_path: null,
+      });
+
+      // First removal: returns 204
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/picture`)
+        .expect(204);
+
+      // Second removal: also returns 204 (idempotent)
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/picture`)
+        .expect(204);
+
+      // Row still has null picture_path
+      const dbRow = testApp.db.get<{ picture_path: string | null }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('returns 404 Not Found for non-existent agent ID on picture removal', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      const response = await testApp
+        .request()
+        .delete(`/api/v1/agents/${nonExistentId}/picture`)
+        .expect(404);
+
+      expect(response.body.statusCode).toBe(404);
+      expect(response.body.code).toBe('AGENT_NOT_FOUND');
+    });
+  });
 });
 
 
