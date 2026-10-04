@@ -28,6 +28,21 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ PORT: port })).toThrow(/PORT/);
   });
 
+  it.each(['not-a-number', '0', '-100', '1.5'])(
+    'rejects GLASSBEETLE_MAX_PICTURE_SIZE_BYTES=%s',
+    (val) => {
+      expect(() =>
+        validateEnv({ GLASSBEETLE_MAX_PICTURE_SIZE_BYTES: val }),
+      ).toThrow(/GLASSBEETLE_MAX_PICTURE_SIZE_BYTES/);
+    },
+  );
+
+  it('accepts valid GLASSBEETLE_MAX_PICTURE_SIZE_BYTES', () => {
+    expect(() =>
+      validateEnv({ GLASSBEETLE_MAX_PICTURE_SIZE_BYTES: '5242880' }),
+    ).not.toThrow();
+  });
+
   it('rejects a relative data directory', () => {
     // A relative path resolves against the process working directory, which
     // differs between `npm run dev:api`, a packaged build and a test run.

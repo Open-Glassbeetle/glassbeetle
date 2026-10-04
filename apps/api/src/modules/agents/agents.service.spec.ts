@@ -1,15 +1,18 @@
 import {
   BadRequestException,
   NotFoundException,
+  PayloadTooLargeException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
+import type { FileStorageService } from '../../file-storage/file-storage.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
 import {
   AgentsService,
   escapeLikePattern,
   ALLOWED_AGENT_SORT_COLUMNS,
+  ALLOWED_PICTURE_MIME_TYPES,
 } from './agents.service.js';
 import type { CreateAgentDto } from './dto/create-agent.dto.js';
 
@@ -605,4 +608,878 @@ describe('AgentsService', () => {
       expect(listResult.items[0].name).toBe('Listable Agent');
     });
   });
+
+  describe('update', () => {
+    it('updates a single field on a fully-populated agent and asserts every other column is untouched', async () => {
+      const model = fixtures.createModel();
+      const prompt = fixtures.createSystemPrompt();
+
+      const initialTime = '2026-10-01T10:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'Original Agent Name',
+        personality: 'Original Personality',
+        instructions: 'Original Instructions',
+        system_prompt_id: prompt.id,
+        model_id: model.id,
+        temperature: 0.7,
+        max_tokens: 2048,
+        model_params: '{"top_p":0.9,"custom_key":"custom_val"}',
+        picture_path: 'pictures/original-agent.jpg',
+        created_at: initialTime,
+        updated_at: initialTime,
+      });
+
+      const updated = await service.update(agent.id, {
+        name: 'New Brand Name',
+      });
+
+      // Verify the returned DTO
+      expect(updated.id).toBe(agent.id);
+      expect(updated.name).toBe('New Brand Name');
+      expect(updated.personality).toBe('Original Personality');
+      expect(updated.instructions).toBe('Original Instructions');
+      expect(updated.systemPromptId).toBe(prompt.id);
+      expect(updated.modelId).toBe(model.id);
+      expect(updated.temperature).toBe(0.7);
+      expect(updated.maxTokens).toBe(2048);
+      expect(updated.modelParams).toEqual({
+        top_p: 0.9,
+        custom_key: 'custom_val',
+      });
+      expect(updated.hasPicture).toBe(true);
+      expect(updated.createdAt).toBe(initialTime);
+      expect(updated.updatedAt).not.toBe(initialTime);
+
+      // Verify the persisted row directly in SQLite
+      const rawRow = db.get<Record<string, unknown>>(
+        'SELECT * FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(rawRow).toBeDefined();
+      expect(rawRow?.id).toBe(agent.id);
+      expect(rawRow?.name).toBe('New Brand Name');
+      expect(rawRow?.personality).toBe('Original Personality');
+      expect(rawRow?.instructions).toBe('Original Instructions');
+      expect(rawRow?.system_prompt_id).toBe(prompt.id);
+      expect(rawRow?.model_id).toBe(model.id);
+      expect(rawRow?.temperature).toBe(0.7);
+      expect(rawRow?.max_tokens).toBe(2048);
+      expect(rawRow?.model_params).toBe(
+        '{"top_p":0.9,"custom_key":"custom_val"}',
+      );
+      expect(rawRow?.picture_path).toBe('pictures/original-agent.jpg');
+      expect(rawRow?.created_at).toBe(initialTime);
+      expect(rawRow?.updated_at).not.toBe(initialTime);
+    });
+
+    it('updated_at advances on successful update; created_at does not change', async () => {
+      const fixedInitialTime = '2026-09-01T08:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'Time Test Agent',
+        created_at: fixedInitialTime,
+        updated_at: fixedInitialTime,
+      });
+
+      const updated = await service.update(agent.id, {
+        personality: 'Evolved Persona',
+      });
+
+      expect(updated.createdAt).toBe(fixedInitialTime);
+      expect(updated.updatedAt).not.toBe(fixedInitialTime);
+      expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(
+        new Date(fixedInitialTime).getTime(),
+      );
+
+      const persisted = db.get<{ created_at: string; updated_at: string }>(
+        'SELECT created_at, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(persisted?.created_at).toBe(fixedInitialTime);
+      expect(persisted?.updated_at).toBe(updated.updatedAt);
+    });
+
+    it('explicitly clears each nullable field when set to null', async () => {
+      const model = fixtures.createModel();
+      const prompt = fixtures.createSystemPrompt();
+
+      const agent = fixtures.createAgent({
+        name: 'Clearing Agent',
+        personality: 'To Be Cleared',
+        instructions: 'To Be Cleared',
+        system_prompt_id: prompt.id,
+        model_id: model.id,
+        temperature: 0.8,
+        max_tokens: 1500,
+        model_params: '{"clear":true}',
+      });
+
+      const updated = await service.update(agent.id, {
+        personality: null,
+        instructions: null,
+        systemPromptId: null,
+        modelId: null,
+        temperature: null,
+        maxTokens: null,
+        modelParams: null,
+      });
+
+      expect(updated.name).toBe('Clearing Agent');
+      expect(updated.personality).toBeNull();
+      expect(updated.instructions).toBeNull();
+      expect(updated.systemPromptId).toBeNull();
+      expect(updated.modelId).toBeNull();
+      expect(updated.temperature).toBeNull();
+      expect(updated.maxTokens).toBeNull();
+      expect(updated.modelParams).toBeNull();
+
+      const rawRow = db.get<Record<string, unknown>>(
+        'SELECT * FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(rawRow?.personality).toBeNull();
+      expect(rawRow?.instructions).toBeNull();
+      expect(rawRow?.system_prompt_id).toBeNull();
+      expect(rawRow?.model_id).toBeNull();
+      expect(rawRow?.temperature).toBeNull();
+      expect(rawRow?.max_tokens).toBeNull();
+      expect(rawRow?.model_params).toBeNull();
+    });
+
+    it('distinguishes omitted fields from null and leaves omitted fields untouched', async () => {
+      const model = fixtures.createModel();
+      const agent = fixtures.createAgent({
+        name: 'Original Name',
+        personality: 'Keep Me',
+        instructions: 'Keep Me Too',
+        model_id: model.id,
+        temperature: 0.5,
+      });
+
+      const updated = await service.update(agent.id, {
+        temperature: 0.9,
+      });
+
+      expect(updated.temperature).toBe(0.9);
+      expect(updated.name).toBe('Original Name');
+      expect(updated.personality).toBe('Keep Me');
+      expect(updated.instructions).toBe('Keep Me Too');
+      expect(updated.modelId).toBe(model.id);
+    });
+
+    it('clearing modelId leaves an agent with null modelId (valid detached state)', async () => {
+      const model = fixtures.createModel();
+      const agent = fixtures.createAgent({
+        name: 'Model Detached Agent',
+        model_id: model.id,
+      });
+
+      const updated = await service.update(agent.id, {
+        modelId: null,
+      });
+
+      expect(updated.modelId).toBeNull();
+
+      const raw = db.get<{ model_id: string | null }>(
+        'SELECT model_id FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(raw?.model_id).toBeNull();
+    });
+
+    it('re-serialises modelParams to JSON text on write and returns parsed object', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Params Agent',
+        model_params: '{"old":true}',
+      });
+
+      const updated = await service.update(agent.id, {
+        modelParams: {
+          frequency_penalty: 0.5,
+          presence_penalty: 0.2,
+          stop: ['\n', 'USER:'],
+        },
+      });
+
+      expect(updated.modelParams).toEqual({
+        frequency_penalty: 0.5,
+        presence_penalty: 0.2,
+        stop: ['\n', 'USER:'],
+      });
+
+      const raw = db.get<{ model_params: string }>(
+        'SELECT model_params FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(raw?.model_params).toBe(
+        '{"frequency_penalty":0.5,"presence_penalty":0.2,"stop":["\\n","USER:"]}',
+      );
+    });
+
+    it('treats empty body as a no-op: returns 200 OK without bumping updated_at', async () => {
+      const fixedTime = '2026-10-02T12:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'No-op Agent',
+        created_at: fixedTime,
+        updated_at: fixedTime,
+      });
+
+      const updated = await service.update(agent.id, {});
+
+      expect(updated.id).toBe(agent.id);
+      expect(updated.name).toBe('No-op Agent');
+      expect(updated.updatedAt).toBe(fixedTime);
+
+      const persisted = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(persisted?.updated_at).toBe(fixedTime);
+    });
+
+    it('does not bump updated_at if fields have identical values to existing row', async () => {
+      const fixedTime = '2026-10-02T12:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'Unchanged Name Agent',
+        temperature: 0.5,
+        created_at: fixedTime,
+        updated_at: fixedTime,
+      });
+
+      const updated = await service.update(agent.id, {
+        name: 'Unchanged Name Agent',
+        temperature: 0.5,
+      });
+
+      expect(updated.updatedAt).toBe(fixedTime);
+
+      const persisted = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(persisted?.updated_at).toBe(fixedTime);
+    });
+
+    it('throws 404 NotFoundException when agent does not exist', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-000000000404';
+
+      await expect(
+        service.update(nonExistentId, { name: 'New Name' }),
+      ).rejects.toThrow(NotFoundException);
+
+      try {
+        await service.update(nonExistentId, { name: 'New Name' });
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+        expect(res.message).toContain(nonExistentId);
+      }
+    });
+
+    it('throws 404 NotFoundException for non-existent agent even with empty body', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-000000000404';
+
+      await expect(service.update(nonExistentId, {})).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('rejects non-existent modelId with 422 UnprocessableEntityException', async () => {
+      const agent = fixtures.createAgent({ name: 'FK Agent' });
+      const badModelId = '018f3a9e-0000-7000-8000-999999999999';
+
+      await expect(
+        service.update(agent.id, { modelId: badModelId }),
+      ).rejects.toThrow(UnprocessableEntityException);
+
+      try {
+        await service.update(agent.id, { modelId: badModelId });
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(422);
+        const res = err.getResponse();
+        expect(res.code).toBe('MODEL_NOT_FOUND');
+        expect(res.message).toContain(badModelId);
+      }
+    });
+
+    it('rejects non-existent systemPromptId with 422 UnprocessableEntityException', async () => {
+      const agent = fixtures.createAgent({ name: 'FK Agent' });
+      const badPromptId = '018f3a9e-0000-7000-8000-888888888888';
+
+      await expect(
+        service.update(agent.id, { systemPromptId: badPromptId }),
+      ).rejects.toThrow(UnprocessableEntityException);
+
+      try {
+        await service.update(agent.id, { systemPromptId: badPromptId });
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(422);
+        const res = err.getResponse();
+        expect(res.code).toBe('SYSTEM_PROMPT_NOT_FOUND');
+        expect(res.message).toContain(badPromptId);
+      }
+    });
+
+    it('ensures update is atomic: rolls back if update fails', async () => {
+      const agent = fixtures.createAgent({ name: 'Safe Agent' });
+
+      const originalRun = db.run.bind(db);
+      db.run = () => {
+        throw new Error('Simulated update database write failure');
+      };
+
+      try {
+        await expect(
+          service.update(agent.id, { name: 'Failed Name' }),
+        ).rejects.toThrow('Simulated update database write failure');
+      } finally {
+        db.run = originalRun;
+      }
+
+      // Assert row in agents table is still the original name
+      const current = db.get<{ name: string }>(
+        'SELECT name FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(current?.name).toBe('Safe Agent');
+    });
+  });
+
+  describe('delete', () => {
+    it('ensures foreign keys are enabled on the connection so cascades fire', () => {
+      const pragma = db.get<{ foreign_keys: number }>('PRAGMA foreign_keys');
+      expect(pragma?.foreign_keys).toBe(1);
+    });
+
+    it('deletes an agent with no related rows at all', async () => {
+      const agent = fixtures.createAgent({ name: 'Solo Agent' });
+
+      await service.delete(agent.id);
+
+      const found = await service.findById(agent.id);
+      expect(found).toBeNull();
+
+      const raw = db.get<{ id: string }>('SELECT id FROM agents WHERE id = ?', [
+        agent.id,
+      ]);
+      expect(raw).toBeUndefined();
+    });
+
+    it('deletes an agent and cascades across all referencing tables (memories, team_members, messages, artifacts, usage_events)', async () => {
+      const agent = fixtures.createAgent({ name: 'Referenced Agent' });
+
+      // 1. agent_memories (CASCADE expected)
+      const memory = fixtures.createAgentMemory({
+        agent_id: agent.id,
+        content: 'Secret memory',
+      });
+
+      // 2. team_members (CASCADE expected)
+      const team = fixtures.createTeam({ name: 'Agent Team' });
+      fixtures.createTeamMember(team.id, agent.id);
+
+      // 3. chats and messages: team-owned chat with message from agent (SET NULL expected on message)
+      const teamChat = fixtures.createChat({ team_id: team.id });
+      const message = fixtures.createMessage({
+        chat_id: teamChat.id,
+        agent_id: agent.id,
+        content: 'Response from agent',
+      });
+
+      // 4. artifacts (SET NULL expected)
+      const artifact = fixtures.createArtifact({
+        agent_id: agent.id,
+        title: 'Agent Code Artifact',
+      });
+
+      // 5. usage_events (SET NULL expected)
+      const event = fixtures.createUsageEvent({
+        agent_id: agent.id,
+        event_type: 'chat_completion',
+      });
+
+      // Execute deletion
+      await service.delete(agent.id);
+
+      // Verify agent is deleted
+      const agentRow = db.get('SELECT * FROM agents WHERE id = ?', [agent.id]);
+      expect(agentRow).toBeUndefined();
+
+      // Verify agent_memories row is destroyed (CASCADE)
+      const memoryRow = db.get('SELECT * FROM agent_memories WHERE id = ?', [
+        memory.id,
+      ]);
+      expect(memoryRow).toBeUndefined();
+
+      // Verify team_members row is destroyed (CASCADE)
+      const teamMemberRow = db.get(
+        'SELECT * FROM team_members WHERE team_id = ? AND agent_id = ?',
+        [team.id, agent.id],
+      );
+      expect(teamMemberRow).toBeUndefined();
+
+      // Verify team itself still exists
+      const survivingTeam = db.get('SELECT * FROM teams WHERE id = ?', [
+        team.id,
+      ]);
+      expect(survivingTeam).toBeDefined();
+
+      // Verify message survives with agent_id set to null (SET NULL)
+      const messageRow = db.get<{ id: string; agent_id: string | null }>(
+        'SELECT id, agent_id FROM messages WHERE id = ?',
+        [message.id],
+      );
+      expect(messageRow).toBeDefined();
+      expect(messageRow?.agent_id).toBeNull();
+
+      // Verify artifact survives with agent_id set to null (SET NULL)
+      const artifactRow = db.get<{ id: string; agent_id: string | null }>(
+        'SELECT id, agent_id FROM artifacts WHERE id = ?',
+        [artifact.id],
+      );
+      expect(artifactRow).toBeDefined();
+      expect(artifactRow?.agent_id).toBeNull();
+
+      // Verify usage event survives with agent_id set to null (SET NULL)
+      const eventRow = db.get<{ id: string; agent_id: string | null }>(
+        'SELECT id, agent_id FROM usage_events WHERE id = ?',
+        [event.id],
+      );
+      expect(eventRow).toBeDefined();
+      expect(eventRow?.agent_id).toBeNull();
+    });
+
+    it('removes picture file via FileStorageService when deleting agent with picture', async () => {
+      const mockFileStorage = {
+        delete: vi.fn().mockResolvedValue(undefined),
+      } as unknown as FileStorageService;
+
+      const serviceWithStorage = new AgentsService(db, mockFileStorage);
+      const picturePath = 'pictures/018f3a9e-0000-7000-8000-000000000001.jpg';
+      const agent = fixtures.createAgent({
+        name: 'Picture Agent',
+        picture_path: picturePath,
+      });
+
+      await serviceWithStorage.delete(agent.id);
+
+      expect(mockFileStorage.delete).toHaveBeenCalledWith(picturePath);
+
+      const agentRow = db.get('SELECT * FROM agents WHERE id = ?', [agent.id]);
+      expect(agentRow).toBeUndefined();
+    });
+
+    it('does not fail request if picture file deletion throws an error', async () => {
+      const mockFileStorage = {
+        delete: vi.fn().mockRejectedValue(new Error('Filesystem I/O error')),
+      } as unknown as FileStorageService;
+
+      const serviceWithStorage = new AgentsService(db, mockFileStorage);
+      const agent = fixtures.createAgent({
+        name: 'Resilient Agent',
+        picture_path: 'pictures/broken.png',
+      });
+
+      // Should not throw despite storage error
+      await expect(
+        serviceWithStorage.delete(agent.id),
+      ).resolves.toBeUndefined();
+
+      // Row should still be deleted from DB
+      const agentRow = db.get('SELECT * FROM agents WHERE id = ?', [agent.id]);
+      expect(agentRow).toBeUndefined();
+    });
+
+    it('throws 404 NotFoundException when deleting a non-existent agent', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      await expect(service.delete(nonExistentId)).rejects.toThrow(
+        NotFoundException,
+      );
+
+      try {
+        await service.delete(nonExistentId);
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+        expect(res.message).toContain(nonExistentId);
+      }
+    });
+
+    it('documents agent-owned chat behavior: deleting agent fails due to chats table CHECK constraint conflict', async () => {
+      const agent = fixtures.createAgent({ name: 'Chat Owner Agent' });
+      const chat = fixtures.createChat({ agent_id: agent.id });
+
+      // When SQLite executes ON DELETE SET NULL on chats.agent_id,
+      // chats.agent_id becomes NULL while chats.team_id is already NULL.
+      // This violates the CHECK constraint in data/chats/chats.sql:
+      // CHECK ((agent_id IS NOT NULL AND team_id IS NULL) OR (agent_id IS NULL AND team_id IS NOT NULL))
+      await expect(service.delete(agent.id)).rejects.toThrowError(
+        /CHECK constraint failed/,
+      );
+
+      // Assert agent was not deleted due to statement rollback
+      const agentStillExists = await service.findById(agent.id);
+      expect(agentStillExists).not.toBeNull();
+
+      // Assert chat still exists untouched
+      const chatRow = db.get<{ agent_id: string }>(
+        'SELECT agent_id FROM chats WHERE id = ?',
+        [chat.id],
+      );
+      expect(chatRow?.agent_id).toBe(agent.id);
+    });
+  });
+
+  describe('uploadPicture', () => {
+    let mockFileStorage: {
+      write: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+    };
+    let mockConfigService: any;
+    let serviceWithStorage: AgentsService;
+
+    const validPngBuffer = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    const validJpegBuffer = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+    ]);
+
+    function createMockFile(options: {
+      buffer: Buffer;
+      originalname?: string;
+      mimetype?: string;
+    }): Express.Multer.File {
+      return {
+        buffer: options.buffer,
+        originalname: options.originalname ?? 'avatar.png',
+        mimetype: options.mimetype ?? 'image/png',
+        size: options.buffer.length,
+        fieldname: 'file',
+        encoding: '7bit',
+        destination: '',
+        filename: '',
+        path: '',
+        stream: null as any,
+      };
+    }
+
+    beforeEach(() => {
+      mockFileStorage = {
+        write: vi.fn(async (bucket: string, content: Buffer) => ({
+          reference: `${bucket}/018f3a9e-0000-7000-8000-000000000099.png`,
+          size: content.length,
+          contentType: 'image/png',
+        })),
+        delete: vi.fn(async () => {}),
+      };
+
+      mockConfigService = {
+        maxPictureSizeBytes: 1024 * 1024, // 1 MB limit
+      };
+
+      serviceWithStorage = new AgentsService(
+        db,
+        mockFileStorage as unknown as FileStorageService,
+        mockConfigService,
+      );
+    });
+
+    it('uploads a valid image and asserts the row and the stored file', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Profile Picture Agent',
+        picture_path: null,
+      });
+
+      const file = createMockFile({ buffer: validPngBuffer });
+      const result = await serviceWithStorage.uploadPicture(agent.id, file);
+
+      // Verify file storage write was called
+      expect(mockFileStorage.write).toHaveBeenCalledWith(
+        'pictures',
+        validPngBuffer,
+        expect.objectContaining({
+          maxBytes: 1024 * 1024,
+          allowedMimeTypes: ALLOWED_PICTURE_MIME_TYPES,
+        }),
+      );
+
+      // Verify returned response
+      expect(result.id).toBe(agent.id);
+      expect(result.hasPicture).toBe(true);
+      // picture_path must never appear in response
+      expect((result as any).picture_path).toBeUndefined();
+
+      // Verify database row
+      const dbRow = db.get<{ picture_path: string; updated_at: string }>(
+        'SELECT picture_path, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBe(
+        'pictures/018f3a9e-0000-7000-8000-000000000099.png',
+      );
+      expect(dbRow?.updated_at).toBe(result.updatedAt);
+    });
+
+    it('uploads a replacement, replaces the picture and deletes the old file', async () => {
+      const oldPicturePath = 'pictures/old-avatar-001.png';
+      const agent = fixtures.createAgent({
+        name: 'Replacing Agent',
+        picture_path: oldPicturePath,
+      });
+
+      const file = createMockFile({ buffer: validJpegBuffer, originalname: 'new.jpg' });
+      const result = await serviceWithStorage.uploadPicture(agent.id, file);
+
+      // Verify write was called for the new file
+      expect(mockFileStorage.write).toHaveBeenCalledWith(
+        'pictures',
+        validJpegBuffer,
+        expect.any(Object),
+      );
+
+      // Verify delete was called for the old file
+      expect(mockFileStorage.delete).toHaveBeenCalledWith(oldPicturePath);
+
+      // Verify database row updated
+      const dbRow = db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBe(
+        'pictures/018f3a9e-0000-7000-8000-000000000099.png',
+      );
+      expect(result.hasPicture).toBe(true);
+    });
+
+    it('rejects a text file renamed to .png with Content-Type: image/png (byte-level sniffing)', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Adversarial Agent',
+        picture_path: null,
+      });
+
+      const fakeImageBuffer = Buffer.from(
+        'This is plain text pretending to be a PNG image.',
+      );
+      const file = createMockFile({
+        buffer: fakeImageBuffer,
+        originalname: 'evil.png',
+        mimetype: 'image/png',
+      });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, file);
+        expect.unreachable('Should have rejected non-image content');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+        const res = err.getResponse();
+        expect(res.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(res.message).toContain("Unsupported image format 'text/plain'");
+      }
+
+      // Storage write never called
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+
+      // DB row untouched
+      const dbRow = db.get<{ picture_path: string | null }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('rejects SVG files due to stored-XSS risk in desktop webview', async () => {
+      const agent = fixtures.createAgent({ name: 'SVG Agent' });
+
+      const svgBuffer = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      );
+      const file = createMockFile({
+        buffer: svgBuffer,
+        originalname: 'vector.svg',
+        mimetype: 'image/svg+xml',
+      });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, file);
+        expect.unreachable('Should have rejected SVG file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+        const res = err.getResponse();
+        expect(res.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(res.message).toContain('image/svg+xml');
+      }
+
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects a file exceeding the configured size limit', async () => {
+      const agent = fixtures.createAgent({ name: 'Oversized Agent' });
+
+      // 1 MB + 1 byte (limit is 1 MB)
+      const oversizedBuffer = Buffer.alloc(1024 * 1024 + 1);
+      // Valid PNG header so it wouldn't fail content type check
+      validPngBuffer.copy(oversizedBuffer, 0, 0, validPngBuffer.length);
+
+      const file = createMockFile({ buffer: oversizedBuffer });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, file);
+        expect.unreachable('Should have rejected oversized file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(PayloadTooLargeException);
+        expect(err.getStatus()).toBe(413);
+        const res = err.getResponse();
+        expect(res.code).toBe('FILE_TOO_LARGE');
+      }
+
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+    });
+
+    it('never derives stored path from client-supplied filename (e.g. traversal with ../)', async () => {
+      const agent = fixtures.createAgent({ name: 'Traversal Agent' });
+
+      const file = createMockFile({
+        buffer: validPngBuffer,
+        originalname: '../../../../../../etc/passwd',
+      });
+
+      const result = await serviceWithStorage.uploadPicture(agent.id, file);
+
+      expect(result.hasPicture).toBe(true);
+      const dbRow = db.get<{ picture_path: string }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).not.toContain('..');
+      expect(dbRow?.picture_path).not.toContain('passwd');
+      expect(dbRow?.picture_path).toMatch(/^pictures\//);
+    });
+
+    it('rejects upload when file is missing or has empty buffer with 400', async () => {
+      const agent = fixtures.createAgent({ name: 'Empty File Agent' });
+
+      const emptyFile = createMockFile({ buffer: Buffer.alloc(0) });
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, emptyFile);
+        expect.unreachable('Should have rejected empty file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+        const res = err.getResponse();
+        expect(res.code).toBe('MISSING_FILE');
+      }
+
+      try {
+        await serviceWithStorage.uploadPicture(agent.id, null as any);
+        expect.unreachable('Should have rejected null file');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getStatus()).toBe(400);
+      }
+    });
+
+    it('returns 404 for unknown agent ID on upload without writing file', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+      const file = createMockFile({ buffer: validPngBuffer });
+
+      try {
+        await serviceWithStorage.uploadPicture(nonExistentId, file);
+        expect.unreachable('Should have thrown 404');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(NotFoundException);
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+      }
+
+      expect(mockFileStorage.write).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deletePicture', () => {
+    let mockFileStorage: {
+      delete: ReturnType<typeof vi.fn>;
+    };
+    let serviceWithStorage: AgentsService;
+
+    beforeEach(() => {
+      mockFileStorage = {
+        delete: vi.fn(async () => {}),
+      };
+
+      serviceWithStorage = new AgentsService(
+        db,
+        mockFileStorage as unknown as FileStorageService,
+      );
+    });
+
+    it('removes picture and unlinks file and clears database column', async () => {
+      const picturePath = 'pictures/agent-avatar-123.png';
+      const agent = fixtures.createAgent({
+        name: 'Picture Delete Agent',
+        picture_path: picturePath,
+      });
+
+      await serviceWithStorage.deletePicture(agent.id);
+
+      // Verify file storage delete was called
+      expect(mockFileStorage.delete).toHaveBeenCalledWith(picturePath);
+
+      // Verify database row updated to NULL
+      const dbRow = db.get<{ picture_path: string | null; updated_at: string }>(
+        'SELECT picture_path, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('is idempotent: removes picture from agent that has none, returning without error', async () => {
+      const agent = fixtures.createAgent({
+        name: 'No Picture Agent',
+        picture_path: null,
+      });
+
+      // Should succeed silently without throwing
+      await expect(
+        serviceWithStorage.deletePicture(agent.id),
+      ).resolves.toBeUndefined();
+
+      // No delete on storage called
+      expect(mockFileStorage.delete).not.toHaveBeenCalled();
+
+      // Row picture_path still NULL
+      const dbRow = db.get<{ picture_path: string | null }>(
+        'SELECT picture_path FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(dbRow?.picture_path).toBeNull();
+    });
+
+    it('returns 404 for unknown agent ID on deletePicture', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      try {
+        await serviceWithStorage.deletePicture(nonExistentId);
+        expect.unreachable('Should have thrown 404');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(NotFoundException);
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+      }
+
+      expect(mockFileStorage.delete).not.toHaveBeenCalled();
+    });
+  });
 });
+
+
+

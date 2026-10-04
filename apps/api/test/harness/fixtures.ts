@@ -136,6 +136,20 @@ export interface SharedMemoryRow {
   updated_at: string;
 }
 
+export interface UsageEventRow {
+  id: string;
+  occurred_at: string;
+  event_type: string;
+  agent_id: string | null;
+  provider_id: string | null;
+  model_id: string | null;
+  chat_id: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  metadata: string | null;
+}
+
 export class TestFixtures {
   constructor(private readonly dbService: DatabaseService) {}
 
@@ -508,4 +522,43 @@ export class TestFixtures {
 
     return row;
   }
+
+  createUsageEvent(overrides?: Partial<UsageEventRow>): UsageEventRow {
+    const now = nowIso();
+    const row: UsageEventRow = {
+      id: newId(),
+      occurred_at: now,
+      event_type: 'chat_completion',
+      agent_id: null,
+      provider_id: null,
+      model_id: null,
+      chat_id: null,
+      input_tokens: 100,
+      output_tokens: 50,
+      cost_usd: 0.002,
+      metadata: null,
+      ...overrides,
+    };
+
+    this.dbService.run(
+      `INSERT INTO usage_events (id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id, input_tokens, output_tokens, cost_usd, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.id,
+        row.occurred_at,
+        row.event_type,
+        row.agent_id,
+        row.provider_id,
+        row.model_id,
+        row.chat_id,
+        row.input_tokens,
+        row.output_tokens,
+        row.cost_usd,
+        row.metadata,
+      ],
+    );
+
+    return row;
+  }
 }
+

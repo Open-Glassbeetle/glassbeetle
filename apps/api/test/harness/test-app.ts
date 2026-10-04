@@ -56,6 +56,7 @@ export async function createTestApp(
     corsOrigins: ['http://localhost:4200'],
     logLevel: 'error',
     logBody: false,
+    maxPictureSizeBytes: 5 * 1024 * 1024,
   };
 
   const moduleBuilder = Test.createTestingModule({

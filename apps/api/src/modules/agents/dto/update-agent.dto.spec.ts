@@ -97,11 +97,13 @@ describe('UpdateAgentDto', () => {
   });
 
   describe('unknown properties rejection', () => {
-    it('rejects forbidden picturePath field in updates', async () => {
-      const errors = await validateDto({ picturePath: 'pictures/new.jpg' });
-      const err = errors.find((e) => e.property === 'picturePath');
-      expect(err).toBeDefined();
-      expect(err?.constraints).toHaveProperty('whitelistValidation');
+    it('rejects forbidden picturePath and picture fields in updates', async () => {
+      const errors = await validateDto({
+        picturePath: 'pictures/new.jpg',
+        picture: 'pictures/new.jpg',
+      });
+      expect(errors.find((e) => e.property === 'picturePath')).toBeDefined();
+      expect(errors.find((e) => e.property === 'picture')).toBeDefined();
     });
 
     it('rejects forbidden id and timestamp fields in updates', async () => {
