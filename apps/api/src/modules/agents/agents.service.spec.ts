@@ -605,4 +605,341 @@ describe('AgentsService', () => {
       expect(listResult.items[0].name).toBe('Listable Agent');
     });
   });
+
+  describe('update', () => {
+    it('updates a single field on a fully-populated agent and asserts every other column is untouched', async () => {
+      const model = fixtures.createModel();
+      const prompt = fixtures.createSystemPrompt();
+
+      const initialTime = '2026-10-01T10:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'Original Agent Name',
+        personality: 'Original Personality',
+        instructions: 'Original Instructions',
+        system_prompt_id: prompt.id,
+        model_id: model.id,
+        temperature: 0.7,
+        max_tokens: 2048,
+        model_params: '{"top_p":0.9,"custom_key":"custom_val"}',
+        picture_path: 'pictures/original-agent.jpg',
+        created_at: initialTime,
+        updated_at: initialTime,
+      });
+
+      const updated = await service.update(agent.id, {
+        name: 'New Brand Name',
+      });
+
+      // Verify the returned DTO
+      expect(updated.id).toBe(agent.id);
+      expect(updated.name).toBe('New Brand Name');
+      expect(updated.personality).toBe('Original Personality');
+      expect(updated.instructions).toBe('Original Instructions');
+      expect(updated.systemPromptId).toBe(prompt.id);
+      expect(updated.modelId).toBe(model.id);
+      expect(updated.temperature).toBe(0.7);
+      expect(updated.maxTokens).toBe(2048);
+      expect(updated.modelParams).toEqual({
+        top_p: 0.9,
+        custom_key: 'custom_val',
+      });
+      expect(updated.hasPicture).toBe(true);
+      expect(updated.createdAt).toBe(initialTime);
+      expect(updated.updatedAt).not.toBe(initialTime);
+
+      // Verify the persisted row directly in SQLite
+      const rawRow = db.get<Record<string, unknown>>(
+        'SELECT * FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(rawRow).toBeDefined();
+      expect(rawRow?.id).toBe(agent.id);
+      expect(rawRow?.name).toBe('New Brand Name');
+      expect(rawRow?.personality).toBe('Original Personality');
+      expect(rawRow?.instructions).toBe('Original Instructions');
+      expect(rawRow?.system_prompt_id).toBe(prompt.id);
+      expect(rawRow?.model_id).toBe(model.id);
+      expect(rawRow?.temperature).toBe(0.7);
+      expect(rawRow?.max_tokens).toBe(2048);
+      expect(rawRow?.model_params).toBe(
+        '{"top_p":0.9,"custom_key":"custom_val"}',
+      );
+      expect(rawRow?.picture_path).toBe('pictures/original-agent.jpg');
+      expect(rawRow?.created_at).toBe(initialTime);
+      expect(rawRow?.updated_at).not.toBe(initialTime);
+    });
+
+    it('updated_at advances on successful update; created_at does not change', async () => {
+      const fixedInitialTime = '2026-09-01T08:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'Time Test Agent',
+        created_at: fixedInitialTime,
+        updated_at: fixedInitialTime,
+      });
+
+      const updated = await service.update(agent.id, {
+        personality: 'Evolved Persona',
+      });
+
+      expect(updated.createdAt).toBe(fixedInitialTime);
+      expect(updated.updatedAt).not.toBe(fixedInitialTime);
+      expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(
+        new Date(fixedInitialTime).getTime(),
+      );
+
+      const persisted = db.get<{ created_at: string; updated_at: string }>(
+        'SELECT created_at, updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(persisted?.created_at).toBe(fixedInitialTime);
+      expect(persisted?.updated_at).toBe(updated.updatedAt);
+    });
+
+    it('explicitly clears each nullable field when set to null', async () => {
+      const model = fixtures.createModel();
+      const prompt = fixtures.createSystemPrompt();
+
+      const agent = fixtures.createAgent({
+        name: 'Clearing Agent',
+        personality: 'To Be Cleared',
+        instructions: 'To Be Cleared',
+        system_prompt_id: prompt.id,
+        model_id: model.id,
+        temperature: 0.8,
+        max_tokens: 1500,
+        model_params: '{"clear":true}',
+      });
+
+      const updated = await service.update(agent.id, {
+        personality: null,
+        instructions: null,
+        systemPromptId: null,
+        modelId: null,
+        temperature: null,
+        maxTokens: null,
+        modelParams: null,
+      });
+
+      expect(updated.name).toBe('Clearing Agent');
+      expect(updated.personality).toBeNull();
+      expect(updated.instructions).toBeNull();
+      expect(updated.systemPromptId).toBeNull();
+      expect(updated.modelId).toBeNull();
+      expect(updated.temperature).toBeNull();
+      expect(updated.maxTokens).toBeNull();
+      expect(updated.modelParams).toBeNull();
+
+      const rawRow = db.get<Record<string, unknown>>(
+        'SELECT * FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(rawRow?.personality).toBeNull();
+      expect(rawRow?.instructions).toBeNull();
+      expect(rawRow?.system_prompt_id).toBeNull();
+      expect(rawRow?.model_id).toBeNull();
+      expect(rawRow?.temperature).toBeNull();
+      expect(rawRow?.max_tokens).toBeNull();
+      expect(rawRow?.model_params).toBeNull();
+    });
+
+    it('distinguishes omitted fields from null and leaves omitted fields untouched', async () => {
+      const model = fixtures.createModel();
+      const agent = fixtures.createAgent({
+        name: 'Original Name',
+        personality: 'Keep Me',
+        instructions: 'Keep Me Too',
+        model_id: model.id,
+        temperature: 0.5,
+      });
+
+      const updated = await service.update(agent.id, {
+        temperature: 0.9,
+      });
+
+      expect(updated.temperature).toBe(0.9);
+      expect(updated.name).toBe('Original Name');
+      expect(updated.personality).toBe('Keep Me');
+      expect(updated.instructions).toBe('Keep Me Too');
+      expect(updated.modelId).toBe(model.id);
+    });
+
+    it('clearing modelId leaves an agent with null modelId (valid detached state)', async () => {
+      const model = fixtures.createModel();
+      const agent = fixtures.createAgent({
+        name: 'Model Detached Agent',
+        model_id: model.id,
+      });
+
+      const updated = await service.update(agent.id, {
+        modelId: null,
+      });
+
+      expect(updated.modelId).toBeNull();
+
+      const raw = db.get<{ model_id: string | null }>(
+        'SELECT model_id FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(raw?.model_id).toBeNull();
+    });
+
+    it('re-serialises modelParams to JSON text on write and returns parsed object', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Params Agent',
+        model_params: '{"old":true}',
+      });
+
+      const updated = await service.update(agent.id, {
+        modelParams: {
+          frequency_penalty: 0.5,
+          presence_penalty: 0.2,
+          stop: ['\n', 'USER:'],
+        },
+      });
+
+      expect(updated.modelParams).toEqual({
+        frequency_penalty: 0.5,
+        presence_penalty: 0.2,
+        stop: ['\n', 'USER:'],
+      });
+
+      const raw = db.get<{ model_params: string }>(
+        'SELECT model_params FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(raw?.model_params).toBe(
+        '{"frequency_penalty":0.5,"presence_penalty":0.2,"stop":["\\n","USER:"]}',
+      );
+    });
+
+    it('treats empty body as a no-op: returns 200 OK without bumping updated_at', async () => {
+      const fixedTime = '2026-10-02T12:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'No-op Agent',
+        created_at: fixedTime,
+        updated_at: fixedTime,
+      });
+
+      const updated = await service.update(agent.id, {});
+
+      expect(updated.id).toBe(agent.id);
+      expect(updated.name).toBe('No-op Agent');
+      expect(updated.updatedAt).toBe(fixedTime);
+
+      const persisted = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(persisted?.updated_at).toBe(fixedTime);
+    });
+
+    it('does not bump updated_at if fields have identical values to existing row', async () => {
+      const fixedTime = '2026-10-02T12:00:00.000Z';
+      const agent = fixtures.createAgent({
+        name: 'Unchanged Name Agent',
+        temperature: 0.5,
+        created_at: fixedTime,
+        updated_at: fixedTime,
+      });
+
+      const updated = await service.update(agent.id, {
+        name: 'Unchanged Name Agent',
+        temperature: 0.5,
+      });
+
+      expect(updated.updatedAt).toBe(fixedTime);
+
+      const persisted = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(persisted?.updated_at).toBe(fixedTime);
+    });
+
+    it('throws 404 NotFoundException when agent does not exist', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-000000000404';
+
+      await expect(
+        service.update(nonExistentId, { name: 'New Name' }),
+      ).rejects.toThrow(NotFoundException);
+
+      try {
+        await service.update(nonExistentId, { name: 'New Name' });
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(404);
+        const res = err.getResponse();
+        expect(res.code).toBe('AGENT_NOT_FOUND');
+        expect(res.message).toContain(nonExistentId);
+      }
+    });
+
+    it('throws 404 NotFoundException for non-existent agent even with empty body', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-000000000404';
+
+      await expect(service.update(nonExistentId, {})).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('rejects non-existent modelId with 422 UnprocessableEntityException', async () => {
+      const agent = fixtures.createAgent({ name: 'FK Agent' });
+      const badModelId = '018f3a9e-0000-7000-8000-999999999999';
+
+      await expect(
+        service.update(agent.id, { modelId: badModelId }),
+      ).rejects.toThrow(UnprocessableEntityException);
+
+      try {
+        await service.update(agent.id, { modelId: badModelId });
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(422);
+        const res = err.getResponse();
+        expect(res.code).toBe('MODEL_NOT_FOUND');
+        expect(res.message).toContain(badModelId);
+      }
+    });
+
+    it('rejects non-existent systemPromptId with 422 UnprocessableEntityException', async () => {
+      const agent = fixtures.createAgent({ name: 'FK Agent' });
+      const badPromptId = '018f3a9e-0000-7000-8000-888888888888';
+
+      await expect(
+        service.update(agent.id, { systemPromptId: badPromptId }),
+      ).rejects.toThrow(UnprocessableEntityException);
+
+      try {
+        await service.update(agent.id, { systemPromptId: badPromptId });
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(422);
+        const res = err.getResponse();
+        expect(res.code).toBe('SYSTEM_PROMPT_NOT_FOUND');
+        expect(res.message).toContain(badPromptId);
+      }
+    });
+
+    it('ensures update is atomic: rolls back if update fails', async () => {
+      const agent = fixtures.createAgent({ name: 'Safe Agent' });
+
+      const originalRun = db.run.bind(db);
+      db.run = () => {
+        throw new Error('Simulated update database write failure');
+      };
+
+      try {
+        await expect(
+          service.update(agent.id, { name: 'Failed Name' }),
+        ).rejects.toThrow('Simulated update database write failure');
+      } finally {
+        db.run = originalRun;
+      }
+
+      // Assert row in agents table is still the original name
+      const current = db.get<{ name: string }>(
+        'SELECT name FROM agents WHERE id = ?',
+        [agent.id],
+      );
+      expect(current?.name).toBe('Safe Agent');
+    });
+  });
 });
+

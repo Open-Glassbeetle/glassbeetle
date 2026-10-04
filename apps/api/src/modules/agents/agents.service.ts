@@ -13,12 +13,14 @@ import { nowIso } from '../../common/persistence/timestamps.js';
 import { DatabaseService } from '../../database/database.service.js';
 import type { AgentResponseDto } from './dto/agent-response.dto.js';
 import {
+  applyAgentUpdates,
   mapAgentRowToResponse,
   mapCreateAgentDtoToRow,
   type AgentRow,
 } from './dto/agent.mapper.js';
 import type { CreateAgentDto } from './dto/create-agent.dto.js';
 import type { ListAgentsQueryDto } from './dto/list-agents-query.dto.js';
+import type { UpdateAgentDto } from './dto/update-agent.dto.js';
 
 /**
  * Whitelist of allowed sort columns for the agents collection endpoint.
@@ -231,4 +233,90 @@ export class AgentsService {
       return mapAgentRowToResponse(persisted);
     });
   }
+
+  /**
+   * Updates an existing agent partially within an atomic transaction.
+   *
+   * Validates that the agent exists, validates supplied foreign keys (modelId, systemPromptId),
+   * applies only the provided mutable fields, updates updated_at, and returns the persisted row.
+   *
+   * If no changes are needed (e.g. empty body or identical values), returns the existing row
+   * without bumping updated_at.
+   */
+  async update(id: string, dto: UpdateAgentDto): Promise<AgentResponseDto> {
+    return this.db.transaction(() => {
+      const existing = this.db.get<AgentRow>(
+        'SELECT * FROM agents WHERE id = ?',
+        [id],
+      );
+
+      if (!existing) {
+        throw new NotFoundException({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent with ID "${id}" not found`,
+        });
+      }
+
+      // Validate modelId foreign key if supplied and not null
+      if (dto.modelId !== undefined && dto.modelId !== null) {
+        const modelRow = this.db.get<{ id: string }>(
+          'SELECT id FROM models WHERE id = ?',
+          [dto.modelId],
+        );
+        if (!modelRow) {
+          throw new UnprocessableEntityException({
+            code: 'MODEL_NOT_FOUND',
+            message: `Referenced modelId "${dto.modelId}" does not exist`,
+          });
+        }
+      }
+
+      // Validate systemPromptId foreign key if supplied and not null
+      if (dto.systemPromptId !== undefined && dto.systemPromptId !== null) {
+        const promptRow = this.db.get<{ id: string }>(
+          'SELECT id FROM system_prompts WHERE id = ?',
+          [dto.systemPromptId],
+        );
+        if (!promptRow) {
+          throw new UnprocessableEntityException({
+            code: 'SYSTEM_PROMPT_NOT_FOUND',
+            message: `Referenced systemPromptId "${dto.systemPromptId}" does not exist`,
+          });
+        }
+      }
+
+      const updateResult = applyAgentUpdates(existing, dto);
+
+      if (!updateResult.hasChanges) {
+        return mapAgentRowToResponse(existing);
+      }
+
+      const sql = `UPDATE agents SET ${updateResult.setClauses.join(', ')} WHERE id = ?`;
+      const params = [...updateResult.setParams, id];
+
+      try {
+        this.db.run(sql, params);
+      } catch (error: any) {
+        if (error?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+          throw new UnprocessableEntityException({
+            code: 'FOREIGN_KEY_VIOLATION',
+            message: 'Referenced foreign key constraint failed',
+          });
+        }
+        throw error;
+      }
+
+      const persisted = this.db.get<AgentRow>(
+        'SELECT * FROM agents WHERE id = ?',
+        [id],
+      );
+
+      if (!persisted) {
+        throw new Error('Failed to retrieve agent after update');
+      }
+
+      return mapAgentRowToResponse(persisted);
+    });
+  }
 }
+

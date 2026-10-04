@@ -7,6 +7,7 @@ import type { PaginatedResponse } from '../../common/pagination/paginated-respon
 import type { AgentResponseDto } from './dto/agent-response.dto.js';
 import type { CreateAgentDto } from './dto/create-agent.dto.js';
 import type { ListAgentsQueryDto } from './dto/list-agents-query.dto.js';
+import type { UpdateAgentDto } from './dto/update-agent.dto.js';
 
 describe('AgentsController', () => {
   let controller: AgentsController;
@@ -44,6 +45,7 @@ describe('AgentsController', () => {
             findAll: vi.fn().mockResolvedValue(mockResponse),
             findOne: vi.fn().mockResolvedValue(mockAgent),
             create: vi.fn().mockResolvedValue(mockAgent),
+            update: vi.fn().mockResolvedValue(mockAgent),
           },
         },
       ],
@@ -93,4 +95,15 @@ describe('AgentsController', () => {
       expect(result).toBe(mockAgent);
     });
   });
+
+  describe('update', () => {
+    it('delegates to agentsService.update and returns updated agent', async () => {
+      const dto: UpdateAgentDto = { name: 'Updated Name', temperature: 0.5 };
+      const result = await controller.update(mockAgent.id, dto);
+
+      expect(service.update).toHaveBeenCalledWith(mockAgent.id, dto);
+      expect(result).toBe(mockAgent);
+    });
+  });
 });
+

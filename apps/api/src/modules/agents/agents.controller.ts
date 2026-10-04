@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -25,6 +26,7 @@ import { AgentsService } from './agents.service.js';
 import { AgentResponseDto } from './dto/agent-response.dto.js';
 import { CreateAgentDto } from './dto/create-agent.dto.js';
 import { ListAgentsQueryDto } from './dto/list-agents-query.dto.js';
+import { UpdateAgentDto } from './dto/update-agent.dto.js';
 
 @ApiTags('agents')
 @Controller('agents')
@@ -107,4 +109,39 @@ export class AgentsController {
     res.setHeader('Location', `/api/v1/agents/${created.id}`);
     return created;
   }
+
+  @Patch(':agentId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update an agent',
+    description:
+      'Applies partial updates to an existing agent resource (PATCH). Only supplied fields are updated.',
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'Unique agent identifier',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiOkResponse({
+    description: 'Agent updated successfully',
+    type: AgentResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Request validation failed (e.g. invalid types, out-of-range values, or client-supplied server-managed fields)',
+  })
+  @ApiNotFoundResponse({
+    description: 'No agent found with that ID',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'Referenced foreign key (modelId or systemPromptId) does not exist',
+  })
+  async update(
+    @Param('agentId') agentId: string,
+    @Body() dto: UpdateAgentDto,
+  ): Promise<AgentResponseDto> {
+    return this.agentsService.update(agentId, dto);
+  }
 }
+

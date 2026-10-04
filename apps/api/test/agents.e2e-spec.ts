@@ -423,4 +423,268 @@ describe('Agents endpoints (e2e)', () => {
       expect(response.body.message).toContain(badPromptId);
     });
   });
+
+  describe('PATCH /api/v1/agents/:agentId', () => {
+    it('updates a single field on a fully-populated agent and preserves every other field', async () => {
+      const model = testApp.fixtures.createModel();
+      const prompt = testApp.fixtures.createSystemPrompt();
+
+      const initialTime = '2026-10-01T00:00:00.000Z';
+      const agent = testApp.fixtures.createAgent({
+        name: 'Initial Agent',
+        personality: 'Friendly and witty',
+        instructions: 'Answer in bullet points',
+        system_prompt_id: prompt.id,
+        model_id: model.id,
+        temperature: 0.7,
+        max_tokens: 1500,
+        model_params: '{"top_p":0.95,"stop":["EXIT"]}',
+        picture_path: 'pictures/agent.jpg',
+        created_at: initialTime,
+        updated_at: initialTime,
+      });
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ name: 'Updated Agent Name' })
+        .expect(200);
+
+      expect(response.body.id).toBe(agent.id);
+      expect(response.body.name).toBe('Updated Agent Name');
+      expect(response.body.personality).toBe('Friendly and witty');
+      expect(response.body.instructions).toBe('Answer in bullet points');
+      expect(response.body.systemPromptId).toBe(prompt.id);
+      expect(response.body.modelId).toBe(model.id);
+      expect(response.body.temperature).toBe(0.7);
+      expect(response.body.maxTokens).toBe(1500);
+      expect(response.body.modelParams).toEqual({
+        top_p: 0.95,
+        stop: ['EXIT'],
+      });
+      expect(response.body.hasPicture).toBe(true);
+      expect(response.body.picturePath).toBeUndefined();
+      expect(response.body.createdAt).toBe(initialTime);
+      expect(response.body.updatedAt).not.toBe(initialTime);
+      expect(new Date(response.body.updatedAt).getTime()).toBeGreaterThan(
+        new Date(initialTime).getTime(),
+      );
+
+      // Verify GET returns the exact same persisted state
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}`)
+        .expect(200);
+      expect(getRes.body).toEqual(response.body);
+    });
+
+    it('clears nullable fields when set to null and preserves omitted fields', async () => {
+      const model = testApp.fixtures.createModel();
+      const prompt = testApp.fixtures.createSystemPrompt();
+
+      const agent = testApp.fixtures.createAgent({
+        name: 'Stable Name',
+        personality: 'Will be cleared',
+        instructions: 'Will be cleared',
+        system_prompt_id: prompt.id,
+        model_id: model.id,
+        temperature: 0.8,
+        max_tokens: 2000,
+        model_params: '{"seed":42}',
+      });
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({
+          personality: null,
+          instructions: null,
+          systemPromptId: null,
+          modelId: null,
+          temperature: null,
+          maxTokens: null,
+          modelParams: null,
+        })
+        .expect(200);
+
+      expect(response.body.name).toBe('Stable Name');
+      expect(response.body.personality).toBeNull();
+      expect(response.body.instructions).toBeNull();
+      expect(response.body.systemPromptId).toBeNull();
+      expect(response.body.modelId).toBeNull();
+      expect(response.body.temperature).toBeNull();
+      expect(response.body.maxTokens).toBeNull();
+      expect(response.body.modelParams).toBeNull();
+    });
+
+    it('supports clearing only modelId (leaving agent detached from model)', async () => {
+      const model = testApp.fixtures.createModel();
+      const agent = testApp.fixtures.createAgent({
+        name: 'Detached Agent',
+        model_id: model.id,
+      });
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ modelId: null })
+        .expect(200);
+
+      expect(response.body.modelId).toBeNull();
+    });
+
+    it('handles empty body as an idempotent no-op without bumping updatedAt', async () => {
+      const fixedTime = '2026-10-02T05:00:00.000Z';
+      const agent = testApp.fixtures.createAgent({
+        name: 'Untouched Agent',
+        created_at: fixedTime,
+        updated_at: fixedTime,
+      });
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({})
+        .expect(200);
+
+      expect(response.body.id).toBe(agent.id);
+      expect(response.body.name).toBe('Untouched Agent');
+      expect(response.body.updatedAt).toBe(fixedTime);
+    });
+
+    it('returns 404 Not Found for non-existent agentId', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${nonExistentId}`)
+        .send({ name: 'Will Fail' })
+        .expect(404);
+
+      expect(response.body.statusCode).toBe(404);
+      expect(response.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('returns 404 Not Found for non-existent agentId even with empty body', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${nonExistentId}`)
+        .send({})
+        .expect(404);
+
+      expect(response.body.statusCode).toBe(404);
+      expect(response.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('rejects client-supplied server-managed and forbidden fields with 400 Bad Request', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      // id is forbidden
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ id: '018f3a9e-0000-7000-8000-000000000999' })
+        .expect(400);
+
+      // createdAt is forbidden
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ createdAt: '2026-10-04T00:00:00.000Z' })
+        .expect(400);
+
+      // updatedAt is forbidden
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ updatedAt: '2026-10-04T00:00:00.000Z' })
+        .expect(400);
+
+      // picture is forbidden
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ picture: 'data:image/png;base64,...' })
+        .expect(400);
+
+      // picturePath is forbidden
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ picturePath: 'pictures/hacked.png' })
+        .expect(400);
+    });
+
+    it('rejects invalid field values with 400 Bad Request', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      // name cannot be empty string
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ name: '' })
+        .expect(400);
+
+      // name cannot be null
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ name: null })
+        .expect(400);
+
+      // temperature out of range
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ temperature: 3.5 })
+        .expect(400);
+
+      // maxTokens out of range
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ maxTokens: 0 })
+        .expect(400);
+
+      // modelParams must be object
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ modelParams: 'invalid-string' })
+        .expect(400);
+    });
+
+    it('rejects non-existent modelId with 422 Unprocessable Entity', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const badModelId = '018f3a9e-0000-7000-8000-999999999999';
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ modelId: badModelId })
+        .expect(422);
+
+      expect(response.body.statusCode).toBe(422);
+      expect(response.body.code).toBe('MODEL_NOT_FOUND');
+      expect(response.body.message).toContain(badModelId);
+    });
+
+    it('rejects non-existent systemPromptId with 422 Unprocessable Entity', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const badPromptId = '018f3a9e-0000-7000-8000-888888888888';
+
+      const response = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}`)
+        .send({ systemPromptId: badPromptId })
+        .expect(422);
+
+      expect(response.body.statusCode).toBe(422);
+      expect(response.body.code).toBe('SYSTEM_PROMPT_NOT_FOUND');
+      expect(response.body.message).toContain(badPromptId);
+    });
+  });
 });
+
