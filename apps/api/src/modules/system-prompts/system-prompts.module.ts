@@ -4,6 +4,7 @@ import { SystemPromptsService } from './system-prompts.service.js';
 
 @Module({
   controllers: [SystemPromptsController],
-  providers: [SystemPromptsService]
+  providers: [SystemPromptsService],
+  exports: [SystemPromptsService],
 })
 export class SystemPromptsModule {}
