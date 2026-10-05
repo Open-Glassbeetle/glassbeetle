@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { newId } from '../../../common/persistence/identifiers.js';
 import { nowIso } from '../../../common/persistence/timestamps.js';
 import {
@@ -15,6 +15,7 @@ import {
   type ListSharedMemoriesQueryDto,
   type SharedMemoryResponseDto,
   type SharedMemoryRow,
+  type UpdateSharedMemoryDto,
 } from './dto/index.js';
 
 /**
@@ -136,5 +137,81 @@ export class SharedMemoriesService {
     };
 
     return mapSharedMemoryRowToResponse(row);
+  }
+
+  /**
+   * Retrieves a single shared memory by ID.
+   */
+  async findOne(memoryId: string): Promise<SharedMemoryResponseDto> {
+    const row = this.db.get<SharedMemoryRow>(
+      'SELECT * FROM shared_memories WHERE id = ?',
+      [memoryId],
+    );
+
+    if (!row) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
+
+    return mapSharedMemoryRowToResponse(row);
+  }
+
+  /**
+   * Partially updates an existing shared memory by ID.
+   *
+   * Executes a direct UPDATE WHERE id = ? without a prior read to avoid
+   * read-then-write races. If no fields are provided, checks existence
+   * and returns the current record without advancing updated_at.
+   */
+  async update(
+    memoryId: string,
+    dto: UpdateSharedMemoryDto,
+    options?: { readonly now?: string },
+  ): Promise<SharedMemoryResponseDto> {
+    const setClauses: string[] = [];
+    const setParams: unknown[] = [];
+    const now = options?.now ?? nowIso();
+
+    if (dto.content !== undefined) {
+      setClauses.push('content = ?');
+      setParams.push(dto.content);
+    }
+
+    if (dto.tags !== undefined) {
+      setClauses.push('tags = ?');
+      setParams.push(normalizeTagsOnWrite(dto.tags));
+    }
+
+    if (setClauses.length === 0) {
+      return this.findOne(memoryId);
+    }
+
+    setClauses.push('updated_at = ?');
+    setParams.push(now);
+
+    const result = this.db.run(
+      `UPDATE shared_memories SET ${setClauses.join(', ')} WHERE id = ?`,
+      [...setParams, memoryId],
+    );
+
+    if (result.changes === 0) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
+
+    return this.findOne(memoryId);
+  }
+
+  /**
+   * Permanently deletes a shared memory by ID.
+   *
+   * Executes DELETE WHERE id = ? treating 0 affected rows as not-found.
+   */
+  async remove(memoryId: string): Promise<void> {
+    const result = this.db.run('DELETE FROM shared_memories WHERE id = ?', [
+      memoryId,
+    ]);
+
+    if (result.changes === 0) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
   }
 }

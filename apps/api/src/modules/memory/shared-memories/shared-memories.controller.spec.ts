@@ -6,6 +6,7 @@ import {
   CreateSharedMemoryDto,
   ListSharedMemoriesQueryDto,
   SharedMemoryResponseDto,
+  UpdateSharedMemoryDto,
 } from './dto/index.js';
 import { SharedMemoriesController } from './shared-memories.controller.js';
 import { SharedMemoriesService } from './shared-memories.service.js';
@@ -38,6 +39,9 @@ describe('SharedMemoriesController', () => {
           useValue: {
             findAll: vi.fn().mockResolvedValue(mockPaginatedResponse),
             create: vi.fn().mockResolvedValue(mockMemory),
+            findOne: vi.fn().mockResolvedValue(mockMemory),
+            update: vi.fn().mockResolvedValue(mockMemory),
+            remove: vi.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -85,6 +89,34 @@ describe('SharedMemoriesController', () => {
         `/api/v1/memories/${mockMemory.id}`,
       );
       expect(result).toBe(mockMemory);
+    });
+  });
+
+  describe('findOne', () => {
+    it('delegates to sharedMemoriesService.findOne with memoryId', async () => {
+      const result = await controller.findOne(mockMemory.id);
+
+      expect(service.findOne).toHaveBeenCalledWith(mockMemory.id);
+      expect(result).toBe(mockMemory);
+    });
+  });
+
+  describe('update', () => {
+    it('delegates to sharedMemoriesService.update with memoryId and dto', async () => {
+      const dto: UpdateSharedMemoryDto = { content: 'Updated content' };
+
+      const result = await controller.update(mockMemory.id, dto);
+
+      expect(service.update).toHaveBeenCalledWith(mockMemory.id, dto);
+      expect(result).toBe(mockMemory);
+    });
+  });
+
+  describe('remove', () => {
+    it('delegates to sharedMemoriesService.remove with memoryId', async () => {
+      await controller.remove(mockMemory.id);
+
+      expect(service.remove).toHaveBeenCalledWith(mockMemory.id);
     });
   });
 });

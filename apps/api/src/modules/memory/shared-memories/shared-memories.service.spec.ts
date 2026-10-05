@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseService } from '../../../database/database.service.js';
 import { SharedMemoriesService } from './shared-memories.service.js';
@@ -215,6 +215,264 @@ describe('SharedMemoriesService', () => {
         [created.id],
       );
       expect(dbRow?.tags).toBeNull();
+    });
+  });
+
+  describe('findOne', () => {
+    it('throws 404 when shared memory does not exist', async () => {
+      await expect(service.findOne('non-existent-memory')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('returns the memory when it exists', async () => {
+      const created = await service.create({
+        content: 'Global coding convention',
+        tags: ['global', 'style'],
+      });
+
+      const found = await service.findOne(created.id);
+
+      expect(found).toEqual(created);
+    });
+
+    it('returns 404 and leaves agent_memories untouched when an agent memory ID is passed', async () => {
+      db.run(
+        'INSERT INTO agents (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        [
+          'agent-1',
+          'Test Agent',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+      db.run(
+        'INSERT INTO agent_memories (id, agent_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        [
+          'agent-mem-1',
+          'agent-1',
+          'Agent private memory',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+
+      await expect(service.findOne('agent-mem-1')).rejects.toThrow(
+        NotFoundException,
+      );
+
+      const agentMem = db.get<{ id: string; content: string }>(
+        'SELECT id, content FROM agent_memories WHERE id = ?',
+        ['agent-mem-1'],
+      );
+      expect(agentMem).toBeDefined();
+      expect(agentMem?.content).toBe('Agent private memory');
+    });
+  });
+
+  describe('update', () => {
+    it('throws 404 when memory does not exist', async () => {
+      await expect(
+        service.update('non-existent-memory', { content: 'New text' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('updates only content and leaves tags intact', async () => {
+      const created = await service.create({
+        content: 'Original content',
+        tags: ['preserved-tag'],
+      });
+
+      const updated = await service.update(created.id, {
+        content: 'Updated content only',
+      });
+
+      expect(updated.content).toBe('Updated content only');
+      expect(updated.tags).toEqual(['preserved-tag']);
+
+      const row = db.get<SharedMemoryRow>(
+        'SELECT * FROM shared_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.content).toBe('Updated content only');
+      expect(row?.tags).toBe('["preserved-tag"]');
+    });
+
+    it('updates only tags and leaves content intact', async () => {
+      const created = await service.create({
+        content: 'Preserved content text',
+        tags: ['old-tag'],
+      });
+
+      const updated = await service.update(created.id, {
+        tags: ['new-tag-1', 'new-tag-2'],
+      });
+
+      expect(updated.content).toBe('Preserved content text');
+      expect(updated.tags).toEqual(['new-tag-1', 'new-tag-2']);
+
+      const row = db.get<SharedMemoryRow>(
+        'SELECT * FROM shared_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.content).toBe('Preserved content text');
+      expect(row?.tags).toBe('["new-tag-1","new-tag-2"]');
+    });
+
+    it('normalises empty tags array to SQL NULL and returns empty array', async () => {
+      const created = await service.create({
+        content: 'Content',
+        tags: ['will-be-cleared'],
+      });
+
+      const updated = await service.update(created.id, {
+        tags: [],
+      });
+
+      expect(updated.tags).toEqual([]);
+
+      const row = db.get<SharedMemoryRow>(
+        'SELECT * FROM shared_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.tags).toBeNull();
+    });
+
+    it('normalises tags set to null to SQL NULL and returns empty array', async () => {
+      const created = await service.create({
+        content: 'Content',
+        tags: ['will-be-cleared'],
+      });
+
+      const updated = await service.update(created.id, {
+        tags: null,
+      });
+
+      expect(updated.tags).toEqual([]);
+
+      const row = db.get<SharedMemoryRow>(
+        'SELECT * FROM shared_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.tags).toBeNull();
+    });
+
+    it('treats empty update body as an idempotent no-op without bumping updatedAt', async () => {
+      const created = await service.create(
+        { content: 'Static content', tags: ['tag'] },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const result = await service.update(
+        created.id,
+        {},
+        { now: '2026-10-04T05:00:00.000Z' },
+      );
+
+      expect(result.updatedAt).toBe('2026-10-04T00:00:00.000Z');
+      expect(result.createdAt).toBe('2026-10-04T00:00:00.000Z');
+    });
+
+    it('advances updatedAt when updating a field without altering createdAt or id', async () => {
+      const created = await service.create(
+        { content: 'Old content' },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const updated = await service.update(
+        created.id,
+        { content: 'New content' },
+        { now: '2026-10-04T12:00:00.000Z' },
+      );
+
+      expect(updated.id).toBe(created.id);
+      expect(updated.createdAt).toBe('2026-10-04T00:00:00.000Z');
+      expect(updated.updatedAt).toBe('2026-10-04T12:00:00.000Z');
+    });
+
+    it('returns 404 and leaves agent_memories untouched when an agent memory ID is passed', async () => {
+      db.run(
+        'INSERT INTO agents (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        [
+          'agent-1',
+          'Test Agent',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+      db.run(
+        'INSERT INTO agent_memories (id, agent_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        [
+          'agent-mem-2',
+          'agent-1',
+          'Untouched agent memory',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+
+      await expect(
+        service.update('agent-mem-2', { content: 'Tampered' }),
+      ).rejects.toThrow(NotFoundException);
+
+      const agentMem = db.get<{ id: string; content: string }>(
+        'SELECT id, content FROM agent_memories WHERE id = ?',
+        ['agent-mem-2'],
+      );
+      expect(agentMem?.content).toBe('Untouched agent memory');
+    });
+  });
+
+  describe('remove', () => {
+    it('throws 404 when memory does not exist', async () => {
+      await expect(service.remove('non-existent-memory')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('deletes the memory when it exists', async () => {
+      const created = await service.create({ content: 'To delete' });
+
+      await service.remove(created.id);
+
+      const row = db.get<SharedMemoryRow>(
+        'SELECT * FROM shared_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row).toBeUndefined();
+    });
+
+    it('returns 404 and leaves agent_memories untouched when an agent memory ID is passed', async () => {
+      db.run(
+        'INSERT INTO agents (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        [
+          'agent-1',
+          'Test Agent',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+      db.run(
+        'INSERT INTO agent_memories (id, agent_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        [
+          'agent-mem-3',
+          'agent-1',
+          'Permanent agent memory',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+
+      await expect(service.remove('agent-mem-3')).rejects.toThrow(
+        NotFoundException,
+      );
+
+      const agentMem = db.get<{ id: string; content: string }>(
+        'SELECT id, content FROM agent_memories WHERE id = ?',
+        ['agent-mem-3'],
+      );
+      expect(agentMem).toBeDefined();
+      expect(agentMem?.content).toBe('Permanent agent memory');
     });
   });
 });

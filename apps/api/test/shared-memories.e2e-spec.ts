@@ -404,4 +404,373 @@ describe('Shared Memories Endpoints (e2e)', () => {
       ).toBe(false);
     });
   });
+
+  describe('GET /api/v1/memories/:memoryId', () => {
+    it('returns 200 with the memory resource when it exists', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({
+          content: 'Specific shared memory',
+          tags: ['knowledge'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/memories/${createRes.body.id}`)
+        .expect(200);
+
+      expect(res.body).toEqual(createRes.body);
+    });
+
+    it('returns 404 when memory does not exist', async () => {
+      await testApp
+        .request()
+        .get('/api/v1/memories/non-existent-memory-id')
+        .expect(404);
+    });
+
+    it('returns 404 when passed an agent memory ID and leaves agent memory untouched', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const agentMem = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Agent private secret' })
+        .expect(201);
+
+      await testApp
+        .request()
+        .get(`/api/v1/memories/${agentMem.body.id}`)
+        .expect(404);
+
+      // Verify agent memory is still in agent_memories table
+      const agentMemCheck = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories/${agentMem.body.id}`)
+        .expect(200);
+      expect(agentMemCheck.body.content).toBe('Agent private secret');
+    });
+  });
+
+  describe('PATCH /api/v1/memories/:memoryId', () => {
+    it('updates only content and leaves tags intact', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({
+          content: 'Original content',
+          tags: ['preserved-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ content: 'Updated content only' })
+        .expect(200);
+
+      expect(res.body.content).toBe('Updated content only');
+      expect(res.body.tags).toEqual(['preserved-tag']);
+      expect(res.body.createdAt).toBe(createRes.body.createdAt);
+      expect(res.body.updatedAt).toBeDefined();
+    });
+
+    it('updates only tags and leaves content intact', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({
+          content: 'Content stays intact',
+          tags: ['old-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ tags: ['new-tag-1', 'new-tag-2'] })
+        .expect(200);
+
+      expect(res.body.content).toBe('Content stays intact');
+      expect(res.body.tags).toEqual(['new-tag-1', 'new-tag-2']);
+    });
+
+    it('clears tags when setting tags to empty array (normalised to SQL NULL in DB)', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({
+          content: 'Content',
+          tags: ['initial-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ tags: [] })
+        .expect(200);
+
+      expect(res.body.tags).toEqual([]);
+
+      const dbRow = testApp.db.get<{ tags: string | null }>(
+        'SELECT tags FROM shared_memories WHERE id = ?',
+        [createRes.body.id],
+      );
+      expect(dbRow?.tags).toBeNull();
+    });
+
+    it('clears tags when setting tags to null (normalised to SQL NULL in DB)', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({
+          content: 'Content',
+          tags: ['initial-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ tags: null })
+        .expect(200);
+
+      expect(res.body.tags).toEqual([]);
+
+      const dbRow = testApp.db.get<{ tags: string | null }>(
+        'SELECT tags FROM shared_memories WHERE id = ?',
+        [createRes.body.id],
+      );
+      expect(dbRow?.tags).toBeNull();
+    });
+
+    it('treats empty update body as an idempotent no-op without bumping updatedAt', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Unchanged content' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({})
+        .expect(200);
+
+      expect(res.body.updatedAt).toBe(createRes.body.updatedAt);
+    });
+
+    it('advances updatedAt on update while keeping createdAt unchanged', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Initial content' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ content: 'Updated content' })
+        .expect(200);
+
+      expect(res.body.createdAt).toBe(createRes.body.createdAt);
+      expect(res.body.content).toBe('Updated content');
+    });
+
+    it('returns 404 when memory does not exist', async () => {
+      await testApp
+        .request()
+        .patch('/api/v1/memories/unknown-memory')
+        .send({ content: 'Will fail' })
+        .expect(404);
+    });
+
+    it('returns 404 when passing an agent memory ID and leaves agent memory untouched', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const agentMem = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Agent private secret', tags: ['safe'] })
+        .expect(201);
+
+      await testApp
+        .request()
+        .patch(`/api/v1/memories/${agentMem.body.id}`)
+        .send({ content: 'Tampered content' })
+        .expect(404);
+
+      // Verify agent memory in DB is untouched
+      const agentMemCheck = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories/${agentMem.body.id}`)
+        .expect(200);
+      expect(agentMemCheck.body.content).toBe('Agent private secret');
+      expect(agentMemCheck.body.tags).toEqual(['safe']);
+    });
+
+    it('rejects setting content to null with 400', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ content: null })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'content must be a string',
+      );
+    });
+
+    it('rejects setting content to empty string with 400', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ content: '' })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'content must not be empty',
+      );
+    });
+
+    it('rejects non-string items in tags with 400', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ tags: ['valid', 12345] })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'each tag must be a string',
+      );
+    });
+
+    it('rejects empty string in tags with 400', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ tags: ['valid', ''] })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'tags cannot contain empty strings',
+      );
+    });
+
+    it('rejects agentId in PATCH body with 400', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ agentId: '018f3a9e-0000-7000-8000-000000000001' })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'property agentId should not exist',
+      );
+    });
+
+    it('rejects client-supplied id, createdAt, or updatedAt in PATCH body with 400', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({
+          id: 'new-id',
+          createdAt: '2020-01-01T00:00:00.000Z',
+          updatedAt: '2020-01-01T00:00:00.000Z',
+        })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+    });
+  });
+
+  describe('DELETE /api/v1/memories/:memoryId', () => {
+    it('returns 204 and permanently removes the memory', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'To be deleted' })
+        .expect(201);
+
+      const memoryId = createRes.body.id;
+
+      await testApp
+        .request()
+        .delete(`/api/v1/memories/${memoryId}`)
+        .expect(204);
+
+      // Verify memory is gone via GET
+      await testApp.request().get(`/api/v1/memories/${memoryId}`).expect(404);
+    });
+
+    it('returns 404 when memory does not exist', async () => {
+      await testApp
+        .request()
+        .delete('/api/v1/memories/non-existent-memory')
+        .expect(404);
+    });
+
+    it('returns 404 when passing an agent memory ID and leaves agent memory untouched', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const agentMem = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Agent memory to survive' })
+        .expect(201);
+
+      await testApp
+        .request()
+        .delete(`/api/v1/memories/${agentMem.body.id}`)
+        .expect(404);
+
+      // Verify agent memory is untouched
+      const agentMemCheck = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories/${agentMem.body.id}`)
+        .expect(200);
+      expect(agentMemCheck.body.content).toBe('Agent memory to survive');
+    });
+  });
 });
