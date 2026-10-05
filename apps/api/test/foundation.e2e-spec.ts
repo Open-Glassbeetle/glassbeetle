@@ -309,5 +309,37 @@ describe('API foundation (e2e)', () => {
 
       expect(Object.keys(res.body.paths)).toContain('/api/v1/health');
     });
+
+    it('documents the agents endpoints with their response codes', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/${OPENAPI_JSON_PATH}`)
+        .expect(200);
+
+      const paths = res.body.paths;
+      expect(paths['/api/v1/agents']).toBeDefined();
+      expect(Object.keys(paths['/api/v1/agents'].get.responses)).toEqual(
+        expect.arrayContaining(['200', '400']),
+      );
+      expect(Object.keys(paths['/api/v1/agents'].post.responses)).toEqual(
+        expect.arrayContaining(['201', '400', '422']),
+      );
+      expect(paths['/api/v1/agents/{agentId}']).toBeDefined();
+      expect(
+        Object.keys(paths['/api/v1/agents/{agentId}'].get.responses),
+      ).toEqual(expect.arrayContaining(['200', '404']));
+      expect(
+        Object.keys(paths['/api/v1/agents/{agentId}'].patch.responses),
+      ).toEqual(expect.arrayContaining(['200', '400', '404', '422']));
+      expect(
+        Object.keys(paths['/api/v1/agents/{agentId}'].delete.responses),
+      ).toEqual(expect.arrayContaining(['204', '404']));
+      expect(paths['/api/v1/agents/{agentId}/picture']).toBeDefined();
+      expect(
+        Object.keys(paths['/api/v1/agents/{agentId}/picture'].put.responses),
+      ).toEqual(expect.arrayContaining(['200', '400', '404', '413']));
+      expect(
+        Object.keys(paths['/api/v1/agents/{agentId}/picture'].delete.responses),
+      ).toEqual(expect.arrayContaining(['204', '404']));
+    });
   });
 });

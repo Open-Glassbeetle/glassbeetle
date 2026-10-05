@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * The single error shape every endpoint in the API returns.
@@ -23,6 +24,55 @@ export interface ApiErrorResponse {
   path: string;
   /** ISO-8601 UTC timestamp. */
   timestamp: string;
+}
+
+/**
+ * Reusable DTO schema documenting the standardized API error envelope.
+ */
+export class ApiErrorResponseDto implements ApiErrorResponse {
+  @ApiProperty({
+    example: 400,
+    description:
+      'HTTP status code, repeated in the body so a logged response is self-contained.',
+  })
+  readonly statusCode!: number;
+
+  @ApiProperty({
+    example: 'Bad Request',
+    description: 'Human-readable name of the status.',
+  })
+  readonly error!: string;
+
+  @ApiProperty({
+    example: 'BAD_REQUEST',
+    description: 'Stable machine-readable error code.',
+  })
+  readonly code!: string;
+
+  @ApiProperty({
+    example: 'Request validation failed',
+    description: 'Human-readable description of what went wrong.',
+  })
+  readonly message!: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['name must be a string'],
+    description: 'Per-field detail, present for validation failures.',
+  })
+  readonly details?: string[];
+
+  @ApiProperty({
+    example: '/api/v1/agents',
+    description: 'Request path the error occurred on.',
+  })
+  readonly path!: string;
+
+  @ApiProperty({
+    example: '2026-10-04T12:00:00.000Z',
+    description: 'ISO-8601 UTC timestamp.',
+  })
+  readonly timestamp!: string;
 }
 
 /**
