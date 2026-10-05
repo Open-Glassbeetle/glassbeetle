@@ -444,6 +444,414 @@ describe('Agent Memories Endpoints (e2e)', () => {
     });
   });
 
+  describe('GET /api/v1/agents/:agentId/memories/:memoryId', () => {
+    it('returns 200 with the memory resource when it exists and belongs to the agent', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({
+          content: 'Specific agent memory',
+          tags: ['knowledge'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .expect(200);
+
+      expect(res.body).toEqual(createRes.body);
+    });
+
+    it('returns 404 when agent does not exist', async () => {
+      const res = await testApp
+        .request()
+        .get('/api/v1/agents/unknown-agent/memories/mem-1')
+        .expect(404);
+
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('returns 404 when memory does not exist for an existing agent', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories/non-existent-memory-id`)
+        .expect(404);
+    });
+
+    it('returns 404 when memory exists but belongs to a different agent (cross-agent isolation)', async () => {
+      const agentA = testApp.fixtures.createAgent({ name: 'Agent A' });
+      const agentB = testApp.fixtures.createAgent({ name: 'Agent B' });
+
+      const memoryA = await testApp
+        .request()
+        .post(`/api/v1/agents/${agentA.id}/memories`)
+        .send({ content: 'Agent A secret knowledge' })
+        .expect(201);
+
+      // Attempt to access Agent A's memory through Agent B's URL
+      await testApp
+        .request()
+        .get(`/api/v1/agents/${agentB.id}/memories/${memoryA.body.id}`)
+        .expect(404);
+    });
+  });
+
+  describe('PATCH /api/v1/agents/:agentId/memories/:memoryId', () => {
+    it('updates only content and leaves tags intact', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({
+          content: 'Original content',
+          tags: ['preserved-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ content: 'Updated content only' })
+        .expect(200);
+
+      expect(res.body.content).toBe('Updated content only');
+      expect(res.body.tags).toEqual(['preserved-tag']);
+      expect(res.body.createdAt).toBe(createRes.body.createdAt);
+      expect(res.body.updatedAt).toBeDefined();
+    });
+
+    it('updates only tags and leaves content intact', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({
+          content: 'Content stays intact',
+          tags: ['old-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ tags: ['new-tag-1', 'new-tag-2'] })
+        .expect(200);
+
+      expect(res.body.content).toBe('Content stays intact');
+      expect(res.body.tags).toEqual(['new-tag-1', 'new-tag-2']);
+    });
+
+    it('clears tags when setting tags to empty array (normalised to SQL NULL in DB)', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({
+          content: 'Content',
+          tags: ['initial-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ tags: [] })
+        .expect(200);
+
+      expect(res.body.tags).toEqual([]);
+
+      const dbRow = testApp.db.get<{ tags: string | null }>(
+        'SELECT tags FROM agent_memories WHERE id = ?',
+        [createRes.body.id],
+      );
+      expect(dbRow?.tags).toBeNull();
+    });
+
+    it('clears tags when setting tags to null (normalised to SQL NULL in DB)', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({
+          content: 'Content',
+          tags: ['initial-tag'],
+        })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ tags: null })
+        .expect(200);
+
+      expect(res.body.tags).toEqual([]);
+
+      const dbRow = testApp.db.get<{ tags: string | null }>(
+        'SELECT tags FROM agent_memories WHERE id = ?',
+        [createRes.body.id],
+      );
+      expect(dbRow?.tags).toBeNull();
+    });
+
+    it('treats empty update body as an idempotent no-op without bumping updatedAt', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Unchanged content' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({})
+        .expect(200);
+
+      expect(res.body.updatedAt).toBe(createRes.body.updatedAt);
+    });
+
+    it('returns 404 when agent does not exist', async () => {
+      await testApp
+        .request()
+        .patch('/api/v1/agents/unknown-agent/memories/mem-1')
+        .send({ content: 'Will fail' })
+        .expect(404);
+    });
+
+    it('returns 404 when memory does not exist', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/unknown-memory`)
+        .send({ content: 'Will fail' })
+        .expect(404);
+    });
+
+    it('returns 404 when attempting to update another agent memory and leaves DB intact (cross-agent isolation)', async () => {
+      const agentA = testApp.fixtures.createAgent({ name: 'Agent A' });
+      const agentB = testApp.fixtures.createAgent({ name: 'Agent B' });
+
+      const memoryA = await testApp
+        .request()
+        .post(`/api/v1/agents/${agentA.id}/memories`)
+        .send({ content: 'Agent A original content', tags: ['safe'] })
+        .expect(201);
+
+      // Attempt update through Agent B's route
+      await testApp
+        .request()
+        .patch(`/api/v1/agents/${agentB.id}/memories/${memoryA.body.id}`)
+        .send({ content: 'Tampered content' })
+        .expect(404);
+
+      // Verify row in DB remains untouched
+      const row = testApp.db.get<{ content: string; tags: string }>(
+        'SELECT content, tags FROM agent_memories WHERE id = ?',
+        [memoryA.body.id],
+      );
+      expect(row?.content).toBe('Agent A original content');
+      expect(row?.tags).toBe('["safe"]');
+    });
+
+    it('rejects setting content to null with 400', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ content: null })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'content must be a string',
+      );
+    });
+
+    it('rejects setting content to empty string with 400', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ content: '' })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'content must not be empty',
+      );
+    });
+
+    it('rejects non-string items in tags with 400', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ tags: ['valid', 12345] })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'each tag must be a string',
+      );
+    });
+
+    it('rejects empty string in tags with 400', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ tags: ['valid', ''] })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'tags cannot contain empty strings',
+      );
+    });
+
+    it('rejects agentId in PATCH body with 400', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({ agentId: 'another-agent-id' })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'property agentId should not exist',
+      );
+    });
+
+    it('rejects client-supplied id, createdAt, updatedAt in PATCH body with 400', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Initial' })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/agents/${agent.id}/memories/${createRes.body.id}`)
+        .send({
+          id: 'new-id',
+          createdAt: '2020-01-01T00:00:00.000Z',
+          updatedAt: '2020-01-01T00:00:00.000Z',
+        })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+    });
+  });
+
+  describe('DELETE /api/v1/agents/:agentId/memories/:memoryId', () => {
+    it('returns 204 and permanently removes the memory', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const createRes = await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'To be deleted' })
+        .expect(201);
+
+      const memoryId = createRes.body.id;
+
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/memories/${memoryId}`)
+        .expect(204);
+
+      // Verify memory is gone via GET
+      await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories/${memoryId}`)
+        .expect(404);
+
+      // Verify memory is gone in DB
+      const dbRow = testApp.db.get(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [memoryId],
+      );
+      expect(dbRow).toBeUndefined();
+    });
+
+    it('returns 404 when agent does not exist', async () => {
+      await testApp
+        .request()
+        .delete('/api/v1/agents/unknown-agent/memories/mem-1')
+        .expect(404);
+    });
+
+    it('returns 404 when memory does not exist', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/memories/unknown-memory`)
+        .expect(404);
+    });
+
+    it('returns 404 when attempting to delete another agent memory and leaves DB intact (cross-agent isolation)', async () => {
+      const agentA = testApp.fixtures.createAgent({ name: 'Agent A' });
+      const agentB = testApp.fixtures.createAgent({ name: 'Agent B' });
+
+      const memoryA = await testApp
+        .request()
+        .post(`/api/v1/agents/${agentA.id}/memories`)
+        .send({ content: 'Agent A indispensable memory' })
+        .expect(201);
+
+      // Attempt delete through Agent B's URL
+      await testApp
+        .request()
+        .delete(`/api/v1/agents/${agentB.id}/memories/${memoryA.body.id}`)
+        .expect(404);
+
+      // Verify row still exists in DB
+      const dbRow = testApp.db.get(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [memoryA.body.id],
+      );
+      expect(dbRow).toBeDefined();
+    });
+  });
+
   describe('ON DELETE CASCADE behaviour', () => {
     it('deletes agent memories automatically when the referencing agent is deleted', async () => {
       const agent = testApp.fixtures.createAgent();

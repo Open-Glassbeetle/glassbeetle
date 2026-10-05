@@ -8,6 +8,7 @@ import type {
   AgentMemoryResponseDto,
   CreateAgentMemoryDto,
   ListAgentMemoriesQueryDto,
+  UpdateAgentMemoryDto,
 } from './dto/index.js';
 
 describe('AgentMemoriesController', () => {
@@ -39,6 +40,9 @@ describe('AgentMemoriesController', () => {
           useValue: {
             findAll: vi.fn().mockResolvedValue(mockPaginatedResponse),
             create: vi.fn().mockResolvedValue(mockMemory),
+            findOne: vi.fn().mockResolvedValue(mockMemory),
+            update: vi.fn().mockResolvedValue(mockMemory),
+            remove: vi.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -86,6 +90,34 @@ describe('AgentMemoriesController', () => {
         `/api/v1/agents/agent-1/memories/${mockMemory.id}`,
       );
       expect(result).toBe(mockMemory);
+    });
+  });
+
+  describe('findOne', () => {
+    it('delegates to agentMemoriesService.findOne with agentId and memoryId', async () => {
+      const result = await controller.findOne('agent-1', 'mem-1');
+
+      expect(service.findOne).toHaveBeenCalledWith('agent-1', 'mem-1');
+      expect(result).toBe(mockMemory);
+    });
+  });
+
+  describe('update', () => {
+    it('delegates to agentMemoriesService.update with agentId, memoryId, and dto', async () => {
+      const dto: UpdateAgentMemoryDto = { content: 'Updated content' };
+
+      const result = await controller.update('agent-1', 'mem-1', dto);
+
+      expect(service.update).toHaveBeenCalledWith('agent-1', 'mem-1', dto);
+      expect(result).toBe(mockMemory);
+    });
+  });
+
+  describe('remove', () => {
+    it('delegates to agentMemoriesService.remove with agentId and memoryId', async () => {
+      await controller.remove('agent-1', 'mem-1');
+
+      expect(service.remove).toHaveBeenCalledWith('agent-1', 'mem-1');
     });
   });
 });

@@ -11,10 +11,12 @@ import { DatabaseService } from '../../../database/database.service.js';
 import {
   mapAgentMemoryRowToResponse,
   normalizeTagsOnWrite,
+  applyAgentMemoryUpdates,
   type AgentMemoryResponseDto,
   type AgentMemoryRow,
   type CreateAgentMemoryDto,
   type ListAgentMemoriesQueryDto,
+  type UpdateAgentMemoryDto,
 } from './dto/index.js';
 
 /**
@@ -160,5 +162,90 @@ export class AgentMemoriesService {
     };
 
     return mapAgentMemoryRowToResponse(row);
+  }
+
+  /**
+   * Retrieves a single private memory scoped by agentId and memoryId.
+   */
+  async findOne(
+    agentId: string,
+    memoryId: string,
+  ): Promise<AgentMemoryResponseDto> {
+    this.assertAgentExists(agentId);
+
+    const row = this.db.get<AgentMemoryRow>(
+      'SELECT * FROM agent_memories WHERE id = ? AND agent_id = ?',
+      [memoryId, agentId],
+    );
+
+    if (!row) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
+
+    return mapAgentMemoryRowToResponse(row);
+  }
+
+  /**
+   * Partially updates an existing private memory scoped by agentId and memoryId.
+   */
+  async update(
+    agentId: string,
+    memoryId: string,
+    dto: UpdateAgentMemoryDto,
+    options?: { readonly now?: string },
+  ): Promise<AgentMemoryResponseDto> {
+    this.assertAgentExists(agentId);
+
+    const existing = this.db.get<AgentMemoryRow>(
+      'SELECT * FROM agent_memories WHERE id = ? AND agent_id = ?',
+      [memoryId, agentId],
+    );
+
+    if (!existing) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
+
+    const now = options?.now ?? nowIso();
+    const { hasChanges, setClauses, setParams } = applyAgentMemoryUpdates(
+      existing,
+      dto,
+      now,
+    );
+
+    if (!hasChanges) {
+      return mapAgentMemoryRowToResponse(existing);
+    }
+
+    const result = this.db.run(
+      `UPDATE agent_memories SET ${setClauses.join(', ')} WHERE id = ? AND agent_id = ?`,
+      [...setParams, memoryId, agentId],
+    );
+
+    if (result.changes === 0) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
+
+    const updated = this.db.get<AgentMemoryRow>(
+      'SELECT * FROM agent_memories WHERE id = ? AND agent_id = ?',
+      [memoryId, agentId],
+    );
+
+    return mapAgentMemoryRowToResponse(updated!);
+  }
+
+  /**
+   * Deletes a private memory scoped by agentId and memoryId.
+   */
+  async remove(agentId: string, memoryId: string): Promise<void> {
+    this.assertAgentExists(agentId);
+
+    const result = this.db.run(
+      'DELETE FROM agent_memories WHERE id = ? AND agent_id = ?',
+      [memoryId, agentId],
+    );
+
+    if (result.changes === 0) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
   }
 }

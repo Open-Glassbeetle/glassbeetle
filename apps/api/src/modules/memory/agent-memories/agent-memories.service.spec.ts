@@ -287,6 +287,263 @@ describe('AgentMemoriesService', () => {
     });
   });
 
+  describe('findOne', () => {
+    it('throws 404 when agent does not exist', async () => {
+      await expect(service.findOne('unknown-agent', 'mem-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws 404 when memory does not exist for an existing agent', async () => {
+      const agent = fixtures.createAgent();
+
+      await expect(service.findOne(agent.id, 'unknown-memory')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws 404 when memory exists but belongs to a different agent (cross-agent isolation)', async () => {
+      const agentA = fixtures.createAgent({ name: 'Agent A' });
+      const agentB = fixtures.createAgent({ name: 'Agent B' });
+
+      const memoryA = await service.create(agentA.id, {
+        content: 'Agent A secret',
+        tags: ['secret'],
+      });
+
+      // Attempt to access Agent A's memory through Agent B's ID
+      await expect(service.findOne(agentB.id, memoryA.id)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('returns the memory when it exists and belongs to the agent', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(agent.id, {
+        content: 'Valid memory',
+        tags: ['test'],
+      });
+
+      const found = await service.findOne(agent.id, created.id);
+
+      expect(found).toEqual(created);
+    });
+  });
+
+  describe('update', () => {
+    it('throws 404 when agent does not exist', async () => {
+      await expect(
+        service.update('unknown-agent', 'mem-1', { content: 'New text' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws 404 when memory does not exist', async () => {
+      const agent = fixtures.createAgent();
+
+      await expect(
+        service.update(agent.id, 'unknown-memory', { content: 'New text' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws 404 when updating memory of another agent and leaves database intact (cross-agent isolation)', async () => {
+      const agentA = fixtures.createAgent({ name: 'Agent A' });
+      const agentB = fixtures.createAgent({ name: 'Agent B' });
+
+      const memoryA = await service.create(agentA.id, {
+        content: 'Original content',
+        tags: ['original'],
+      });
+
+      // Attempt to update Agent A's memory via Agent B's ID
+      await expect(
+        service.update(agentB.id, memoryA.id, { content: 'Hacked content' }),
+      ).rejects.toThrow(NotFoundException);
+
+      // Verify row in DB is unchanged
+      const row = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [memoryA.id],
+      );
+      expect(row?.content).toBe('Original content');
+      expect(row?.tags).toBe('["original"]');
+      expect(row?.agent_id).toBe(agentA.id);
+    });
+
+    it('updates only content and leaves tags intact', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(agent.id, {
+        content: 'Original content',
+        tags: ['preserved-tag'],
+      });
+
+      const updated = await service.update(agent.id, created.id, {
+        content: 'Updated content only',
+      });
+
+      expect(updated.content).toBe('Updated content only');
+      expect(updated.tags).toEqual(['preserved-tag']);
+
+      const row = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.content).toBe('Updated content only');
+      expect(row?.tags).toBe('["preserved-tag"]');
+    });
+
+    it('updates only tags and leaves content intact', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(agent.id, {
+        content: 'Preserved content text',
+        tags: ['old-tag'],
+      });
+
+      const updated = await service.update(agent.id, created.id, {
+        tags: ['new-tag-1', 'new-tag-2'],
+      });
+
+      expect(updated.content).toBe('Preserved content text');
+      expect(updated.tags).toEqual(['new-tag-1', 'new-tag-2']);
+
+      const row = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.content).toBe('Preserved content text');
+      expect(row?.tags).toBe('["new-tag-1","new-tag-2"]');
+    });
+
+    it('normalises empty tags array to SQL NULL and returns empty array', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(agent.id, {
+        content: 'Content',
+        tags: ['will-be-cleared'],
+      });
+
+      const updated = await service.update(agent.id, created.id, {
+        tags: [],
+      });
+
+      expect(updated.tags).toEqual([]);
+
+      const row = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.tags).toBeNull();
+    });
+
+    it('normalises tags set to null to SQL NULL and returns empty array', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(agent.id, {
+        content: 'Content',
+        tags: ['will-be-cleared'],
+      });
+
+      const updated = await service.update(agent.id, created.id, {
+        tags: null,
+      });
+
+      expect(updated.tags).toEqual([]);
+
+      const row = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.tags).toBeNull();
+    });
+
+    it('treats empty update body as an idempotent no-op without bumping updatedAt', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(
+        agent.id,
+        { content: 'Static content', tags: ['tag'] },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const result = await service.update(
+        agent.id,
+        created.id,
+        {},
+        { now: '2026-10-04T05:00:00.000Z' },
+      );
+
+      expect(result.updatedAt).toBe('2026-10-04T00:00:00.000Z');
+      expect(result.createdAt).toBe('2026-10-04T00:00:00.000Z');
+    });
+
+    it('advances updatedAt when updating a field without altering createdAt or agentId', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(
+        agent.id,
+        { content: 'Old content' },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const updated = await service.update(
+        agent.id,
+        created.id,
+        { content: 'New content' },
+        { now: '2026-10-04T12:00:00.000Z' },
+      );
+
+      expect(updated.createdAt).toBe('2026-10-04T00:00:00.000Z');
+      expect(updated.updatedAt).toBe('2026-10-04T12:00:00.000Z');
+      expect(updated.agentId).toBe(agent.id);
+    });
+  });
+
+  describe('remove', () => {
+    it('throws 404 when agent does not exist', async () => {
+      await expect(service.remove('unknown-agent', 'mem-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws 404 when memory does not exist', async () => {
+      const agent = fixtures.createAgent();
+
+      await expect(service.remove(agent.id, 'unknown-memory')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws 404 when attempting to delete another agent memory and does not delete it (cross-agent isolation)', async () => {
+      const agentA = fixtures.createAgent({ name: 'Agent A' });
+      const agentB = fixtures.createAgent({ name: 'Agent B' });
+
+      const memoryA = await service.create(agentA.id, {
+        content: 'Agent A critical fact',
+      });
+
+      // Attempt to delete Agent A's memory through Agent B's ID
+      await expect(service.remove(agentB.id, memoryA.id)).rejects.toThrow(
+        NotFoundException,
+      );
+
+      // Verify row still exists in DB
+      const row = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [memoryA.id],
+      );
+      expect(row).toBeDefined();
+      expect(row?.content).toBe('Agent A critical fact');
+    });
+
+    it('deletes the memory when owned by the agent', async () => {
+      const agent = fixtures.createAgent();
+      const created = await service.create(agent.id, { content: 'To delete' });
+
+      await service.remove(agent.id, created.id);
+
+      const row = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row).toBeUndefined();
+    });
+  });
+
   describe('Foreign key cascade ON DELETE CASCADE', () => {
     it('deletes all agent memories when the referencing agent is deleted', async () => {
       const agent = fixtures.createAgent();

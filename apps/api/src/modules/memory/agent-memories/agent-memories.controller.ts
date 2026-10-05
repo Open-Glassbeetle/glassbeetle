@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -17,6 +19,7 @@ import {
   AgentMemoryResponseDto,
   CreateAgentMemoryDto,
   ListAgentMemoriesQueryDto,
+  UpdateAgentMemoryDto,
 } from './dto/index.js';
 
 /**
@@ -52,5 +55,31 @@ export class AgentMemoriesController {
       `/api/v1/agents/${agentId}/memories/${created.id}`,
     );
     return created;
+  }
+
+  @Get(':memoryId')
+  async findOne(
+    @Param('agentId') agentId: string,
+    @Param('memoryId') memoryId: string,
+  ): Promise<AgentMemoryResponseDto> {
+    return this.agentMemoriesService.findOne(agentId, memoryId);
+  }
+
+  @Patch(':memoryId')
+  async update(
+    @Param('agentId') agentId: string,
+    @Param('memoryId') memoryId: string,
+    @Body() dto: UpdateAgentMemoryDto,
+  ): Promise<AgentMemoryResponseDto> {
+    return this.agentMemoriesService.update(agentId, memoryId, dto);
+  }
+
+  @Delete(':memoryId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('agentId') agentId: string,
+    @Param('memoryId') memoryId: string,
+  ): Promise<void> {
+    await this.agentMemoriesService.remove(agentId, memoryId);
   }
 }

@@ -45,3 +45,57 @@ export function normalizeTagsOnWrite(
   }
   return serializeJsonColumn(tags);
 }
+
+/**
+ * Result of computing partial updates against an existing agent memory row.
+ */
+export interface ApplyAgentMemoryUpdatesResult {
+  readonly hasChanges: boolean;
+  readonly setClauses: readonly string[];
+  readonly setParams: readonly unknown[];
+}
+
+/**
+ * Computes the SQL SET clauses and bound parameters for a partial update (PATCH).
+ *
+ * Rules:
+ * - Only fields explicitly defined in the DTO are updated.
+ * - If provided value equals existing value, no update is scheduled for that column.
+ * - `updated_at` is updated only when one or more mutable columns change.
+ * - `created_at`, `agent_id`, and `id` are never modified.
+ */
+export function applyAgentMemoryUpdates(
+  existing: AgentMemoryRow,
+  dto: { readonly content?: string; readonly tags?: readonly string[] | null },
+  now: string,
+): ApplyAgentMemoryUpdatesResult {
+  const setClauses: string[] = [];
+  const setParams: unknown[] = [];
+  let hasChanges = false;
+
+  if (dto.content !== undefined && dto.content !== existing.content) {
+    setClauses.push('content = ?');
+    setParams.push(dto.content);
+    hasChanges = true;
+  }
+
+  if (dto.tags !== undefined) {
+    const normalizedNewTags = normalizeTagsOnWrite(dto.tags);
+    if (normalizedNewTags !== existing.tags) {
+      setClauses.push('tags = ?');
+      setParams.push(normalizedNewTags);
+      hasChanges = true;
+    }
+  }
+
+  if (hasChanges) {
+    setClauses.push('updated_at = ?');
+    setParams.push(now);
+  }
+
+  return {
+    hasChanges,
+    setClauses,
+    setParams,
+  };
+}
