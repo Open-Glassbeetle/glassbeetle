@@ -27,6 +27,7 @@ export class CreateAgentDto {
   name!: string;
 
   @ApiPropertyOptional({
+    type: String,
     description: 'Free-text character description and behavioral demeanor',
     example: 'Friendly, inquisitive, and methodical researcher.',
     nullable: true,
@@ -36,6 +37,7 @@ export class CreateAgentDto {
   personality?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     description:
       'Agent-specific instructions, appended to the base system prompt',
     example: 'Always provide citations and references in IEEE format.',
@@ -46,6 +48,7 @@ export class CreateAgentDto {
   instructions?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     description:
       'Identifier of the linked system prompt template (or null if unlinked)',
     example: '018f3a9e-0000-7000-8000-000000000001',
@@ -56,6 +59,7 @@ export class CreateAgentDto {
   systemPromptId?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     description: 'Identifier of the linked model (or null if unlinked)',
     example: '018f3a9e-0000-7000-8000-000000000002',
     nullable: true,
@@ -65,9 +69,12 @@ export class CreateAgentDto {
   modelId?: string | null;
 
   @ApiPropertyOptional({
+    type: Number,
     description:
       'Sampling temperature for completions (bounded between 0 and 2)',
     example: 0.7,
+    minimum: 0,
+    maximum: 2,
     nullable: true,
   })
   @IsOptional()
@@ -77,9 +84,11 @@ export class CreateAgentDto {
   temperature?: number | null;
 
   @ApiPropertyOptional({
+    type: 'integer',
     description:
       'Maximum number of tokens to generate in a completion (positive integer)',
     example: 4096,
+    minimum: 1,
     nullable: true,
   })
   @IsOptional()
@@ -88,6 +97,8 @@ export class CreateAgentDto {
   maxTokens?: number | null;
 
   @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
     description:
       'Arbitrary provider-specific additional parameters as a key-value object',
     example: { top_p: 0.9, frequency_penalty: 0.5 },

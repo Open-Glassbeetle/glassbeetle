@@ -26,6 +26,7 @@ export class AgentResponseDto {
   readonly name!: string;
 
   @ApiProperty({
+    type: String,
     description: 'Free-text character description and behavioral demeanor',
     example: 'Friendly, inquisitive, and methodical researcher.',
     nullable: true,
@@ -33,6 +34,7 @@ export class AgentResponseDto {
   readonly personality!: string | null;
 
   @ApiProperty({
+    type: String,
     description:
       'Agent-specific instructions, appended to the base system prompt',
     example: 'Always provide citations and references in IEEE format.',
@@ -41,6 +43,7 @@ export class AgentResponseDto {
   readonly instructions!: string | null;
 
   @ApiProperty({
+    type: String,
     description:
       'Identifier of the linked system prompt template (or null if unlinked)',
     example: '018f3a9e-0000-7000-8000-000000000002',
@@ -49,6 +52,7 @@ export class AgentResponseDto {
   readonly systemPromptId!: string | null;
 
   @ApiProperty({
+    type: String,
     description: 'Identifier of the linked model (or null if unlinked)',
     example: '018f3a9e-0000-7000-8000-000000000003',
     nullable: true,
@@ -56,6 +60,7 @@ export class AgentResponseDto {
   readonly modelId!: string | null;
 
   @ApiProperty({
+    type: Number,
     description: 'Sampling temperature for completions (typically 0.0 to 2.0)',
     example: 0.7,
     nullable: true,
@@ -63,6 +68,7 @@ export class AgentResponseDto {
   readonly temperature!: number | null;
 
   @ApiProperty({
+    type: 'integer',
     description: 'Maximum number of tokens to generate in a completion',
     example: 4096,
     nullable: true,
@@ -70,6 +76,8 @@ export class AgentResponseDto {
   readonly maxTokens!: number | null;
 
   @ApiProperty({
+    type: 'object',
+    additionalProperties: true,
     description:
       'Arbitrary provider-specific additional parameters as a key-value object',
     example: { top_p: 0.9, frequency_penalty: 0.5 },

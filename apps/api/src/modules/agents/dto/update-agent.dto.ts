@@ -17,6 +17,7 @@ import { CreateAgentDto } from './create-agent.dto.js';
  */
 export class UpdateAgentDto extends PartialType(CreateAgentDto) {
   @ApiPropertyOptional({
+    type: String,
     description: 'Display name of the agent (cannot be null or empty)',
     example: 'Lead Researcher',
   })

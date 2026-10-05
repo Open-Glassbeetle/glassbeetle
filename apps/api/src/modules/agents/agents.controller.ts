@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiBody,
   ApiConsumes,
   ApiCreatedResponse,
   ApiNoContentResponse,
@@ -25,17 +26,21 @@ import {
   ApiOperation,
   ApiParam,
   ApiPayloadTooLargeResponse,
+  ApiQuery,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
+import { ApiErrorResponseDto } from '../../common/http/api-error.js';
+import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import { AgentPictureInterceptor } from './agent-picture.interceptor.js';
 import { AgentsService } from './agents.service.js';
 import { AgentResponseDto } from './dto/agent-response.dto.js';
 import { CreateAgentDto } from './dto/create-agent.dto.js';
 import { ListAgentsQueryDto } from './dto/list-agents-query.dto.js';
+import { PaginatedAgentsResponseDto } from './dto/paginated-agents-response.dto.js';
 import { UpdateAgentDto } from './dto/update-agent.dto.js';
+import { UploadAgentPictureDto } from './dto/upload-agent-picture.dto.js';
 
 @ApiTags('agents')
 @Controller('agents')
@@ -48,12 +53,72 @@ export class AgentsController {
     description:
       'Retrieves stored agents with pagination, sorting, and filtering.',
   })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description:
+      'Maximum number of items returned per page (default: 50, max: 100)',
+    example: 50,
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    type: Number,
+    description: 'Zero-based offset of the first item returned (default: 0)',
+    example: 0,
+  })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    type: String,
+    description: "Field to sort by ('createdAt', 'name', 'id', 'updatedAt')",
+    example: 'createdAt',
+  })
+  @ApiQuery({
+    name: 'order',
+    required: false,
+    enum: ['asc', 'desc'],
+    description: "Sort direction ('asc' or 'desc', default: 'desc')",
+    example: 'desc',
+  })
+  @ApiQuery({
+    name: 'modelId',
+    required: false,
+    type: String,
+    description:
+      'Filter by model ID. Pass "null" to filter for agents without an assigned model.',
+    example: '018f3a9e-0000-7000-8000-000000000002',
+  })
+  @ApiQuery({
+    name: 'systemPromptId',
+    required: false,
+    type: String,
+    description:
+      'Filter by system prompt template ID. Pass "null" to filter for agents without an assigned template.',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiQuery({
+    name: 'name',
+    required: false,
+    type: String,
+    description: 'Case-insensitive substring search matching agent name',
+    example: 'researcher',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Alias for name substring search',
+    example: 'researcher',
+  })
   @ApiOkResponse({
     description: 'Paginated list of agents matching query criteria',
-    type: AgentResponseDto,
+    type: PaginatedAgentsResponseDto,
   })
   @ApiBadRequestResponse({
     description: 'Invalid pagination, sorting, or filter query parameters',
+    type: ApiErrorResponseDto,
   })
   async findAll(
     @Query() query: ListAgentsQueryDto,
@@ -77,6 +142,7 @@ export class AgentsController {
   })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
+    type: ApiErrorResponseDto,
   })
   async findOne(@Param('agentId') agentId: string): Promise<AgentResponseDto> {
     return this.agentsService.findOne(agentId);
@@ -105,10 +171,12 @@ export class AgentsController {
   @ApiBadRequestResponse({
     description:
       'Request validation failed (e.g. missing name, invalid types, or client-supplied server-managed fields)',
+    type: ApiErrorResponseDto,
   })
   @ApiUnprocessableEntityResponse({
     description:
       'Referenced foreign key (modelId or systemPromptId) does not exist',
+    type: ApiErrorResponseDto,
   })
   async create(
     @Body() dto: CreateAgentDto,
@@ -138,13 +206,16 @@ export class AgentsController {
   @ApiBadRequestResponse({
     description:
       'Request validation failed (e.g. invalid types, out-of-range values, or client-supplied server-managed fields)',
+    type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
+    type: ApiErrorResponseDto,
   })
   @ApiUnprocessableEntityResponse({
     description:
       'Referenced foreign key (modelId or systemPromptId) does not exist',
+    type: ApiErrorResponseDto,
   })
   async update(
     @Param('agentId') agentId: string,
@@ -177,6 +248,7 @@ Cascade behavior across referencing tables:
   })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
+    type: ApiErrorResponseDto,
   })
   async delete(@Param('agentId') agentId: string): Promise<void> {
     await this.agentsService.delete(agentId);
@@ -196,6 +268,11 @@ Cascade behavior across referencing tables:
     description: 'Unique agent identifier',
     example: '018f3a9e-0000-7000-8000-000000000001',
   })
+  @ApiBody({
+    description:
+      'Profile picture image file (JPEG, PNG, WebP, or GIF up to configured max size)',
+    type: UploadAgentPictureDto,
+  })
   @ApiOkResponse({
     description: 'Picture uploaded and agent updated successfully',
     type: AgentResponseDto,
@@ -203,12 +280,15 @@ Cascade behavior across referencing tables:
   @ApiBadRequestResponse({
     description:
       'No file uploaded, file is empty, or unsupported media type (non-image or SVG)',
+    type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
+    type: ApiErrorResponseDto,
   })
   @ApiPayloadTooLargeResponse({
     description: 'Uploaded file exceeds configured maximum size limit',
+    type: ApiErrorResponseDto,
   })
   async uploadPicture(
     @Param('agentId') agentId: string,
@@ -241,10 +321,9 @@ Cascade behavior across referencing tables:
   })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
+    type: ApiErrorResponseDto,
   })
   async deletePicture(@Param('agentId') agentId: string): Promise<void> {
     await this.agentsService.deletePicture(agentId);
   }
 }
-
-
