@@ -1,0 +1,93 @@
+// Shared layout for the collection pages (agents, memories, system prompts).
+//
+// Component styles are view-encapsulated, so each list page `@use`s this
+// partial rather than relying on a global rule. Keeping it in one file is what
+// makes the three pages look like the same product.
+
+@mixin list-page {
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1rem 0.5rem;
+  }
+
+  .toolbar__search {
+    flex: 1 1 16rem;
+    min-width: 12rem;
+  }
+
+  .toolbar__filter {
+    flex: 0 1 14rem;
+    min-width: 10rem;
+  }
+
+  .toolbar__count {
+    margin-left: auto;
+    padding-bottom: 0.5rem;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-medium);
+    white-space: nowrap;
+  }
+
+  // The table keeps its own horizontal scroll so a narrow window scrolls the
+  // table rather than the whole page, which would drag the header and the
+  // toolbar out of view with it.
+  .table-scroll {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    min-width: 36rem;
+  }
+
+  th {
+    white-space: nowrap;
+  }
+
+  .row {
+    cursor: pointer;
+
+    &:hover {
+      background: var(--mat-sys-surface-container-high);
+    }
+  }
+
+  .cell--name {
+    font-weight: 500;
+  }
+
+  // Keeps the action column from being stretched by the flexible columns.
+  .cell--actions {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  // A long text field truncated to two lines, so rows stay a predictable
+  // height whether the content is one line or a thousand.
+  .preview {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-body-small);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.35rem 0;
+  }
+
+  .danger {
+    --mat-menu-item-label-text-color: var(--mat-sys-error);
+    --mat-menu-item-icon-color: var(--mat-sys-error);
+  }
+}

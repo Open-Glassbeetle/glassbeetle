@@ -1,0 +1,7 @@
+@use '../../shared/styles/list-page';
+
+@include list-page.list-page;
+
+.cell--name {
+  max-width: 16rem;
+}

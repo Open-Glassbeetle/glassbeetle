@@ -1,0 +1,47 @@
+<h2 mat-dialog-title>{{ title() }}</h2>
+
+@if (saving()) {
+  <mat-progress-bar mode="indeterminate" />
+}
+
+<mat-dialog-content>
+  <form class="form" [formGroup]="form" (ngSubmit)="save()">
+    <mat-form-field class="form__field">
+      <mat-label>Name</mat-label>
+      <input
+        matInput
+        formControlName="name"
+        maxlength="120"
+        placeholder="Default assistant"
+        cdkFocusInitial
+      />
+      <mat-hint>How the prompt is listed and picked on an agent.</mat-hint>
+      @if (form.controls.name.hasError('required')) {
+        <mat-error>A name is required.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field class="form__field">
+      <mat-label>Instructions</mat-label>
+      <textarea
+        matInput
+        formControlName="content"
+        rows="14"
+        placeholder="You are a helpful assistant…"
+        (input)="onContentInput($any($event.target).value)"
+      ></textarea>
+      <mat-hint>{{ contentLength() }} characters</mat-hint>
+      @if (form.controls.content.hasError('required')) {
+        <mat-error>Instructions are required.</mat-error>
+      }
+    </mat-form-field>
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button matButton [disabled]="saving()" (click)="dialogRef.close()">Cancel</button>
+  <button matButton="filled" [disabled]="saving() || form.invalid" (click)="save()">
+    <mat-icon>save</mat-icon>
+    {{ editing ? 'Save' : 'Create' }}
+  </button>
+</mat-dialog-actions>

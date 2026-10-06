@@ -1,4 +1,4 @@
-import { Pipe, PipeTransform } from '@angular/core';
+import { LOCALE_ID, Pipe, PipeTransform, inject } from '@angular/core';
 
 const UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
   ['year', 365 * 24 * 60 * 60 * 1000],
@@ -12,14 +12,16 @@ const UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
 /**
  * Formats an ISO-8601 timestamp as "3 days ago".
  *
- * Deliberately impure-free: the value is computed once per change detection
- * from the input string, so a list of a hundred rows does not schedule a
- * hundred timers. Exact timestamps stay available in the `title` attribute
- * wherever this is used.
+ * Formatted in the application's locale (`LOCALE_ID`), not the browser's, so
+ * the relative times match the language the rest of the UI is written in.
+ *
+ * Pure on purpose: the value is computed from the input string, so a list of a
+ * hundred rows does not schedule a hundred timers. Exact timestamps stay
+ * available in the `title` attribute wherever this is used.
  */
 @Pipe({ name: 'relativeTime' })
 export class RelativeTimePipe implements PipeTransform {
-  private readonly formatter = new Intl.RelativeTimeFormat(undefined, {
+  private readonly formatter = new Intl.RelativeTimeFormat(inject(LOCALE_ID), {
     numeric: 'auto',
   });
 
