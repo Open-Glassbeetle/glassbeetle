@@ -86,8 +86,41 @@
     padding: 0.35rem 0;
   }
 
+  // A tag renders as a button because clicking it filters the list. It has to
+  // be focusable and reachable by keyboard for that, which a styled <span>
+  // would not be.
+  .tag {
+    padding: 0.1rem 0.55rem;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: var(--mat-sys-corner-full);
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-small);
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--mat-sys-primary);
+      color: var(--mat-sys-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--mat-sys-primary);
+      outline-offset: 1px;
+    }
+
+    &--active {
+      border-color: var(--mat-sys-primary);
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+    }
+  }
+
   .danger {
     --mat-menu-item-label-text-color: var(--mat-sys-error);
     --mat-menu-item-icon-color: var(--mat-sys-error);
+  }
+
+  .danger-icon {
+    --mat-icon-button-icon-color: var(--mat-sys-error);
   }
 }

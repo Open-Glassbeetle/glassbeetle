@@ -1,0 +1,185 @@
+<div class="page">
+  <app-page-header
+    title="Shared memory"
+    subtitle="Facts, preferences and conventions every agent can draw on."
+  >
+    <button matButton="filled" (click)="openEditor(null)">
+      <mat-icon>add</mat-icon>
+      New memory
+    </button>
+  </app-page-header>
+
+  <mat-card appearance="outlined">
+    <div class="toolbar">
+      <mat-form-field class="toolbar__search" subscriptSizing="fixed">
+        <mat-label>Search content</mat-label>
+        <mat-icon matIconPrefix>search</mat-icon>
+        <input
+          matInput
+          type="search"
+          [value]="list.searchTerm()"
+          (input)="list.setSearch($any($event.target).value)"
+        />
+        @if (list.searchTerm()) {
+          <button
+            matIconButton
+            matIconSuffix
+            aria-label="Clear search"
+            (click)="list.clearSearch()"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </mat-form-field>
+
+      <mat-form-field class="toolbar__filter" subscriptSizing="fixed">
+        <mat-label>Filter by tag</mat-label>
+        <mat-icon matIconPrefix>label</mat-icon>
+        <input matInput [value]="tagFilter()" (input)="setTagFilter($any($event.target).value)" />
+        @if (tagFilter()) {
+          <button
+            matIconButton
+            matIconSuffix
+            aria-label="Clear tag filter"
+            (click)="setTagFilter('')"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </mat-form-field>
+
+      <span class="toolbar__count">
+        {{ list.total() }} {{ list.total() === 1 ? 'memory' : 'memories' }}
+      </span>
+    </div>
+
+    @if (list.loading()) {
+      <mat-progress-bar mode="indeterminate" />
+    }
+
+    @if (list.error(); as error) {
+      <app-empty-state
+        icon="cloud_off"
+        title="Could not load shared memory"
+        [message]="error.message"
+      >
+        <button matButton="tonal" (click)="list.reload()">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+      </app-empty-state>
+    } @else if (list.isEmpty()) {
+      @if (list.search() || tagFilter()) {
+        <app-empty-state
+          icon="search_off"
+          title="No matching memories"
+          message="Nothing matches the current search and tag filter."
+        >
+          <button matButton (click)="clearFilters()">Clear filters</button>
+        </app-empty-state>
+      } @else {
+        <app-empty-state
+          icon="hard_drive"
+          title="No shared memories yet"
+          message="Shared memories are facts every agent can draw on — conventions, preferences, things about your setup that should not be repeated to each agent."
+        >
+          <button matButton="filled" (click)="openEditor(null)">
+            <mat-icon>add</mat-icon>
+            New memory
+          </button>
+        </app-empty-state>
+      }
+    } @else {
+      <div class="table-scroll">
+        <table
+          mat-table
+          [dataSource]="list.items()"
+          matSort
+          [matSortActive]="list.sort()"
+          [matSortDirection]="list.order()"
+          (matSortChange)="list.onSort($event)"
+        >
+          <ng-container matColumnDef="content">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header="content">Memory</th>
+            <td mat-cell *matCellDef="let memory">
+              <span class="preview">{{ memory.content }}</span>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="tags">
+            <th mat-header-cell *matHeaderCellDef>Tags</th>
+            <td mat-cell *matCellDef="let memory" (click)="$event.stopPropagation()">
+              @if (memory.tags.length) {
+                <div class="tags">
+                  @for (tag of memory.tags; track tag) {
+                    <button
+                      class="tag"
+                      [class.tag--active]="tag === tagFilter()"
+                      [matTooltip]="'Filter by ' + tag"
+                      (click)="setTagFilter(tag)"
+                    >
+                      {{ tag }}
+                    </button>
+                  }
+                </div>
+              } @else {
+                <span class="unset">none</span>
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="updatedAt">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header="updatedAt">Updated</th>
+            <td mat-cell *matCellDef="let memory" [title]="memory.updatedAt">
+              {{ memory.updatedAt | relativeTime }}
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="actions">
+            <th mat-header-cell *matHeaderCellDef aria-label="Actions"></th>
+            <td
+              mat-cell
+              *matCellDef="let memory"
+              class="cell--actions"
+              (click)="$event.stopPropagation()"
+            >
+              <button
+                matIconButton
+                matTooltip="Edit"
+                aria-label="Edit memory"
+                (click)="openEditor(memory)"
+              >
+                <mat-icon>edit</mat-icon>
+              </button>
+              <button
+                matIconButton
+                matTooltip="Delete"
+                aria-label="Delete memory"
+                class="danger-icon"
+                (click)="remove(memory)"
+              >
+                <mat-icon>delete</mat-icon>
+              </button>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="columns"></tr>
+          <tr
+            mat-row
+            *matRowDef="let memory; columns: columns"
+            class="row"
+            (click)="openEditor(memory)"
+          ></tr>
+        </table>
+      </div>
+    }
+
+    <mat-paginator
+      [length]="list.total()"
+      [pageIndex]="list.pageIndex()"
+      [pageSize]="list.pageSize()"
+      [pageSizeOptions]="pageSizeOptions"
+      (page)="list.onPage($event)"
+    />
+  </mat-card>
+</div>
