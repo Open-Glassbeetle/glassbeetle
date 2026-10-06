@@ -59,15 +59,25 @@ The three tiers talk to each other like this:
 
 ## Frontend
 
-The UI is Angular with Angular Material, and covers the endpoints the API
-actually implements: agents (including their profile picture and private
-memories), shared memory, system prompts, and service health. The modules that
-are still empty controllers — chats, projects, teams, providers, artifacts,
-analytics, backups — have no screens and no navigation entries.
+The UI is an agent workspace built on Angular and Angular Material: a rail
+carrying the live agent roster beside every screen, a ⌘K command palette over
+agents, memory and prompts, and a workspace per agent showing the context it is
+configured to draw on.
 
-Structure and conventions, including how the UI works around the two gaps in
-the current API, are documented in
-[`apps/web/README.md`](apps/web/README.md). Read it before adding a screen.
+It covers the endpoints the API implements — agents (profile picture and
+private memories included), shared memory, system prompts and service health.
+The modules that are still empty controllers have no screens.
+
+Where the schema promises more than the API serves, the UI says so rather than
+mocking it: agents show configuration *readiness* rather than an invented run
+state, the feed is labelled as configuration history because `usage_events` has
+no endpoint, and model assignment is disabled with its reason stated because
+`agents.model_id` references a `models` table that has no endpoint to populate
+it.
+
+Structure, conventions and the capability probe that drives that last point are
+documented in [`apps/web/README.md`](apps/web/README.md). Read it before adding
+a screen.
 
 ## API
 
