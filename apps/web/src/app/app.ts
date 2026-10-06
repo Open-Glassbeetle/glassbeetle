@@ -9,6 +9,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter, map } from 'rxjs';
 
 import { readinessOf } from './core/agents/agent-readiness';
+import { CapabilitiesService } from './core/platform/capabilities.service';
 import { ThemeService } from './core/theme/theme.service';
 import { AgentRosterService } from './core/workspace/agent-roster.service';
 import { ApiStatusIndicator } from './features/api-status/api-status-indicator';
@@ -59,6 +60,7 @@ export class App implements OnInit {
   private readonly dialog = inject(MatDialog);
 
   protected readonly roster = inject(AgentRosterService);
+  private readonly capabilities = inject(CapabilitiesService);
 
   protected readonly navItems: readonly NavItem[] = [
     { path: '/overview', label: 'Overview', icon: 'space_dashboard' },
@@ -84,12 +86,14 @@ export class App implements OnInit {
     ? '⌘'
     : 'Ctrl';
 
-  protected readonly rosterEntries = computed(() =>
-    this.roster.agents().map((agent) => ({
+  protected readonly rosterEntries = computed(() => {
+    const context = { modelsAvailable: this.capabilities.modelsAvailable() };
+
+    return this.roster.agents().map((agent) => ({
       agent,
-      readiness: readinessOf(agent),
-    })),
-  );
+      readiness: readinessOf(agent, context),
+    }));
+  });
 
   constructor() {
     // Follow the window: a rail beside the content is right when there is room
@@ -109,6 +113,7 @@ export class App implements OnInit {
   }
 
   ngOnInit(): void {
+    this.capabilities.probe();
     this.roster.refresh();
   }
 

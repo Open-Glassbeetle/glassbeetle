@@ -3,6 +3,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentsService } from '../api/agents.service';
 import type { Agent } from '../api/agents.models';
 import { readinessOf } from '../agents/agent-readiness';
+import { CapabilitiesService } from '../platform/capabilities.service';
 
 /**
  * The agents shown in the navigation rail.
@@ -15,6 +16,7 @@ import { readinessOf } from '../agents/agent-readiness';
 @Injectable({ providedIn: 'root' })
 export class AgentRosterService {
   private readonly api = inject(AgentsService);
+  private readonly capabilities = inject(CapabilitiesService);
 
   private readonly _agents = signal<readonly Agent[]>([]);
   private readonly _loading = signal(false);

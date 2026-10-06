@@ -1,0 +1,175 @@
+<div class="context">
+  <div class="context__summary">
+    <div class="summary__item">
+      <span class="summary__value mono">{{ layerCount() }}</span>
+      <span class="summary__label">context layers</span>
+    </div>
+    <div class="summary__item">
+      <span class="summary__value mono">{{ instructionChars() | number }}</span>
+      <span class="summary__label">instruction characters</span>
+    </div>
+    <div class="summary__item">
+      <span class="summary__value mono">
+        {{ (sharedMemory()?.total ?? 0) + (privateMemory()?.total ?? 0) }}
+      </span>
+      <span class="summary__label">memories in scope</span>
+    </div>
+
+    <p class="summary__note">
+      <mat-icon class="summary__note-icon">info</mat-icon>
+      These are the inputs this agent is configured with. The API has no inference endpoint yet, so
+      nothing here is a rendered prompt.
+    </p>
+  </div>
+
+  @if (empty()) {
+    <gb-panel>
+      <div class="blank">
+        <mat-icon class="blank__icon">layers_clear</mat-icon>
+        <p class="blank__title">Nothing configured yet</p>
+        <p class="blank__text">
+          This agent has no system prompt, no instructions, no personality and no memory. It would
+          run with nothing to go on.
+        </p>
+        <a matButton="filled" [routerLink]="[]" [queryParams]="{ tab: 'settings' }">
+          <mat-icon>tune</mat-icon>
+          Configure it
+        </a>
+      </div>
+    </gb-panel>
+  } @else {
+    <ol class="layers">
+      <!-- ── 1. System prompt ──────────────────────────────────────── -->
+      <li class="layer" [class.layer--absent]="!systemPrompt()">
+        <gb-panel
+          icon="article"
+          title="System prompt"
+          [subtitle]="
+            systemPrompt()
+              ? systemPrompt()!.name + ' · ' + systemPrompt()!.content.length + ' characters'
+              : 'No template linked'
+          "
+        >
+          <a matButton panel-actions routerLink="/prompts">
+            Templates
+            <mat-icon iconPositionEnd>arrow_forward</mat-icon>
+          </a>
+
+          @if (systemPrompt(); as prompt) {
+            <pre class="body">{{ prompt.content }}</pre>
+          } @else {
+            <p class="absent">
+              No shared template. The agent relies on its own instructions alone.
+            </p>
+          }
+        </gb-panel>
+      </li>
+
+      <!-- ── 2. Personality ────────────────────────────────────────── -->
+      <li class="layer" [class.layer--absent]="!personality()">
+        <gb-panel
+          icon="theater_comedy"
+          title="Personality"
+          [subtitle]="personality() ? personality()!.length + ' characters' : 'Not set'"
+        >
+          @if (personality(); as text) {
+            <pre class="body">{{ text }}</pre>
+          } @else {
+            <p class="absent">No character or demeanour described.</p>
+          }
+        </gb-panel>
+      </li>
+
+      <!-- ── 3. Agent instructions ─────────────────────────────────── -->
+      <li class="layer" [class.layer--absent]="!instructions()">
+        <gb-panel
+          icon="checklist"
+          title="Agent instructions"
+          [subtitle]="instructions() ? instructions()!.length + ' characters' : 'Not set'"
+        >
+          @if (instructions(); as text) {
+            <pre class="body">{{ text }}</pre>
+          } @else {
+            <p class="absent">Nothing specific to this agent beyond the template above.</p>
+          }
+        </gb-panel>
+      </li>
+
+      <!-- ── 4. Shared memory ──────────────────────────────────────── -->
+      <li class="layer">
+        <gb-panel
+          icon="database"
+          title="Shared memory"
+          [subtitle]="memorySubtitle(sharedMemory(), 'every agent')"
+        >
+          <a matButton panel-actions routerLink="/memory">
+            Open
+            <mat-icon iconPositionEnd>arrow_forward</mat-icon>
+          </a>
+
+          @if (!loaded()) {
+            <div class="memory-skeletons">
+              @for (row of [1, 2]; track row) {
+                <gb-skeleton [width]="row === 1 ? '80%' : '60%'" />
+              }
+            </div>
+          } @else {
+            <ng-container
+              *ngTemplateOutlet="memoryList; context: { layer: sharedMemory(), link: '/memory' }"
+            />
+          }
+        </gb-panel>
+      </li>
+
+      <!-- ── 5. Private memory ─────────────────────────────────────── -->
+      <li class="layer">
+        <gb-panel
+          icon="encrypted"
+          title="Private memory"
+          [subtitle]="memorySubtitle(privateMemory(), 'this agent only')"
+        >
+          <a matButton panel-actions [routerLink]="[]" [queryParams]="{ tab: 'memory' }">
+            Open
+            <mat-icon iconPositionEnd>arrow_forward</mat-icon>
+          </a>
+
+          @if (!loaded()) {
+            <div class="memory-skeletons">
+              @for (row of [1, 2]; track row) {
+                <gb-skeleton [width]="row === 1 ? '70%' : '50%'" />
+              }
+            </div>
+          } @else {
+            <ng-container
+              *ngTemplateOutlet="memoryList; context: { layer: privateMemory(), link: null }"
+            />
+          }
+        </gb-panel>
+      </li>
+    </ol>
+  }
+</div>
+
+<!-- Shared rendering for both memory layers. -->
+<ng-template #memoryList let-layer="layer" let-link="link">
+  @if (layer?.failed) {
+    <p class="absent absent--error">Could not load this memory.</p>
+  } @else if (!layer?.total) {
+    <p class="absent">Nothing stored yet.</p>
+  } @else {
+    <ul class="memories">
+      @for (memory of layer.preview; track memory.id) {
+        <li class="memory">
+          <span class="memory__text">{{ memory.content }}</span>
+          @if (memory.tags.length) {
+            <span class="memory__tags mono">{{ memory.tags.join(' · ') }}</span>
+          }
+        </li>
+      }
+    </ul>
+
+    @if (layer.total > previewSize) {
+      <p class="more">+ {{ layer.total - previewSize }} more</p>
+    }
+  }
+</ng-template>

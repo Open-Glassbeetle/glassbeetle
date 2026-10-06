@@ -10,6 +10,7 @@ import { App } from './app';
 // with the API again.
 const HEALTH_URL = `${environment.apiBaseUrl}/health`;
 const AGENTS_URL = `${environment.apiBaseUrl}/agents`;
+const MODELS_URL = `${environment.apiBaseUrl}/models`;
 
 const HEALTHY = {
   status: 'ok',
@@ -53,12 +54,34 @@ describe('App shell', () => {
     httpMock.verify();
   });
 
-  /** Renders the shell and answers the two requests it makes on startup. */
-  function render(options: { agents?: unknown[]; health?: unknown } = {}) {
+  /**
+   * Answers the capability probe the shell fires on startup.
+   *
+   * A 404 is the real response from an API whose providers module is still an
+   * empty controller, which is what the UI has to behave correctly for.
+   */
+  function answerProbe(modelsAvailable = false) {
+    const request = httpMock.expectOne((req) => req.url === MODELS_URL);
+
+    if (modelsAvailable) {
+      request.flush({ items: [], total: 0, limit: 1, offset: 0 });
+    } else {
+      request.flush(
+        { statusCode: 404, code: 'NOT_FOUND', message: 'Cannot GET /api/v1/models' },
+        { status: 404, statusText: 'Not Found' },
+      );
+    }
+  }
+
+  /** Renders the shell and answers the three requests it makes on startup. */
+  function render(
+    options: { agents?: unknown[]; health?: unknown; modelsAvailable?: boolean } = {},
+  ) {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
     httpMock.expectOne(HEALTH_URL).flush(options.health ?? HEALTHY);
+    answerProbe(options.modelsAvailable);
 
     const items = options.agents ?? [];
     httpMock
@@ -69,7 +92,7 @@ describe('App shell', () => {
     return fixture;
   }
 
-  it('loads the roster and the health check exactly once each', () => {
+  it('loads the roster, the health check and the capability probe once each', () => {
     const fixture = render();
     expect(fixture.componentInstance).toBeTruthy();
   });
@@ -101,13 +124,11 @@ describe('App shell', () => {
     expect(hrefs).toContain('/agents/a2');
   });
 
-  it('counts how many agents are ready to run', () => {
-    // Only the second agent has both a model and something steering it.
+  it('counts how many agents are configured', () => {
+    // Only the second agent has something steering it. Neither can have a
+    // model, which is why the count must not hold that against them.
     const element = render({
-      agents: [
-        agent(),
-        agent({ id: 'a2', name: 'Ready One', modelId: 'm1', systemPromptId: 'p1' }),
-      ],
+      agents: [agent(), agent({ id: 'a2', name: 'Ready One', systemPromptId: 'p1' })],
     }).nativeElement as HTMLElement;
 
     expect(element.textContent).toContain('1/2 ready');
@@ -123,6 +144,7 @@ describe('App shell', () => {
     fixture.detectChanges();
 
     httpMock.expectOne(HEALTH_URL).error(new ProgressEvent('error'), { status: 0, statusText: '' });
+    answerProbe();
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
@@ -143,6 +165,7 @@ describe('App shell', () => {
       },
       { status: 503, statusText: 'Service Unavailable' },
     );
+    answerProbe();
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
@@ -156,6 +179,7 @@ describe('App shell', () => {
     fixture.detectChanges();
 
     httpMock.expectOne(HEALTH_URL).flush(HEALTHY);
+    answerProbe();
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ message: 'boom' }, { status: 500, statusText: 'Server Error' });

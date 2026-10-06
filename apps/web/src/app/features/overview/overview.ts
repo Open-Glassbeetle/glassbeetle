@@ -9,6 +9,7 @@ import { readinessOf, configuredFraction } from '../../core/agents/agent-readine
 import { ActivityService, type ActivityEvent } from '../../core/activity/activity.service';
 import { SharedMemoriesService } from '../../core/api/memories.service';
 import { SystemPromptsService } from '../../core/api/system-prompts.service';
+import { CapabilitiesService } from '../../core/platform/capabilities.service';
 import { AgentRosterService } from '../../core/workspace/agent-roster.service';
 import { ApiStatusService } from '../api-status/api-status.service';
 import { AgentAvatar } from '../agents/agent-avatar/agent-avatar';
@@ -57,6 +58,7 @@ export class Overview implements OnInit {
 
   protected readonly roster = inject(AgentRosterService);
   protected readonly status = inject(ApiStatusService);
+  protected readonly capabilities = inject(CapabilitiesService);
 
   protected readonly events = signal<readonly ActivityEvent[]>([]);
   protected readonly activityLoaded = signal(false);
@@ -68,14 +70,18 @@ export class Overview implements OnInit {
   protected readonly entityIcon = ENTITY_ICON;
   protected readonly entityLabel = ENTITY_LABEL;
 
+  private readonly context = computed(() => ({
+    modelsAvailable: this.capabilities.modelsAvailable(),
+  }));
+
   /** The roster, ordered so the agents needing attention surface first. */
   protected readonly agents = computed(() =>
     this.roster
       .agents()
       .map((agent) => ({
         agent,
-        readiness: readinessOf(agent),
-        configured: Math.round(configuredFraction(agent) * 100),
+        readiness: readinessOf(agent, this.context()),
+        configured: Math.round(configuredFraction(agent, this.context()) * 100),
       }))
       .sort((a, b) => {
         const order = { blocked: 0, unguided: 1, ready: 2 };
