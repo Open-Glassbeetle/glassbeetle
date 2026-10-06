@@ -1,14 +1,14 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
-import { Component, computed, effect, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
-import { MatSidenavModule } from '@angular/material/sidenav';
+import { MatSidenavContent, MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { map } from 'rxjs';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter, map } from 'rxjs';
 
 import { ApiStatusIndicator } from './features/api-status/api-status-indicator';
 import { ThemeService } from './core/theme/theme.service';
@@ -53,6 +53,9 @@ const WIDE_LAYOUT = '(min-width: 60rem)';
 export class App {
   private readonly breakpoints = inject(BreakpointObserver);
   private readonly theme = inject(ThemeService);
+  private readonly router = inject(Router);
+
+  private readonly content = viewChild.required(MatSidenavContent);
 
   protected readonly navItems: readonly NavItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: 'space_dashboard' },
@@ -82,6 +85,17 @@ export class App {
     // and wrong when there is not, so resizing resets the drawer rather than
     // leaving an overlay covering a narrow window.
     effect(() => this.drawerOpen.set(this.wideLayout()));
+
+    // The drawer stays put while the routed page scrolls, so the scroll
+    // container is `mat-sidenav-content` rather than the document — which is
+    // the one the router's own scroll restoration would reset. Without this,
+    // opening an agent from halfway down the list lands halfway down its page.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.content().scrollTo({ top: 0, left: 0 }));
   }
 
   protected toggleTheme(): void {

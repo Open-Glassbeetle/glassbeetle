@@ -1,0 +1,108 @@
+<div class="page">
+  <nav class="breadcrumb">
+    <a matButton routerLink="/agents">
+      <mat-icon>arrow_back</mat-icon>
+      All agents
+    </a>
+  </nav>
+
+  @if (loading() && !agent()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  @if (error(); as failure) {
+    @if (failure.status === 404) {
+      <app-empty-state
+        icon="person_off"
+        title="Agent not found"
+        message="It may have been deleted in another window."
+      >
+        <a matButton="tonal" routerLink="/agents">Back to agents</a>
+      </app-empty-state>
+    } @else {
+      <app-empty-state
+        icon="cloud_off"
+        title="Could not load this agent"
+        [message]="describe(failure)"
+      >
+        <button matButton="tonal" (click)="load(agentId())">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+      </app-empty-state>
+    }
+  } @else if (agent(); as current) {
+    <header class="masthead">
+      <app-agent-avatar [name]="current.name" [hasPicture]="current.hasPicture" size="large" />
+
+      <div class="masthead__text">
+        <h1 class="masthead__name">{{ current.name }}</h1>
+        <p class="masthead__meta">
+          @if (promptName(); as prompt) {
+            <span>{{ prompt }}</span>
+          } @else {
+            <span class="unset">No system prompt</span>
+          }
+          <span aria-hidden="true">·</span>
+          <span [title]="current.updatedAt"> updated {{ current.updatedAt | relativeTime }} </span>
+        </p>
+      </div>
+
+      <div class="masthead__actions">
+        <input
+          #picker
+          type="file"
+          class="visually-hidden"
+          [accept]="acceptedTypes"
+          (change)="onPictureSelected($event)"
+        />
+
+        <button matButton="tonal" [disabled]="uploading()" (click)="picker.click()">
+          <mat-icon>photo_camera</mat-icon>
+          {{ current.hasPicture ? 'Replace picture' : 'Add picture' }}
+        </button>
+
+        <button matIconButton [matMenuTriggerFor]="menu" aria-label="More actions">
+          <mat-icon>more_vert</mat-icon>
+        </button>
+
+        <mat-menu #menu>
+          <button
+            mat-menu-item
+            [disabled]="!current.hasPicture || uploading()"
+            (click)="removePicture()"
+          >
+            <mat-icon>hide_image</mat-icon>
+            <span>Remove picture</span>
+          </button>
+          <button mat-menu-item class="danger" (click)="remove()">
+            <mat-icon>delete</mat-icon>
+            <span>Delete agent</span>
+          </button>
+        </mat-menu>
+      </div>
+    </header>
+
+    @if (uploading()) {
+      <mat-progress-bar mode="indeterminate" />
+    }
+
+    <mat-tab-group class="tabs" animationDuration="0ms">
+      <mat-tab label="Configuration">
+        <div class="tab">
+          <app-agent-config
+            [agent]="current"
+            [systemPrompts]="prompts()"
+            (saved)="onSaved($event)"
+          />
+        </div>
+      </mat-tab>
+
+      <mat-tab label="Memories">
+        <div class="tab">
+          <app-agent-memory-panel [agent]="current" />
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  }
+</div>

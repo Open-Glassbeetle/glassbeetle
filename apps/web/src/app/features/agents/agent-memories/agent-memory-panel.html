@@ -1,0 +1,127 @@
+<div class="panel">
+  <div class="panel__toolbar">
+    <mat-form-field class="panel__search" subscriptSizing="fixed">
+      <mat-label>Search memories</mat-label>
+      <mat-icon matIconPrefix>search</mat-icon>
+      <input
+        matInput
+        type="search"
+        [value]="list.searchTerm()"
+        (input)="list.setSearch($any($event.target).value)"
+      />
+      @if (list.searchTerm()) {
+        <button matIconButton matIconSuffix aria-label="Clear search" (click)="list.clearSearch()">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+
+    <mat-form-field class="panel__filter" subscriptSizing="fixed">
+      <mat-label>Filter by tag</mat-label>
+      <mat-icon matIconPrefix>label</mat-icon>
+      <input matInput [value]="tagFilter()" (input)="setTagFilter($any($event.target).value)" />
+      @if (tagFilter()) {
+        <button
+          matIconButton
+          matIconSuffix
+          aria-label="Clear tag filter"
+          (click)="setTagFilter('')"
+        >
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+
+    <button matButton="filled" (click)="openEditor(null)">
+      <mat-icon>add</mat-icon>
+      Add memory
+    </button>
+  </div>
+
+  @if (list.loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  @if (list.error(); as error) {
+    <app-empty-state icon="cloud_off" title="Could not load memories" [message]="error.message">
+      <button matButton="tonal" (click)="list.reload()">
+        <mat-icon>refresh</mat-icon>
+        Try again
+      </button>
+    </app-empty-state>
+  } @else if (list.isEmpty()) {
+    @if (list.search() || tagFilter()) {
+      <app-empty-state
+        icon="search_off"
+        title="No matching memories"
+        message="Nothing matches the current search and tag filter."
+      >
+        <button matButton (click)="clearFilters()">Clear filters</button>
+      </app-empty-state>
+    } @else {
+      <app-empty-state
+        icon="psychology"
+        title="No memories yet"
+        message="Private memories are things this agent should remember that no other agent sees. Shared memory lives on its own page."
+      >
+        <button matButton="filled" (click)="openEditor(null)">
+          <mat-icon>add</mat-icon>
+          Add memory
+        </button>
+      </app-empty-state>
+    }
+  } @else {
+    <ul class="memories">
+      @for (memory of list.items(); track memory.id) {
+        <li class="memory">
+          <p class="memory__content">{{ memory.content }}</p>
+
+          <div class="memory__footer">
+            <div class="tags">
+              @for (tag of memory.tags; track tag) {
+                <button
+                  class="tag"
+                  [class.tag--active]="tag === tagFilter()"
+                  [matTooltip]="'Filter by ' + tag"
+                  (click)="setTagFilter(tag)"
+                >
+                  {{ tag }}
+                </button>
+              }
+            </div>
+
+            <span class="memory__time" [title]="memory.updatedAt">
+              {{ memory.updatedAt | relativeTime }}
+            </span>
+
+            <button
+              matIconButton
+              matTooltip="Edit"
+              aria-label="Edit memory"
+              (click)="openEditor(memory)"
+            >
+              <mat-icon>edit</mat-icon>
+            </button>
+            <button
+              matIconButton
+              matTooltip="Delete"
+              aria-label="Delete memory"
+              class="danger-icon"
+              (click)="remove(memory)"
+            >
+              <mat-icon>delete</mat-icon>
+            </button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+
+  <mat-paginator
+    [length]="list.total()"
+    [pageIndex]="list.pageIndex()"
+    [pageSize]="list.pageSize()"
+    [pageSizeOptions]="pageSizeOptions"
+    (page)="list.onPage($event)"
+  />
+</div>
