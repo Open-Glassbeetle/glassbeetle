@@ -1,17 +1,21 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
-import { Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, HostListener, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
-import { MatListModule } from '@angular/material/list';
-import { MatSidenavContent, MatSidenavModule } from '@angular/material/sidenav';
-import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
 
-import { ApiStatusIndicator } from './features/api-status/api-status-indicator';
+import { readinessOf } from './core/agents/agent-readiness';
 import { ThemeService } from './core/theme/theme.service';
+import { AgentRosterService } from './core/workspace/agent-roster.service';
+import { ApiStatusIndicator } from './features/api-status/api-status-indicator';
+import { CommandPalette } from './features/command-palette/command-palette';
+import { AgentAvatar } from './features/agents/agent-avatar/agent-avatar';
+import { ReadinessBadge } from './shared/ui/readiness-badge';
+import { Skeleton } from './shared/ui/skeleton';
 
 interface NavItem {
   readonly path: string;
@@ -19,49 +23,48 @@ interface NavItem {
   readonly icon: string;
 }
 
-/**
- * Width at which the navigation drawer can sit beside the content instead of
- * covering it. The Tauri window opens wider than this, so the default desktop
- * experience is the permanent drawer.
- */
-const WIDE_LAYOUT = '(min-width: 60rem)';
+/** Width at which the rail can sit beside the content instead of over it. */
+const WIDE_LAYOUT = '(min-width: 62rem)';
 
 /**
- * Application shell: toolbar, navigation drawer and the routed outlet.
+ * The workspace shell: a top bar, a persistent rail carrying both navigation
+ * and the agent roster, and the routed surface.
  *
- * Only features the API actually implements are listed. Chats, projects,
- * teams, providers and analytics exist as empty NestJS modules, so a nav entry
- * for them would lead to a page with nothing to show.
+ * The roster lives in the rail rather than only on the agents page so the
+ * agents are present on every screen — they are the actors the workspace is
+ * about, not one section of it.
  */
 @Component({
   selector: 'app-root',
   imports: [
+    AgentAvatar,
     ApiStatusIndicator,
     MatButtonModule,
+    MatDialogModule,
     MatIconModule,
-    MatListModule,
-    MatSidenavModule,
-    MatToolbarModule,
     MatTooltipModule,
+    ReadinessBadge,
     RouterLink,
     RouterLinkActive,
     RouterOutlet,
+    Skeleton,
   ],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })
-export class App {
+export class App implements OnInit {
   private readonly breakpoints = inject(BreakpointObserver);
   private readonly theme = inject(ThemeService);
   private readonly router = inject(Router);
+  private readonly dialog = inject(MatDialog);
 
-  private readonly content = viewChild.required(MatSidenavContent);
+  protected readonly roster = inject(AgentRosterService);
 
   protected readonly navItems: readonly NavItem[] = [
-    { path: '/dashboard', label: 'Dashboard', icon: 'space_dashboard' },
-    { path: '/agents', label: 'Agents', icon: 'smart_toy' },
-    { path: '/memories', label: 'Shared memory', icon: 'hard_drive' },
-    { path: '/system-prompts', label: 'System prompts', icon: 'description' },
+    { path: '/overview', label: 'Overview', icon: 'space_dashboard' },
+    { path: '/agents', label: 'Agents', icon: 'graph_3' },
+    { path: '/memory', label: 'Shared memory', icon: 'database' },
+    { path: '/prompts', label: 'System prompts', icon: 'article' },
   ];
 
   protected readonly wideLayout = toSignal(
@@ -69,47 +72,85 @@ export class App {
     { initialValue: true },
   );
 
-  protected readonly drawerMode = computed<'side' | 'over'>(() =>
-    this.wideLayout() ? 'side' : 'over',
-  );
-
-  protected readonly drawerOpen = signal(true);
+  protected readonly railOpen = signal(true);
 
   protected readonly themeMode = this.theme.mode;
   protected readonly themeIcon = computed(() =>
     this.themeMode() === 'dark' ? 'light_mode' : 'dark_mode',
   );
 
-  constructor() {
-    // Follow the window: opening beside the content is right when there is room
-    // and wrong when there is not, so resizing resets the drawer rather than
-    // leaving an overlay covering a narrow window.
-    effect(() => this.drawerOpen.set(this.wideLayout()));
+  /** Shown on the ⌘K affordance so the hint matches the user's keyboard. */
+  protected readonly commandKey = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
+    ? '⌘'
+    : 'Ctrl';
 
-    // The drawer stays put while the routed page scrolls, so the scroll
-    // container is `mat-sidenav-content` rather than the document — which is
-    // the one the router's own scroll restoration would reset. Without this,
-    // opening an agent from halfway down the list lands halfway down its page.
+  protected readonly rosterEntries = computed(() =>
+    this.roster.agents().map((agent) => ({
+      agent,
+      readiness: readinessOf(agent),
+    })),
+  );
+
+  constructor() {
+    // Follow the window: a rail beside the content is right when there is room
+    // and wrong when there is not.
+    effect(() => this.railOpen.set(this.wideLayout()));
+
     this.router.events
       .pipe(
         filter((event) => event instanceof NavigationEnd),
         takeUntilDestroyed(),
       )
-      .subscribe(() => this.content().scrollTo({ top: 0, left: 0 }));
+      .subscribe(() => {
+        if (!this.wideLayout()) {
+          this.railOpen.set(false);
+        }
+      });
+  }
+
+  ngOnInit(): void {
+    this.roster.refresh();
+  }
+
+  /**
+   * Opens the palette on ⌘K / Ctrl-K.
+   *
+   * Bound on the window rather than on an element so it works wherever focus
+   * is, which is the whole point of a command palette. It deliberately does
+   * not fire while a dialog is already open.
+   */
+  @HostListener('window:keydown', ['$event'])
+  protected onKeydown(event: KeyboardEvent): void {
+    const isPaletteShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
+
+    if (isPaletteShortcut && this.dialog.openDialogs.length === 0) {
+      event.preventDefault();
+      this.openPalette();
+    }
+  }
+
+  protected openPalette(): void {
+    this.dialog.open(CommandPalette, {
+      panelClass: 'gb-palette-panel',
+      width: 'auto',
+      autoFocus: 'first-tabbable',
+      // Positioned high so the list grows downwards into empty space rather
+      // than pushing the input around as results arrive.
+      position: { top: '12vh' },
+    });
   }
 
   protected toggleTheme(): void {
     this.theme.toggle();
   }
 
-  protected toggleDrawer(): void {
-    this.drawerOpen.update((open) => !open);
+  protected toggleRail(): void {
+    this.railOpen.update((open) => !open);
   }
 
-  /** Closes the overlay drawer after navigating on a narrow window. */
-  protected onNavigate(): void {
-    if (this.drawerMode() === 'over') {
-      this.drawerOpen.set(false);
+  protected closeRailOnNarrow(): void {
+    if (!this.wideLayout()) {
+      this.railOpen.set(false);
     }
   }
 }

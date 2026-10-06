@@ -18,6 +18,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     <span
       class="avatar"
       [class.avatar--large]="size() === 'large'"
+      [class.avatar--small]="size() === 'small'"
       [style.--avatar-hue]="hue()"
       aria-hidden="true"
     >
@@ -50,11 +51,22 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       user-select: none;
     }
 
+    .avatar--small {
+      width: 1.5rem;
+      height: 1.5rem;
+      font-size: 0.625rem;
+      font-weight: 600;
+    }
+
     .avatar--large {
       width: 3.5rem;
       height: 3.5rem;
       font: var(--mat-sys-title-large);
       font-weight: 600;
+    }
+
+    .avatar--small .avatar__badge {
+      display: none;
     }
 
     .avatar__badge {
@@ -81,7 +93,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 export class AgentAvatar {
   readonly name = input.required<string>();
   readonly hasPicture = input(false);
-  readonly size = input<'normal' | 'large'>('normal');
+  readonly size = input<'small' | 'normal' | 'large'>('normal');
 
   /** Up to two initials, taken from the first and last word of the name. */
   protected readonly initials = computed(() => {

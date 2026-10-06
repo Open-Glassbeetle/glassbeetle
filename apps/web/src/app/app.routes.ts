@@ -1,19 +1,20 @@
 import { Routes } from '@angular/router';
 
 /**
- * Every feature is lazily loaded: the Tauri window shows the dashboard first,
- * and there is no reason for the agent editor's forms to be in that bundle.
+ * Every surface is lazily loaded. The shell and the overview are what the
+ * window opens on; there is no reason for the agent editor's forms to be in
+ * that bundle.
  */
 export const routes: Routes = [
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'dashboard',
+    redirectTo: 'overview',
   },
   {
-    path: 'dashboard',
-    title: 'Dashboard · Glassbeetle',
-    loadComponent: () => import('./features/dashboard/dashboard').then((m) => m.Dashboard),
+    path: 'overview',
+    title: 'Overview · Glassbeetle',
+    loadComponent: () => import('./features/overview/overview').then((m) => m.Overview),
   },
   {
     path: 'agents',
@@ -27,17 +28,21 @@ export const routes: Routes = [
       import('./features/agents/agent-detail/agent-detail').then((m) => m.AgentDetail),
   },
   {
-    path: 'memories',
+    path: 'memory',
     title: 'Shared memory · Glassbeetle',
     loadComponent: () =>
       import('./features/shared-memories/shared-memory-list').then((m) => m.SharedMemoryList),
   },
   {
-    path: 'system-prompts',
+    path: 'prompts',
     title: 'System prompts · Glassbeetle',
     loadComponent: () =>
       import('./features/system-prompts/system-prompt-list').then((m) => m.SystemPromptList),
   },
+  // The previous paths, kept so links and bookmarks from the earlier UI resolve.
+  { path: 'dashboard', pathMatch: 'full', redirectTo: 'overview' },
+  { path: 'memories', pathMatch: 'full', redirectTo: 'memory' },
+  { path: 'system-prompts', pathMatch: 'full', redirectTo: 'prompts' },
   {
     path: '**',
     loadComponent: () => import('./features/not-found/not-found').then((m) => m.NotFound),

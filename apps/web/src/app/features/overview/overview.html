@@ -1,0 +1,239 @@
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">Workspace</h1>
+      <p class="view__subtitle">
+        @if (roster.loaded()) {
+          {{ roster.total() }}
+          {{ roster.total() === 1 ? 'agent' : 'agents' }}
+          @if (needsAttention()) {
+            · <span class="attention">{{ needsAttention() }} need attention</span>
+          } @else if (roster.total()) {
+            · all configured
+          }
+        } @else {
+          Loading the roster…
+        }
+      </p>
+    </div>
+
+    <button matButton (click)="refresh()">
+      <mat-icon>refresh</mat-icon>
+      Refresh
+    </button>
+  </header>
+
+  <div class="grid">
+    <!-- ── Roster ─────────────────────────────────────────────────── -->
+    <gb-panel
+      class="grid__roster"
+      icon="graph_3"
+      title="Agents"
+      [subtitle]="
+        roster.loaded() ? roster.readyCount() + ' of ' + roster.total() + ' ready to run' : ''
+      "
+      flush
+    >
+      <a matButton panel-actions routerLink="/agents">
+        Manage
+        <mat-icon iconPositionEnd>arrow_forward</mat-icon>
+      </a>
+
+      @if (!roster.loaded()) {
+        <div class="cards">
+          @for (card of [1, 2, 3]; track card) {
+            <div class="card card--skeleton">
+              <gb-skeleton width="2rem" height="2rem" radius="50%" />
+              <gb-skeleton width="55%" height="0.875rem" />
+              <gb-skeleton width="80%" height="0.75rem" />
+            </div>
+          }
+        </div>
+      } @else if (!roster.total()) {
+        <div class="blank">
+          <mat-icon class="blank__icon">graph_3</mat-icon>
+          <p class="blank__title">No agents in this workspace</p>
+          <p class="blank__text">
+            An agent bundles a model, a system prompt and its own private memory. Create one to get
+            started.
+          </p>
+          <a matButton="filled" routerLink="/agents" [queryParams]="{ new: 1 }">
+            <mat-icon>add</mat-icon>
+            New agent
+          </a>
+        </div>
+      } @else {
+        <div class="cards">
+          @for (entry of agents(); track entry.agent.id) {
+            <a class="card" [routerLink]="['/agents', entry.agent.id]">
+              <div class="card__top">
+                <app-agent-avatar [name]="entry.agent.name" [hasPicture]="entry.agent.hasPicture" />
+                <gb-readiness-badge [readiness]="entry.readiness" />
+              </div>
+
+              <p class="card__name">{{ entry.agent.name }}</p>
+              <p class="card__desc">
+                @if (entry.agent.personality) {
+                  {{ entry.agent.personality }}
+                } @else {
+                  <span class="unset">No personality set</span>
+                }
+              </p>
+
+              <div class="card__meter" [attr.aria-label]="entry.configured + '% configured'">
+                <div
+                  class="card__meter-fill"
+                  [class]="'card__meter-fill--' + entry.readiness.level"
+                  [style.width.%]="entry.configured"
+                ></div>
+              </div>
+
+              <div class="card__foot">
+                <span class="mono">{{ entry.configured }}% configured</span>
+                @if (entry.readiness.remedy) {
+                  <span class="card__remedy">{{ entry.readiness.remedy }}</span>
+                }
+              </div>
+            </a>
+          }
+        </div>
+      }
+    </gb-panel>
+
+    <!-- ── Activity ───────────────────────────────────────────────── -->
+    <gb-panel
+      class="grid__activity"
+      icon="history"
+      title="Recent changes"
+      subtitle="Configuration history across the workspace"
+      flush
+    >
+      @if (!activityLoaded()) {
+        <ul class="feed">
+          @for (row of [1, 2, 3, 4]; track row) {
+            <li class="feed__item">
+              <gb-skeleton width="1rem" height="1rem" radius="4px" />
+              <div class="feed__skeleton-text">
+                <gb-skeleton [width]="row % 2 ? '70%' : '50%'" height="0.75rem" />
+                <gb-skeleton width="30%" height="0.6875rem" />
+              </div>
+            </li>
+          }
+        </ul>
+      } @else if (!events().length) {
+        <div class="blank blank--compact">
+          <mat-icon class="blank__icon">history</mat-icon>
+          <p class="blank__title">Nothing has changed yet</p>
+          <p class="blank__text">Creating an agent, a memory or a prompt will show up here.</p>
+        </div>
+      } @else {
+        <ul class="feed">
+          @for (event of events(); track event.id) {
+            <li class="feed__item">
+              <mat-icon class="feed__icon" [class.feed__icon--created]="event.kind === 'created'">
+                {{ entityIcon[event.entity] }}
+              </mat-icon>
+
+              <div class="feed__body">
+                <a class="feed__title" [routerLink]="event.link">{{ event.title }}</a>
+                @if (event.detail) {
+                  <span class="feed__detail">{{ event.detail }}</span>
+                }
+              </div>
+
+              <div class="feed__meta">
+                <span class="feed__kind feed__kind--{{ event.kind }}">
+                  {{ event.kind }}
+                </span>
+                <time class="feed__time" [attr.datetime]="event.at" [title]="event.at">
+                  {{ event.at | relativeTime }}
+                </time>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </gb-panel>
+
+    <!-- ── Context ────────────────────────────────────────────────── -->
+    <gb-panel class="grid__context" icon="layers" title="Shared context">
+      <ul class="stats">
+        <li class="stat">
+          <a class="stat__link" routerLink="/memory">
+            <mat-icon class="stat__icon">database</mat-icon>
+            <span class="stat__value mono">
+              @if (countsLoaded()) {
+                {{ memoryCount() ?? '—' }}
+              } @else {
+                <gb-skeleton width="1.5rem" height="1.25rem" />
+              }
+            </span>
+            <span class="stat__label">Shared memories</span>
+          </a>
+        </li>
+        <li class="stat">
+          <a class="stat__link" routerLink="/prompts">
+            <mat-icon class="stat__icon">article</mat-icon>
+            <span class="stat__value mono">
+              @if (countsLoaded()) {
+                {{ promptCount() ?? '—' }}
+              } @else {
+                <gb-skeleton width="1.5rem" height="1.25rem" />
+              }
+            </span>
+            <span class="stat__label">System prompts</span>
+          </a>
+        </li>
+      </ul>
+    </gb-panel>
+
+    <!-- ── Runtime ────────────────────────────────────────────────── -->
+    <gb-panel class="grid__runtime" icon="monitor_heart" title="Runtime">
+      <dl class="facts">
+        <dt>API</dt>
+        <dd>
+          @switch (status.state()) {
+            @case ('checking') {
+              <span class="pill pill--idle">checking</span>
+            }
+            @case ('online') {
+              <span class="pill pill--ok">online</span>
+            }
+            @case ('degraded') {
+              <span class="pill pill--warn">degraded</span>
+            }
+            @case ('offline') {
+              <span class="pill pill--error">offline</span>
+            }
+          }
+        </dd>
+
+        @if (status.health(); as health) {
+          <dt>Service</dt>
+          <dd class="mono">{{ health.service }}</dd>
+
+          <dt>Database</dt>
+          <dd>
+            <span
+              class="pill"
+              [class.pill--ok]="health.checks?.database?.status === 'up'"
+              [class.pill--error]="health.checks?.database?.status === 'down'"
+              [class.pill--idle]="health.checks?.database?.status === 'not_configured'"
+            >
+              {{ health.checks?.database?.status }}
+            </span>
+          </dd>
+        }
+
+        @if (status.error(); as failure) {
+          <dt>Detail</dt>
+          <dd class="facts__error">{{ failure }}</dd>
+        }
+      </dl>
+
+      <p class="note">
+        Inference, chats and teams have no endpoints yet, so nothing here reports live agent runs.
+      </p>
+    </gb-panel>
+  </div>
+</div>
