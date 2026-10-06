@@ -1,0 +1,187 @@
+<div class="page">
+  <app-page-header
+    title="Agents"
+    subtitle="Each agent has its own instructions, sampling settings and private memory."
+  >
+    <button matButton="filled" (click)="createAgent()">
+      <mat-icon>add</mat-icon>
+      New agent
+    </button>
+  </app-page-header>
+
+  <mat-card appearance="outlined">
+    <div class="toolbar">
+      <mat-form-field class="toolbar__search" subscriptSizing="fixed">
+        <mat-label>Search by name</mat-label>
+        <mat-icon matIconPrefix>search</mat-icon>
+        <input
+          matInput
+          type="search"
+          [value]="list.searchTerm()"
+          (input)="list.setSearch($any($event.target).value)"
+        />
+        @if (list.searchTerm()) {
+          <button
+            matIconButton
+            matIconSuffix
+            aria-label="Clear search"
+            (click)="list.clearSearch()"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </mat-form-field>
+
+      <mat-form-field class="toolbar__filter" subscriptSizing="fixed">
+        <mat-label>System prompt</mat-label>
+        <mat-select [value]="promptFilter()" (valueChange)="setPromptFilter($event)">
+          <mat-option value="">Any</mat-option>
+          <mat-option [value]="unassigned">Not assigned</mat-option>
+          @for (prompt of prompts(); track prompt.id) {
+            <mat-option [value]="prompt.id">{{ prompt.name }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <span class="toolbar__count">
+        {{ list.total() }} {{ list.total() === 1 ? 'agent' : 'agents' }}
+      </span>
+    </div>
+
+    @if (list.loading()) {
+      <mat-progress-bar mode="indeterminate" />
+    }
+
+    @if (list.error(); as error) {
+      <app-empty-state icon="cloud_off" title="Could not load agents" [message]="error.message">
+        <button matButton="tonal" (click)="list.reload()">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+      </app-empty-state>
+    } @else if (list.isEmpty()) {
+      @if (list.search() || promptFilter()) {
+        <app-empty-state
+          icon="search_off"
+          title="No matching agents"
+          message="Nothing matches the current search and filter."
+        >
+          <button matButton (click)="clearFilters()">Clear filters</button>
+        </app-empty-state>
+      } @else {
+        <app-empty-state
+          icon="smart_toy"
+          title="No agents yet"
+          message="An agent bundles a system prompt, sampling settings and its own private memory. Create one to get started."
+        >
+          <button matButton="filled" (click)="createAgent()">
+            <mat-icon>add</mat-icon>
+            New agent
+          </button>
+        </app-empty-state>
+      }
+    } @else {
+      <div class="table-scroll">
+        <table
+          mat-table
+          [dataSource]="list.items()"
+          matSort
+          [matSortActive]="list.sort()"
+          [matSortDirection]="list.order()"
+          (matSortChange)="list.onSort($event)"
+        >
+          <ng-container matColumnDef="name">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header="name">Agent</th>
+            <td mat-cell *matCellDef="let agent">
+              <div class="agent">
+                <app-agent-avatar [name]="agent.name" [hasPicture]="agent.hasPicture" />
+                <div class="agent__text">
+                  <span class="agent__name">{{ agent.name }}</span>
+                  @if (agent.personality) {
+                    <span class="agent__personality">{{ agent.personality }}</span>
+                  }
+                </div>
+              </div>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="systemPrompt">
+            <th mat-header-cell *matHeaderCellDef>System prompt</th>
+            <td mat-cell *matCellDef="let agent">
+              @if (promptLabel(agent); as label) {
+                <span class="truncate">{{ label }}</span>
+              } @else {
+                <span class="unset">none</span>
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="sampling">
+            <th mat-header-cell *matHeaderCellDef>Sampling</th>
+            <td mat-cell *matCellDef="let agent">
+              <span class="sampling">
+                <span [class.unset]="agent.temperature === null">
+                  temp {{ agent.temperature ?? '—' }}
+                </span>
+                <span [class.unset]="agent.maxTokens === null">
+                  max {{ agent.maxTokens ?? '—' }}
+                </span>
+              </span>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="updatedAt">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header="updatedAt">Updated</th>
+            <td mat-cell *matCellDef="let agent" [title]="agent.updatedAt">
+              {{ agent.updatedAt | relativeTime }}
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="actions">
+            <th mat-header-cell *matHeaderCellDef aria-label="Actions"></th>
+            <td
+              mat-cell
+              *matCellDef="let agent"
+              class="cell--actions"
+              (click)="$event.stopPropagation()"
+            >
+              <button
+                matIconButton
+                matTooltip="Open"
+                [attr.aria-label]="'Open ' + agent.name"
+                (click)="open(agent)"
+              >
+                <mat-icon>chevron_right</mat-icon>
+              </button>
+              <button
+                matIconButton
+                matTooltip="Delete"
+                class="danger-icon"
+                [attr.aria-label]="'Delete ' + agent.name"
+                (click)="remove(agent)"
+              >
+                <mat-icon>delete</mat-icon>
+              </button>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="columns"></tr>
+          <tr
+            mat-row
+            *matRowDef="let agent; columns: columns"
+            class="row"
+            (click)="open(agent)"
+          ></tr>
+        </table>
+      </div>
+    }
+
+    <mat-paginator
+      [length]="list.total()"
+      [pageIndex]="list.pageIndex()"
+      [pageSize]="list.pageSize()"
+      [pageSizeOptions]="pageSizeOptions"
+      (page)="list.onPage($event)"
+    />
+  </mat-card>
+</div>

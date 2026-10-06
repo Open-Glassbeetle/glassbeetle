@@ -1,0 +1,115 @@
+<div class="page">
+  <app-page-header title="Dashboard" subtitle="NestJS API · Angular UI · Tauri shell">
+    <button matButton="tonal" (click)="refresh()">
+      <mat-icon>refresh</mat-icon>
+      Refresh
+    </button>
+  </app-page-header>
+
+  <section class="totals" aria-label="Resource totals">
+    @for (tile of tiles(); track tile.label) {
+      <a class="total-card" [routerLink]="tile.link">
+        <mat-icon class="total-card__icon">{{ tile.icon }}</mat-icon>
+        <span class="total-card__value">
+          @if (loadingTotals()) {
+            <mat-spinner diameter="20" />
+          } @else {
+            {{ tile.total ?? '—' }}
+          }
+        </span>
+        <span class="total-card__label">{{ tile.label }}</span>
+      </a>
+    }
+  </section>
+
+  <div class="cards">
+    <mat-card appearance="outlined" class="card">
+      <mat-card-header>
+        <mat-card-title>Backend</mat-card-title>
+        <mat-card-subtitle>
+          @switch (status.state()) {
+            @case ('checking') {
+              Contacting the API…
+            }
+            @case ('online') {
+              Healthy
+            }
+            @case ('degraded') {
+              A dependency check is failing
+            }
+            @case ('offline') {
+              Unreachable
+            }
+          }
+        </mat-card-subtitle>
+      </mat-card-header>
+
+      <mat-card-content>
+        @if (status.state() === 'offline') {
+          <p class="error">{{ status.error() }}</p>
+          <p class="muted">Start it with <code>npm run dev:api</code>, then refresh.</p>
+        } @else if (status.health(); as health) {
+          <dl class="facts">
+            <dt>Service</dt>
+            <dd>
+              <code>{{ health.service }}</code>
+            </dd>
+
+            <dt>Uptime</dt>
+            <dd>{{ uptime() }}</dd>
+
+            <dt>Database</dt>
+            <dd>
+              <span
+                class="badge"
+                [class.badge--ok]="databaseCheck()?.status === 'up'"
+                [class.badge--error]="databaseCheck()?.status === 'down'"
+              >
+                {{ databaseCheck()?.status }}
+              </span>
+              @if (databaseCheck()?.error) {
+                <span class="error">{{ databaseCheck()?.error }}</span>
+              }
+            </dd>
+          </dl>
+        } @else {
+          <mat-spinner diameter="24" />
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined" class="card">
+      <mat-card-header>
+        <mat-card-title>Desktop shell</mat-card-title>
+        <mat-card-subtitle>
+          {{ inTauri() ? 'Running inside the Tauri window' : 'Running in a browser tab' }}
+        </mat-card-subtitle>
+      </mat-card-header>
+
+      <mat-card-content>
+        <p class="muted">
+          Calls the <code>greet</code> command defined in
+          <code>apps/desktop/src-tauri/src/lib.rs</code>.
+        </p>
+
+        <div class="greet">
+          <mat-form-field class="greet__field">
+            <mat-label>Name</mat-label>
+            <input
+              matInput
+              [ngModel]="greetName()"
+              (ngModelChange)="greetName.set($event)"
+              (keyup.enter)="greet()"
+            />
+          </mat-form-field>
+
+          <button matButton="filled" (click)="greet()">Greet</button>
+        </div>
+
+        @if (greeting()) {
+          <p class="greet__result">{{ greeting() }}</p>
+        }
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div>

@@ -1,0 +1,56 @@
+@use '../../../shared/styles/list-page';
+
+// Reused for the tag chips and the destructive icon button.
+@include list-page.list-page;
+
+.panel__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.panel__search {
+  flex: 1 1 16rem;
+}
+
+.panel__filter {
+  flex: 0 1 13rem;
+}
+
+.memories {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory {
+  padding: 1rem 1rem 0.5rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-large);
+  background: var(--mat-sys-surface-container-low);
+}
+
+.memory__content {
+  margin: 0 0 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.memory__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.memory__time {
+  margin-left: auto;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  white-space: nowrap;
+}

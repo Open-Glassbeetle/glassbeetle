@@ -1,0 +1,22 @@
+.scope {
+  margin: -0.75rem 1.5rem 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-top: 0.75rem;
+  min-width: min(40rem, 70vw);
+}
+
+.form__field {
+  width: 100%;
+}
+
+textarea {
+  line-height: 1.6;
+  resize: vertical;
+}

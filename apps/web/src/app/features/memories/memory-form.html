@@ -1,0 +1,41 @@
+<h2 mat-dialog-title>{{ title() }}</h2>
+<p class="scope">{{ data.scopeLabel }}</p>
+
+@if (saving()) {
+  <mat-progress-bar mode="indeterminate" />
+}
+
+<mat-dialog-content>
+  <form class="form" [formGroup]="form" (ngSubmit)="save()">
+    <mat-form-field class="form__field">
+      <mat-label>Memory</mat-label>
+      <textarea
+        matInput
+        formControlName="content"
+        rows="8"
+        [maxlength]="maxLength"
+        placeholder="Prefers TypeScript over Python for backend services."
+        cdkFocusInitial
+        (input)="onContentInput($any($event.target).value)"
+      ></textarea>
+      <mat-hint>{{ contentLength() }} / {{ maxLength }} characters</mat-hint>
+      @if (form.controls.content.hasError('required')) {
+        <mat-error>A memory needs some content.</mat-error>
+      }
+    </mat-form-field>
+
+    <app-tag-input
+      [tags]="tags()"
+      (tagsChange)="tags.set($event)"
+      hint="Tags group related memories and can be filtered on."
+    />
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button matButton [disabled]="saving()" (click)="dialogRef.close()">Cancel</button>
+  <button matButton="filled" [disabled]="saving() || form.invalid" (click)="save()">
+    <mat-icon>save</mat-icon>
+    {{ editing ? 'Save' : 'Add' }}
+  </button>
+</mat-dialog-actions>

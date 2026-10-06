@@ -1,0 +1,37 @@
+@use '../../../shared/styles/list-page';
+
+@include list-page.list-page;
+
+.agent {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.agent__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent__name {
+  font-weight: 500;
+}
+
+.agent__personality {
+  overflow: hidden;
+  max-width: 22rem;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sampling {
+  display: flex;
+  gap: 0.75rem;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  white-space: nowrap;
+}

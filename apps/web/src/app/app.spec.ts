@@ -1,8 +1,5 @@
 import { provideHttpClient } from '@angular/common/http';
-import {
-  HttpTestingController,
-  provideHttpClientTesting,
-} from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
@@ -13,17 +10,13 @@ import { App } from './app';
 // with the API again.
 const HEALTH_URL = `${environment.apiBaseUrl}/health`;
 
-describe('App', () => {
+describe('App shell', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [
-        provideRouter([]),
-        provideHttpClient(),
-        provideHttpClientTesting(),
-      ],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -33,40 +26,67 @@ describe('App', () => {
     httpMock.verify();
   });
 
-  it('should create the app', () => {
+  it('creates the shell and checks the API once', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
+    // The status indicator in the toolbar owns the health check; the shell
+    // itself must not run a second, competing one.
     httpMock.expectOne(HEALTH_URL).flush({});
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('should render the title', () => {
+  it('renders the brand and a link to every implemented feature', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
-
-    httpMock.expectOne(HEALTH_URL).flush({});
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Glassbeetle');
-  });
-
-  it('should show backend details once the health check resolves', () => {
-    const fixture = TestBed.createComponent(App);
-    fixture.detectChanges();
-
     httpMock.expectOne(HEALTH_URL).flush({
       status: 'ok',
       service: 'glassbeetle-api',
       uptimeSeconds: 12,
       timestamp: new Date().toISOString(),
-      checks: {
-        database: { status: 'up' },
-      },
+      checks: { database: { status: 'up' } },
     });
     fixture.detectChanges();
 
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('glassbeetle-api');
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('Glassbeetle');
+
+    const hrefs = Array.from(element.querySelectorAll('a[href]')).map((link) =>
+      link.getAttribute('href'),
+    );
+    expect(hrefs).toContain('/agents');
+    expect(hrefs).toContain('/memories');
+    expect(hrefs).toContain('/system-prompts');
+  });
+
+  it('reports the API as offline when the health check cannot be reached', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    httpMock.expectOne(HEALTH_URL).error(new ProgressEvent('error'), { status: 0, statusText: '' });
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('API offline');
+  });
+
+  it('reports a degraded API from the 503 body rather than as a failure', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    httpMock.expectOne(HEALTH_URL).flush(
+      {
+        status: 'degraded',
+        service: 'glassbeetle-api',
+        uptimeSeconds: 12,
+        timestamp: new Date().toISOString(),
+        checks: { database: { status: 'down', error: 'Connection failed' } },
+      },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('API degraded');
   });
 });

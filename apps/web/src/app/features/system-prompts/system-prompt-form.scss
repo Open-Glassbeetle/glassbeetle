@@ -1,0 +1,18 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-top: 0.5rem;
+  min-width: min(44rem, 70vw);
+}
+
+.form__field {
+  width: 100%;
+}
+
+textarea {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  resize: vertical;
+}
