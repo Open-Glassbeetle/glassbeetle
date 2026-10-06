@@ -1,35 +1,44 @@
+@use 'sass:map';
 @use '@angular/material' as mat;
 @use 'material-symbols/outlined.css';
+@use 'styles/palette';
 
 // Glassbeetle runs in a Tauri webview with no guaranteed network access, so the
 // icon font is bundled (see `material-symbols` above) and the typography uses
 // the platform's own UI font rather than a webfont.
-$font-stack:
+$ui-font:
   system-ui,
   -apple-system,
   'Segoe UI',
   Roboto,
   sans-serif;
-$mono-stack: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+$mono-font: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, 'Cascadia Mono', monospace;
 
 html {
   // `theme-type: color-scheme` emits `light-dark()` pairs for every system
-  // colour, so a single theme serves both schemes and the active one is picked
-  // by the `color-scheme` property below (toggled on <html> by ThemeService).
+  // colour, so one theme serves both schemes and the active one is chosen by
+  // the `color-scheme` property that ThemeService toggles on <html>.
   @include mat.theme(
     (
       color: (
-        primary: mat.$azure-palette,
-        tertiary: mat.$cyan-palette,
+        primary: mat.$cyan-palette,
+        tertiary: mat.$azure-palette,
         theme-type: color-scheme,
       ),
       typography: (
-        brand-family: $font-stack,
-        plain-family: $font-stack,
+        brand-family: $ui-font,
+        plain-family: $ui-font,
       ),
-      density: 0,
+      // Negative density tightens every Material control. A workspace shows
+      // more rows than a form-driven admin screen, and the default density is
+      // built for touch.
+      density: -2,
     )
   );
+
+  // Replaces Material's generated neutrals and accent with the product palette,
+  // which is what stops this looking like every other Material app.
+  @include mat.theme-overrides(palette.scheme-overrides());
 
   color-scheme: dark;
 
@@ -40,6 +49,30 @@ html {
   &[data-theme='dark'] {
     color-scheme: dark;
   }
+}
+
+:root {
+  // Product tokens Material has no equivalent for.
+  --gb-font-mono: #{$mono-font};
+
+  --gb-rail-width: 15rem;
+  --gb-rail-width-collapsed: 3.5rem;
+  --gb-context-width: 20rem;
+  --gb-topbar-height: 3rem;
+
+  // Semantic accents for agent readiness and run state. Kept separate from the
+  // Material palette because they carry meaning, not brand.
+  --gb-ready: light-dark(#00695e, #4ad6c4);
+  --gb-ready-bg: light-dark(#d2f5ef, #0d302c);
+  --gb-attention: light-dark(#8a5300, #f0b357);
+  --gb-attention-bg: light-dark(#ffeeda, #3a2b10);
+  --gb-idle: light-dark(#5b6873, #76838f);
+  --gb-idle-bg: light-dark(#e8edf1, #1d242a);
+
+  --gb-shadow-panel: 0 1px 2px light-dark(rgb(16 21 26 / 6%), rgb(0 0 0 / 40%));
+  --gb-shadow-raised: 0 8px 24px -8px light-dark(rgb(16 21 26 / 18%), rgb(0 0 0 / 60%));
+
+  --gb-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 * {
@@ -56,34 +89,61 @@ body {
   background: var(--mat-sys-surface);
   color: var(--mat-sys-on-surface);
   font: var(--mat-sys-body-medium);
+  // Tabular figures keep counts and token numbers from shifting as they change.
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 
 code,
 kbd,
-pre {
-  font-family: $mono-stack;
-  font-size: 0.9em;
+pre,
+.mono {
+  font-family: var(--gb-font-mono);
+  font-size: 0.86em;
+  font-variant-ligatures: none;
 }
 
-// Material sizes icons from the font-size it inherits; the bundled symbols font
-// hard-codes 24px, so re-assert Material's own sizing for `mat-icon`.
+// Material sizes icons from the font-size they inherit; the bundled symbols
+// font hard-codes 24px, so Material's own sizing is re-asserted here.
 .mat-icon {
   font-size: inherit;
   line-height: 1;
 }
 
-// Shared page scaffolding. Every routed feature renders inside `.page`, so the
-// gutter and max width are defined once instead of in each feature's styles.
-.page {
-  max-width: 76rem;
-  margin: 0 auto;
-  padding: 1.5rem 1.5rem 4rem;
+// A quieter scrollbar. The default on dark surfaces is a bright slab that
+// draws the eye away from the content it belongs to.
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mat-sys-outline-variant) transparent;
 }
 
-// Utility for rendering a value that may be absent.
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+  background-color: var(--mat-sys-outline-variant);
+
+  &:hover {
+    background-color: var(--mat-sys-outline);
+  }
+}
+
+::-webkit-scrollbar-corner,
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+// A value the API reports as unset, rendered so it reads as absent rather than
+// as the literal text.
 .unset {
   color: var(--mat-sys-on-surface-variant);
   font-style: italic;
+  opacity: 0.8;
 }
 
 .truncate {
@@ -92,9 +152,71 @@ pre {
   white-space: nowrap;
 }
 
-// Snackbars raised by NotificationService for failed requests.
+// Visible only to assistive technology.
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+// Snackbars raised by NotificationService.
 .gb-snackbar--error {
-  --mat-snack-bar-button-color: var(--mat-sys-on-error-container);
   --mdc-snackbar-container-color: var(--mat-sys-error-container);
   --mdc-snackbar-supporting-text-color: var(--mat-sys-on-error-container);
+  --mat-snack-bar-button-color: var(--mat-sys-on-error-container);
+}
+
+// Dialogs read as panels lifted off the workspace rather than as cards.
+.mat-mdc-dialog-panel {
+  --mdc-dialog-container-color: var(--mat-sys-surface-container-low);
+  --mdc-dialog-container-elevation: var(--gb-shadow-raised);
+}
+
+.mat-mdc-dialog-surface {
+  border: 1px solid var(--mat-sys-outline-variant);
+  box-shadow: var(--gb-shadow-raised) !important;
+}
+
+// The command palette supplies its own chrome, so the dialog around it is only
+// a frame: no padding, and a radius the palette's own edges follow.
+.gb-palette-panel {
+  .mat-mdc-dialog-surface {
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .mat-mdc-dialog-container .mdc-dialog__content {
+    padding: 0;
+  }
+}
+
+// A palette sitting over an already-dark workspace needs the surface behind it
+// pushed back further than Material's default scrim does.
+.cdk-overlay-dark-backdrop {
+  background: light-dark(rgb(16 21 26 / 32%), rgb(0 0 0 / 62%));
+  backdrop-filter: blur(1.5px);
+}
+
+// Menus and the command palette sit above a workspace that is already dark, so
+// they need a hairline to separate them from it.
+.mat-mdc-menu-panel,
+.mat-mdc-autocomplete-panel,
+.mat-mdc-select-panel {
+  border: 1px solid var(--mat-sys-outline-variant);
+  box-shadow: var(--gb-shadow-raised) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -13,7 +13,7 @@ export interface DatabaseHealth {
 }
 
 export interface HealthChecks {
-  readonly database: DatabaseHealth;
+  readonly database?: DatabaseHealth;
 }
 
 export interface HealthStatus {
@@ -21,7 +21,13 @@ export interface HealthStatus {
   readonly service: string;
   readonly uptimeSeconds: number;
   readonly timestamp: string;
-  readonly checks: HealthChecks;
+  /**
+   * Optional because nothing guarantees the shape at runtime — a proxy, an old
+   * API build or a truncated body can all omit it, and the UI reads it
+   * defensively. The type says what the client can rely on, not what the
+   * current server happens to send.
+   */
+  readonly checks?: HealthChecks;
 }
 
 function isHealthStatus(value: unknown): value is HealthStatus {

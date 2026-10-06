@@ -1,168 +1,148 @@
-<div class="page">
-  <app-page-header
-    title="System prompts"
-    subtitle="Reusable instruction templates that agents link to."
-  >
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">System prompts</h1>
+      <p class="view__subtitle">
+        Reusable instruction templates. An agent links to one and adds its own instructions on top.
+      </p>
+    </div>
+
     <button matButton="filled" (click)="openEditor(null)">
       <mat-icon>add</mat-icon>
       New prompt
     </button>
-  </app-page-header>
+  </header>
 
-  <mat-card appearance="outlined">
+  <gb-panel flush>
     <div class="toolbar">
-      <mat-form-field class="toolbar__search" subscriptSizing="fixed">
-        <mat-label>Search by name</mat-label>
-        <mat-icon matIconPrefix>search</mat-icon>
+      <div class="search">
+        <mat-icon class="search__icon">search</mat-icon>
         <input
-          matInput
+          class="search__input"
           type="search"
+          placeholder="Filter by name"
+          aria-label="Filter prompts by name"
           [value]="list.searchTerm()"
           (input)="list.setSearch($any($event.target).value)"
         />
         @if (list.searchTerm()) {
           <button
             matIconButton
-            matIconSuffix
-            aria-label="Clear search"
+            class="search__clear"
+            aria-label="Clear the filter"
             (click)="list.clearSearch()"
           >
             <mat-icon>close</mat-icon>
           </button>
         }
-      </mat-form-field>
+      </div>
 
-      <span class="toolbar__count">
-        {{ list.total() }} {{ list.total() === 1 ? 'prompt' : 'prompts' }}
+      <span class="toolbar__count mono">
+        {{ list.total() }} {{ list.total() === 1 ? 'template' : 'templates' }}
       </span>
     </div>
 
-    @if (list.loading()) {
-      <mat-progress-bar mode="indeterminate" />
-    }
-
-    @if (list.error(); as error) {
-      <app-empty-state
-        icon="cloud_off"
-        title="Could not load system prompts"
-        [message]="error.message"
-      >
-        <button matButton="tonal" (click)="list.reload()">
+    @if (list.loading() && !list.loadedOnce()) {
+      <ul class="rows">
+        @for (row of [1, 2, 3]; track row) {
+          <li class="row row--skeleton">
+            <div class="row__skeleton-text">
+              <gb-skeleton [width]="row % 2 ? '8rem' : '11rem'" height="0.8125rem" />
+              <gb-skeleton [width]="row % 2 ? '22rem' : '17rem'" height="0.6875rem" />
+            </div>
+          </li>
+        }
+      </ul>
+    } @else if (list.error(); as error) {
+      <div class="blank">
+        <mat-icon class="blank__icon">cloud_off</mat-icon>
+        <p class="blank__title">Could not load system prompts</p>
+        <p class="blank__text">{{ error.message }}</p>
+        <button matButton="filled" (click)="list.reload()">
           <mat-icon>refresh</mat-icon>
           Try again
         </button>
-      </app-empty-state>
+      </div>
     } @else if (list.isEmpty()) {
       @if (list.search()) {
-        <app-empty-state
-          icon="search_off"
-          title="No matching prompts"
-          [message]="'Nothing matches “' + list.search() + '”.'"
-        >
-          <button matButton (click)="list.clearSearch()">Clear search</button>
-        </app-empty-state>
+        <div class="blank">
+          <mat-icon class="blank__icon">search_off</mat-icon>
+          <p class="blank__title">No matching prompts</p>
+          <p class="blank__text">Nothing matches “{{ list.search() }}”.</p>
+          <button matButton (click)="list.clearSearch()">Clear the filter</button>
+        </div>
       } @else {
-        <app-empty-state
-          icon="description"
-          title="No system prompts yet"
-          message="A system prompt is the base instruction an agent starts from. Create one and agents can share it."
-        >
+        <div class="blank">
+          <mat-icon class="blank__icon">article</mat-icon>
+          <p class="blank__title">No system prompts yet</p>
+          <p class="blank__text">
+            A system prompt is the base instruction an agent starts from. Several agents can share
+            one.
+          </p>
           <button matButton="filled" (click)="openEditor(null)">
             <mat-icon>add</mat-icon>
             New prompt
           </button>
-        </app-empty-state>
+        </div>
       }
     } @else {
-      <div class="table-scroll">
-        <table
-          mat-table
-          [dataSource]="list.items()"
-          matSort
-          [matSortActive]="list.sort()"
-          [matSortDirection]="list.order()"
-          (matSortChange)="list.onSort($event)"
-        >
-          <ng-container matColumnDef="name">
-            <th mat-header-cell *matHeaderCellDef mat-sort-header="name">Name</th>
-            <td mat-cell *matCellDef="let prompt" class="cell--name">
-              {{ prompt.name }}
-            </td>
-          </ng-container>
+      <ul class="rows">
+        @for (prompt of list.items(); track prompt.id) {
+          <li class="row">
+            <button class="row__main row__main--button" type="button" (click)="openEditor(prompt)">
+              <mat-icon class="row__icon">article</mat-icon>
 
-          <ng-container matColumnDef="content">
-            <th mat-header-cell *matHeaderCellDef>Instructions</th>
-            <td mat-cell *matCellDef="let prompt">
-              <span class="preview">{{ prompt.content }}</span>
-            </td>
-          </ng-container>
+              <span class="row__text">
+                <span class="row__name">{{ prompt.name }}</span>
+                <span class="row__desc">{{ prompt.content }}</span>
+              </span>
 
-          <ng-container matColumnDef="updatedAt">
-            <th mat-header-cell *matHeaderCellDef mat-sort-header="updatedAt">Updated</th>
-            <td mat-cell *matCellDef="let prompt" [title]="prompt.updatedAt">
-              {{ prompt.updatedAt | relativeTime }}
-            </td>
-          </ng-container>
+              <span class="row__size mono"> {{ prompt.content.length | number }} chars </span>
 
-          <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef aria-label="Actions"></th>
-            <td
-              mat-cell
-              *matCellDef="let prompt"
-              class="cell--actions"
-              (click)="$event.stopPropagation()"
+              <time class="row__time" [attr.datetime]="prompt.updatedAt" [title]="prompt.updatedAt">
+                {{ prompt.updatedAt | relativeTime }}
+              </time>
+            </button>
+
+            <button
+              matIconButton
+              [matMenuTriggerFor]="menu"
+              [attr.aria-label]="'More actions for ' + prompt.name"
             >
-              <button
-                matIconButton
-                matTooltip="Edit"
-                [attr.aria-label]="'Edit ' + prompt.name"
-                (click)="openEditor(prompt)"
-              >
+              <mat-icon>more_vert</mat-icon>
+            </button>
+
+            <mat-menu #menu>
+              <button mat-menu-item (click)="openEditor(prompt)">
                 <mat-icon>edit</mat-icon>
+                <span>Edit</span>
               </button>
-
-              <button
-                matIconButton
-                [matMenuTriggerFor]="menu"
-                [attr.aria-label]="'More actions for ' + prompt.name"
-              >
-                <mat-icon>more_vert</mat-icon>
+              <button mat-menu-item (click)="copyContent(prompt)">
+                <mat-icon>content_copy</mat-icon>
+                <span>Copy instructions</span>
               </button>
+              <button mat-menu-item (click)="duplicate(prompt)">
+                <mat-icon>file_copy</mat-icon>
+                <span>Duplicate</span>
+              </button>
+              <button mat-menu-item class="danger" (click)="remove(prompt)">
+                <mat-icon>delete</mat-icon>
+                <span>Delete</span>
+              </button>
+            </mat-menu>
+          </li>
+        }
+      </ul>
 
-              <mat-menu #menu>
-                <button mat-menu-item (click)="copyContent(prompt)">
-                  <mat-icon>content_copy</mat-icon>
-                  <span>Copy instructions</span>
-                </button>
-                <button mat-menu-item (click)="duplicate(prompt)">
-                  <mat-icon>file_copy</mat-icon>
-                  <span>Duplicate</span>
-                </button>
-                <button mat-menu-item class="danger" (click)="remove(prompt)">
-                  <mat-icon>delete</mat-icon>
-                  <span>Delete</span>
-                </button>
-              </mat-menu>
-            </td>
-          </ng-container>
-
-          <tr mat-header-row *matHeaderRowDef="columns"></tr>
-          <tr
-            mat-row
-            *matRowDef="let prompt; columns: columns"
-            class="row"
-            (click)="openEditor(prompt)"
-          ></tr>
-        </table>
-      </div>
+      @if (list.total() > list.pageSize()) {
+        <mat-paginator
+          [length]="list.total()"
+          [pageIndex]="list.pageIndex()"
+          [pageSize]="list.pageSize()"
+          [pageSizeOptions]="pageSizeOptions"
+          (page)="list.onPage($event)"
+        />
+      }
     }
-
-    <mat-paginator
-      [length]="list.total()"
-      [pageIndex]="list.pageIndex()"
-      [pageSize]="list.pageSize()"
-      [pageSizeOptions]="pageSizeOptions"
-      (page)="list.onPage($event)"
-    />
-  </mat-card>
+  </gb-panel>
 </div>

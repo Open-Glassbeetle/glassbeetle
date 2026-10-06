@@ -1,0 +1,351 @@
+// The frame every routed surface sits in, plus the small shared idioms
+// (blank states, pills, meters) that would otherwise be re-typed per screen.
+
+@mixin view {
+  .view {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-width: 84rem;
+    margin: 0 auto;
+    padding: 1.25rem 1.25rem 3rem;
+
+    @media (max-width: 48rem) {
+      padding: 1rem 0.875rem 2.5rem;
+    }
+  }
+
+  .view__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .view__title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  .view__subtitle {
+    margin: 0.1875rem 0 0;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.8125rem;
+  }
+
+  .attention {
+    color: var(--gb-attention);
+  }
+
+  // Content arrives in one quiet movement rather than per-element, which would
+  // read as a page assembling itself.
+  .view > * {
+    animation: view-enter 220ms var(--gb-ease) both;
+  }
+
+  @keyframes view-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+}
+
+@mixin blank-state {
+  .blank {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 3rem 1.5rem;
+    text-align: center;
+
+    &--compact {
+      padding: 2rem 1.25rem;
+    }
+  }
+
+  .blank__icon {
+    font-size: 1.75rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-bottom: 0.25rem;
+    color: var(--mat-sys-outline);
+  }
+
+  .blank__title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .blank__text {
+    margin: 0 0 0.5rem;
+    max-width: 30rem;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+}
+
+@mixin pill {
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.0625rem 0.4375rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.5;
+
+    &--ok {
+      border-color: color-mix(in srgb, var(--gb-ready) 30%, transparent);
+      background: var(--gb-ready-bg);
+      color: var(--gb-ready);
+    }
+
+    &--warn {
+      border-color: color-mix(in srgb, var(--gb-attention) 30%, transparent);
+      background: var(--gb-attention-bg);
+      color: var(--gb-attention);
+    }
+
+    &--error {
+      border-color: color-mix(in srgb, var(--mat-sys-error) 30%, transparent);
+      background: var(--mat-sys-error-container);
+      color: var(--mat-sys-error);
+    }
+
+    &--idle {
+      border-color: var(--mat-sys-outline-variant);
+      background: var(--gb-idle-bg);
+      color: var(--gb-idle);
+    }
+  }
+}
+
+/// The filter bar that sits at the top of a collection panel.
+@mixin toolbar {
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.625rem;
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+    background: var(--mat-sys-surface-container);
+  }
+
+  // A plain input rather than a Material field: inside a dense toolbar the
+  // field's label, outline and subscript are three kinds of chrome the bar
+  // already provides.
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 0.4375rem;
+    flex: 1 1 14rem;
+    min-width: 10rem;
+    padding: 0.1875rem 0.1875rem 0.1875rem 0.5rem;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: 7px;
+    background: var(--mat-sys-surface-container-lowest);
+
+    &:focus-within {
+      border-color: var(--mat-sys-primary);
+    }
+  }
+
+  .search__icon {
+    flex: none;
+    font-size: 0.9375rem;
+    width: 0.9375rem;
+    height: 0.9375rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .search__input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.1875rem 0;
+    border: 0;
+    background: none;
+    color: var(--mat-sys-on-surface);
+    font: inherit;
+    font-size: 0.8125rem;
+    outline: none;
+
+    &::placeholder {
+      color: var(--mat-sys-on-surface-variant);
+    }
+
+    &::-webkit-search-cancel-button {
+      display: none;
+    }
+  }
+
+  .search__clear {
+    flex: none;
+  }
+
+  .toolbar__select {
+    flex: 0 1 11rem;
+    min-width: 8rem;
+  }
+
+  .toolbar__count {
+    margin-left: auto;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.6875rem;
+    white-space: nowrap;
+  }
+}
+
+/// A list of records inside a panel: one row each, hairline separated.
+@mixin rows {
+  .rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding-right: 0.375rem;
+
+    & + .row {
+      border-top: 1px solid var(--mat-sys-outline-variant);
+    }
+
+    &:hover {
+      background: var(--mat-sys-surface-container);
+    }
+
+    &--skeleton {
+      gap: 0.75rem;
+      padding: 0.625rem 0.875rem;
+      pointer-events: none;
+    }
+  }
+
+  .row__main {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.25rem 0.5rem 0.875rem;
+    color: inherit;
+    text-decoration: none;
+
+    &:focus-visible {
+      outline: 2px solid var(--mat-sys-primary);
+      outline-offset: -2px;
+    }
+  }
+
+  .row__text {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+
+  .row__name {
+    overflow: hidden;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row__desc {
+    overflow: hidden;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row__skeleton-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    flex: 1;
+  }
+
+  // Destructive actions stay neutral until the row is engaged with, so a list
+  // of rows is not a row of red buttons.
+  .row__delete {
+    flex: none;
+    opacity: 0;
+    --mat-icon-button-icon-color: var(--mat-sys-error);
+
+    .row:hover &,
+    &:focus-visible {
+      opacity: 1;
+    }
+
+    @media (hover: none) {
+      opacity: 1;
+    }
+  }
+}
+
+/// Tag chips. Rendered as buttons because clicking one filters the list, which
+/// a styled span could not do from the keyboard.
+@mixin tags {
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    justify-content: flex-end;
+
+    @media (max-width: 40rem) {
+      display: none;
+    }
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.0625rem 0.4375rem;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: 999px;
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface-variant);
+    font: inherit;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--mat-sys-primary);
+      color: var(--mat-sys-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--mat-sys-primary);
+      outline-offset: 1px;
+    }
+
+    &--active {
+      border-color: color-mix(in srgb, var(--mat-sys-primary) 45%, transparent);
+      background: var(--mat-sys-primary-container);
+      color: var(--mat-sys-on-primary-container);
+    }
+  }
+
+  .tag__icon {
+    font-size: 0.75rem;
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+}

@@ -1,0 +1,102 @@
+@use 'sass:map';
+
+// Glassbeetle's product palette.
+//
+// Angular Material generates a full tonal palette from a seed colour, which is
+// correct for a Material app but gives every Material app the same look. The
+// surfaces here are deliberately flatter and cooler than a generated neutral
+// ramp — a workspace that is open all day should recede, and panels should be
+// separated by hairlines rather than by tonal steps.
+//
+// These feed `mat.theme-overrides()`, so every Material component picks them up
+// without a single component restyling itself.
+
+// Dark is the primary scheme: this is a tool that sits open beside an editor.
+$dark: (
+  surface: #0b0d0f,
+  surface-dim: #090a0c,
+  surface-bright: #22282e,
+  surface-container-lowest: #050607,
+  surface-container-low: #0f1215,
+  surface-container: #14181c,
+  surface-container-high: #1a1f24,
+  surface-container-highest: #212830,
+  on-surface: #e6eaed,
+  on-surface-variant: #8d99a4,
+  outline: #3b454e,
+  outline-variant: #222a31,
+  inverse-surface: #e6eaed,
+  inverse-on-surface: #14181c,
+
+  primary: #4ad6c4,
+  on-primary: #00211d,
+  primary-container: #0d3b36,
+  on-primary-container: #a4f2e6,
+  inverse-primary: #00685d,
+
+  secondary: #9fcdc6,
+  on-secondary: #00201d,
+  secondary-container: #1d3b37,
+  on-secondary-container: #bbe9e2,
+
+  tertiary: #a8c8ff,
+  on-tertiary: #002f66,
+  tertiary-container: #0c3b73,
+  on-tertiary-container: #d4e3ff,
+
+  error: #ff8a80,
+  on-error: #4e0002,
+  error-container: #5a1512,
+  on-error-container: #ffdad5,
+);
+
+$light: (
+  surface: #fbfcfd,
+  surface-dim: #e2e6ea,
+  surface-bright: #ffffff,
+  surface-container-lowest: #ffffff,
+  surface-container-low: #f4f7f9,
+  surface-container: #eef2f5,
+  surface-container-high: #e7ecf0,
+  surface-container-highest: #dfe5ea,
+  on-surface: #10151a,
+  on-surface-variant: #55626e,
+  outline: #9aa7b2,
+  outline-variant: #d3dbe2,
+  inverse-surface: #10151a,
+  inverse-on-surface: #f4f7f9,
+
+  primary: #00695e,
+  on-primary: #ffffff,
+  primary-container: #a4f2e6,
+  on-primary-container: #00201d,
+  inverse-primary: #4ad6c4,
+
+  secondary: #39615b,
+  on-secondary: #ffffff,
+  secondary-container: #bbe9e2,
+  on-secondary-container: #00201d,
+
+  tertiary: #2a5ea8,
+  on-tertiary: #ffffff,
+  tertiary-container: #d4e3ff,
+  on-tertiary-container: #001b3d,
+
+  error: #ba1a1a,
+  on-error: #ffffff,
+  error-container: #ffdad5,
+  on-error-container: #410002,
+);
+
+/// Builds the `mat.theme-overrides()` map, pairing each token's light and dark
+/// value into a `light-dark()` so one stylesheet serves both schemes.
+@function scheme-overrides() {
+  $out: ();
+
+  @each $name, $dark-value in $dark {
+    $light-value: map.get($light, $name);
+    $out: map.merge($out, (#{$name}: light-dark(#{$light-value}, #{$dark-value})));
+  }
+
+  @return $out;
+}

@@ -1,25 +1,19 @@
+import { DecimalPipe } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatPaginatorModule } from '@angular/material/paginator';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSortModule } from '@angular/material/sort';
-import { MatTableModule } from '@angular/material/table';
-import { MatTooltipModule } from '@angular/material/tooltip';
 import { firstValueFrom } from 'rxjs';
 
 import { PAGE_SIZE_OPTIONS } from '../../core/api/pagination';
 import { SystemPromptsService } from '../../core/api/system-prompts.service';
 import type { SystemPrompt } from '../../core/api/system-prompts.models';
 import { NotificationService } from '../../core/notifications/notification.service';
-import { EmptyState } from '../../shared/empty-state/empty-state';
 import { ListState } from '../../shared/list-state/list-state';
-import { PageHeader } from '../../shared/page-header/page-header';
+import { Panel } from '../../shared/ui/panel';
+import { Skeleton } from '../../shared/ui/skeleton';
 import { RelativeTimePipe } from '../../shared/relative-time/relative-time.pipe';
 import { confirm } from '../../shared/confirm-dialog/confirm-dialog';
 import { SystemPromptForm, type SystemPromptFormData } from './system-prompt-form';
@@ -30,20 +24,14 @@ import { SystemPromptForm, type SystemPromptFormData } from './system-prompt-for
 @Component({
   selector: 'app-system-prompt-list',
   imports: [
-    EmptyState,
+    DecimalPipe,
     MatButtonModule,
-    MatCardModule,
-    MatFormFieldModule,
     MatIconModule,
-    MatInputModule,
     MatMenuModule,
     MatPaginatorModule,
-    MatProgressBarModule,
-    MatSortModule,
-    MatTableModule,
-    MatTooltipModule,
-    PageHeader,
+    Panel,
     RelativeTimePipe,
+    Skeleton,
   ],
   templateUrl: './system-prompt-list.html',
   styleUrl: './system-prompt-list.scss',
@@ -54,7 +42,6 @@ export class SystemPromptList {
   private readonly notify = inject(NotificationService);
 
   protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
-  protected readonly columns = ['name', 'content', 'updatedAt', 'actions'];
 
   protected readonly list = new ListState<SystemPrompt>({
     load: (query) => this.prompts.list(query),

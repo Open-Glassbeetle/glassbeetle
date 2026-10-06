@@ -1,16 +1,18 @@
-import { Component, effect, inject, input, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
+import { Panel } from '../../../shared/ui/panel';
+
 import type { Agent, UpdateAgentInput } from '../../../core/api/agents.models';
 import { AgentsService } from '../../../core/api/agents.service';
 import type { SystemPrompt } from '../../../core/api/system-prompts.models';
+import { CapabilitiesService } from '../../../core/platform/capabilities.service';
 import { NotificationService } from '../../../core/notifications/notification.service';
 import {
   formatModelParams,
@@ -32,12 +34,12 @@ const NONE = '';
   selector: 'app-agent-config',
   imports: [
     MatButtonModule,
-    MatCardModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
     MatSelectModule,
     MatTooltipModule,
+    Panel,
     ReactiveFormsModule,
   ],
   templateUrl: './agent-config.html',
@@ -47,6 +49,7 @@ export class AgentConfig {
   private readonly agents = inject(AgentsService);
   private readonly notify = inject(NotificationService);
   private readonly formBuilder = inject(FormBuilder);
+  protected readonly capabilities = inject(CapabilitiesService);
 
   readonly agent = input.required<Agent>();
   readonly systemPrompts = input<readonly SystemPrompt[]>([]);
@@ -56,6 +59,10 @@ export class AgentConfig {
 
   protected readonly none = NONE;
   protected readonly saving = signal(false);
+
+  protected readonly modelPlaceholder = computed(() =>
+    this.capabilities.modelsAvailable() ? 'claude-sonnet-5' : 'Unavailable',
+  );
 
   protected readonly form = this.formBuilder.nonNullable.group({
     name: ['', [Validators.required]],
@@ -72,6 +79,20 @@ export class AgentConfig {
   private seededId: string | null = null;
 
   constructor() {
+    // `agents.model_id` is a foreign key into `models`, and the agents endpoint
+    // rejects any value that is not a real row with a 422. With no models
+    // endpoint there is nothing to reference, so an editable field here could
+    // only ever produce an error the user cannot avoid.
+    effect(() => {
+      const control = this.form.controls.modelId;
+
+      if (this.capabilities.modelsAvailable()) {
+        control.enable({ emitEvent: false });
+      } else {
+        control.disable({ emitEvent: false });
+      }
+    });
+
     effect(() => {
       const agent = this.agent();
 

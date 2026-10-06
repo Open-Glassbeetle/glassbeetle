@@ -1,29 +1,28 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule } from '@angular/material/paginator';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
-import { MatSortModule } from '@angular/material/sort';
-import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
+import { readinessOf } from '../../../core/agents/agent-readiness';
 import type { Agent } from '../../../core/api/agents.models';
 import { AgentsService } from '../../../core/api/agents.service';
-import { PAGE_SIZE_OPTIONS } from '../../../core/api/pagination';
+import { PAGE_SIZE_OPTIONS, type SortOrder } from '../../../core/api/pagination';
 import { SystemPromptsService } from '../../../core/api/system-prompts.service';
 import type { SystemPrompt } from '../../../core/api/system-prompts.models';
 import { NotificationService } from '../../../core/notifications/notification.service';
+import { CapabilitiesService } from '../../../core/platform/capabilities.service';
+import { AgentRosterService } from '../../../core/workspace/agent-roster.service';
 import { confirm } from '../../../shared/confirm-dialog/confirm-dialog';
-import { EmptyState } from '../../../shared/empty-state/empty-state';
 import { ListState } from '../../../shared/list-state/list-state';
-import { PageHeader } from '../../../shared/page-header/page-header';
+import { Panel } from '../../../shared/ui/panel';
+import { ReadinessBadge } from '../../../shared/ui/readiness-badge';
+import { Skeleton } from '../../../shared/ui/skeleton';
 import { RelativeTimePipe } from '../../../shared/relative-time/relative-time.pipe';
 import { AgentAvatar } from '../agent-avatar/agent-avatar';
 import { AgentCreateDialog } from '../agent-create/agent-create-dialog';
@@ -31,24 +30,34 @@ import { AgentCreateDialog } from '../agent-create/agent-create-dialog';
 /** The value the API expects to select rows whose foreign key is NULL. */
 const UNASSIGNED = 'null';
 
+interface SortOption {
+  readonly key: string;
+  readonly label: string;
+  readonly sort: string;
+  readonly order: SortOrder;
+}
+
+const SORT_OPTIONS: readonly SortOption[] = [
+  { key: 'name', label: 'Name', sort: 'name', order: 'asc' },
+  { key: 'recent', label: 'Recently updated', sort: 'updatedAt', order: 'desc' },
+  { key: 'created', label: 'Newest first', sort: 'createdAt', order: 'desc' },
+];
+
 @Component({
   selector: 'app-agent-list',
   imports: [
     AgentAvatar,
-    EmptyState,
     MatButtonModule,
-    MatCardModule,
     MatFormFieldModule,
     MatIconModule,
-    MatInputModule,
     MatPaginatorModule,
-    MatProgressBarModule,
     MatSelectModule,
-    MatSortModule,
-    MatTableModule,
     MatTooltipModule,
-    PageHeader,
+    Panel,
+    ReadinessBadge,
     RelativeTimePipe,
+    RouterLink,
+    Skeleton,
   ],
   templateUrl: './agent-list.html',
   styleUrl: './agent-list.scss',
@@ -59,14 +68,19 @@ export class AgentList {
   private readonly dialog = inject(MatDialog);
   private readonly notify = inject(NotificationService);
   private readonly router = inject(Router);
+  private readonly roster = inject(AgentRosterService);
+  private readonly capabilities = inject(CapabilitiesService);
+
+  /** Bound from `?new=1`, which the rail's "New agent" link sets. */
+  readonly new = input<string>();
 
   protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
-  protected readonly columns = ['name', 'systemPrompt', 'sampling', 'updatedAt', 'actions'];
-
+  protected readonly sortOptions = SORT_OPTIONS;
   protected readonly unassigned = UNASSIGNED;
 
   /** `''` means no filter, `'null'` means "no prompt assigned". */
   protected readonly promptFilter = signal('');
+  protected readonly sortKey = signal(SORT_OPTIONS[0]!.key);
 
   protected readonly list = new ListState<Agent, { systemPromptId?: string }>({
     load: (query) => this.agents.list(query),
@@ -78,17 +92,10 @@ export class AgentList {
     initialOrder: 'asc',
   });
 
-  /**
-   * Prompts offered in the filter, loaded once.
-   *
-   * The filter is a `limit=100` read rather than a paged picker: the dropdown
-   * has to show a name for an id, and a user with more than a hundred prompt
-   * templates is not the case this screen is built for.
-   */
   private readonly promptList = signal<readonly SystemPrompt[]>([]);
+  protected readonly prompts = this.promptList.asReadonly();
 
-  /** Prompt names by id, for rendering the agent's link as something readable. */
-  protected readonly promptNames = computed(() => {
+  private readonly promptNames = computed(() => {
     const names = new Map<string, string>();
     for (const prompt of this.promptList()) {
       names.set(prompt.id, prompt.name);
@@ -96,19 +103,46 @@ export class AgentList {
     return names;
   });
 
-  protected readonly prompts = this.promptList.asReadonly();
+  protected readonly entries = computed(() => {
+    const context = { modelsAvailable: this.capabilities.modelsAvailable() };
+
+    return this.list.items().map((agent) => ({
+      agent,
+      readiness: readinessOf(agent, context),
+    }));
+  });
 
   constructor() {
     this.systemPrompts.list({ limit: 100, sort: 'name', order: 'asc' }).subscribe({
       next: (page) => this.promptList.set(page.items),
-      // A failure here only costs the filter dropdown and the prompt names;
-      // the agent list itself is unaffected, so it is not worth a snackbar.
+      // Costs only the filter's labels; the list itself is unaffected.
       error: () => this.promptList.set([]),
+    });
+
+    // The rail links here with `?new=1` rather than opening a dialog from the
+    // shell, so the create flow has a URL and the shell stays free of it.
+    effect(() => {
+      if (this.new()) {
+        this.clearNewFlag();
+        this.createAgent();
+      }
     });
   }
 
   protected setPromptFilter(value: string): void {
     this.promptFilter.set(value);
+    this.list.resetPage();
+  }
+
+  protected setSort(key: string): void {
+    const option = SORT_OPTIONS.find((entry) => entry.key === key);
+    if (!option) {
+      return;
+    }
+
+    this.sortKey.set(option.key);
+    this.list.sort.set(option.sort);
+    this.list.order.set(option.order);
     this.list.resetPage();
   }
 
@@ -127,17 +161,14 @@ export class AgentList {
     return this.promptNames().get(agent.systemPromptId) ?? agent.systemPromptId;
   }
 
-  protected open(agent: Agent): void {
-    void this.router.navigate(['/agents', agent.id]);
-  }
-
   protected createAgent(): void {
     const ref = this.dialog.open<AgentCreateDialog, undefined, Agent>(AgentCreateDialog);
 
     ref.afterClosed().subscribe((agent) => {
       if (agent) {
-        // Straight to the agent's page: a new agent has nothing configured yet,
-        // and that is where the configuration lives.
+        this.roster.refresh();
+        // Straight to the agent's page: a new agent has nothing configured
+        // yet, and that is where the configuration lives.
         void this.router.navigate(['/agents', agent.id]);
       }
     });
@@ -158,8 +189,18 @@ export class AgentList {
       await firstValueFrom(this.agents.remove(agent.id));
       this.notify.success('Agent deleted.');
       this.list.reloadAfterRemoval();
+      this.roster.refresh();
     } catch (error) {
       this.notify.error(error, 'Could not delete the agent.');
     }
+  }
+
+  /** Drops `?new=1` so a reload does not reopen the dialog. */
+  private clearNewFlag(): void {
+    void this.router.navigate([], {
+      queryParams: { new: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 }

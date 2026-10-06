@@ -1,11 +1,6 @@
 <form class="config" [formGroup]="form" (ngSubmit)="save()">
-  <mat-card appearance="outlined">
-    <mat-card-header>
-      <mat-card-title>Identity</mat-card-title>
-      <mat-card-subtitle>How the agent presents itself.</mat-card-subtitle>
-    </mat-card-header>
-
-    <mat-card-content class="section">
+  <gb-panel icon="badge" title="Identity" subtitle="How the agent presents itself">
+    <div class="fields">
       <mat-form-field>
         <mat-label>Name</mat-label>
         <input matInput formControlName="name" />
@@ -24,18 +19,15 @@
         ></textarea>
         <mat-hint>Character and demeanour. Leave empty to unset.</mat-hint>
       </mat-form-field>
-    </mat-card-content>
-  </mat-card>
+    </div>
+  </gb-panel>
 
-  <mat-card appearance="outlined">
-    <mat-card-header>
-      <mat-card-title>Instructions</mat-card-title>
-      <mat-card-subtitle>
-        A shared template, plus anything specific to this agent.
-      </mat-card-subtitle>
-    </mat-card-header>
-
-    <mat-card-content class="section">
+  <gb-panel
+    icon="checklist"
+    title="Instructions"
+    subtitle="A shared template, plus anything specific to this agent"
+  >
+    <div class="fields">
       <mat-form-field>
         <mat-label>System prompt</mat-label>
         <mat-select formControlName="systemPromptId">
@@ -57,26 +49,32 @@
         ></textarea>
         <mat-hint>Appended to the system prompt above.</mat-hint>
       </mat-form-field>
-    </mat-card-content>
-  </mat-card>
+    </div>
+  </gb-panel>
 
-  <mat-card appearance="outlined">
-    <mat-card-header>
-      <mat-card-title>Model</mat-card-title>
-      <mat-card-subtitle> How completions are requested from the provider. </mat-card-subtitle>
-    </mat-card-header>
+  <gb-panel icon="memory" title="Model" subtitle="How completions are requested from the provider">
+    <div class="fields">
+      @if (!capabilities.modelsAvailable()) {
+        <div class="unavailable">
+          <mat-icon class="unavailable__icon">info</mat-icon>
+          <div>
+            <p class="unavailable__title">Model assignment is not available yet</p>
+            <p class="unavailable__text">
+              An agent's model is a reference to a row in the provider's model catalogue. The API
+              has no providers or models endpoints, so there is nothing to reference and the agents
+              endpoint rejects any value with <code>MODEL_NOT_FOUND</code>. This field unlocks when
+              those endpoints ship.
+            </p>
+          </div>
+        </div>
+      }
 
-    <mat-card-content class="section">
       <mat-form-field>
-        <mat-label>Model ID</mat-label>
-        <input matInput formControlName="modelId" />
-        <mat-icon
-          matIconSuffix
-          matTooltip="Provider and model management is not implemented in the API yet, so this is a raw identifier rather than a picker."
-        >
-          info
-        </mat-icon>
-        <mat-hint>Raw identifier until the models endpoint exists.</mat-hint>
+        <mat-label>Model</mat-label>
+        <input matInput formControlName="modelId" [placeholder]="modelPlaceholder()" />
+        @if (capabilities.modelsAvailable()) {
+          <mat-hint>Identifier of a model from the catalogue.</mat-hint>
+        }
       </mat-form-field>
 
       <div class="row">
@@ -107,10 +105,11 @@
           matInput
           formControlName="modelParams"
           rows="6"
-          placeholder='{ "top_p": 0.9 }'
+          placeholder='&#123; "top_p": 0.9 &#125;'
           spellcheck="false"
+          class="mono"
         ></textarea>
-        <mat-hint> Provider-specific options, stored as-is. Empty to unset. </mat-hint>
+        <mat-hint>Provider-specific options, stored as-is. Empty to unset.</mat-hint>
         @if (form.controls.modelParams.hasError('jsonSyntax')) {
           <mat-error>That is not valid JSON.</mat-error>
         }
@@ -118,15 +117,25 @@
           <mat-error>Must be a JSON object, not an array or a single value.</mat-error>
         }
       </mat-form-field>
-    </mat-card-content>
-  </mat-card>
+    </div>
+  </gb-panel>
 
   <div class="actions">
+    <span class="actions__state">
+      @if (form.dirty) {
+        Unsaved changes
+      }
+    </span>
+
     <button matButton type="button" [disabled]="saving() || form.pristine" (click)="reset()">
-      Discard changes
+      Discard
     </button>
     <button matButton="filled" type="submit" [disabled]="saving() || form.invalid">
-      <mat-icon>save</mat-icon>
+      @if (saving()) {
+        <mat-icon class="spin">progress_activity</mat-icon>
+      } @else {
+        <mat-icon>check</mat-icon>
+      }
       Save changes
     </button>
   </div>

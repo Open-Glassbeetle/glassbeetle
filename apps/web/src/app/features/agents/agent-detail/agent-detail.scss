@@ -1,34 +1,49 @@
-.breadcrumb {
-  margin-bottom: 0.75rem;
-  margin-left: -0.5rem;
-}
+@use '../../../shared/styles/view';
+
+@include view.view;
+@include view.blank-state;
+
+/* ── Masthead ────────────────────────────────────────────────────────── */
 
 .masthead {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.875rem;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
 }
 
 .masthead__text {
   min-width: 0;
-  flex: 1 1 14rem;
+  flex: 1 1 16rem;
+}
+
+.masthead__line {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
 }
 
 .masthead__name {
   margin: 0;
-  font: var(--mat-sys-headline-medium);
+  font-size: 1.25rem;
+  font-weight: 600;
   letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .masthead__meta {
   display: flex;
+  align-items: baseline;
+  gap: 0.4375rem;
   flex-wrap: wrap;
-  gap: 0.4rem;
   margin: 0.25rem 0 0;
   color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-medium);
+  font-size: 0.75rem;
+}
+
+.dot {
+  opacity: 0.5;
 }
 
 .masthead__actions {
@@ -37,24 +52,114 @@
   gap: 0.25rem;
 }
 
+.masthead__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+/* ── Advisory ────────────────────────────────────────────────────────── */
+
+/* Shown only when the agent's configuration is actually incomplete, so it
+   reads as a finding rather than as decoration. */
+.advisory {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--gb-attention) 32%, transparent);
+  border-radius: 8px;
+  background: var(--gb-attention-bg);
+  color: var(--gb-attention);
+
+  &--blocked {
+    border-color: color-mix(in srgb, var(--mat-sys-error) 32%, transparent);
+    background: var(--mat-sys-error-container);
+    color: var(--mat-sys-error);
+  }
+}
+
+.advisory__icon {
+  flex: none;
+  font-size: 1rem;
+  width: 1rem;
+  height: 1rem;
+}
+
+.advisory__text {
+  flex: 1;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* ── Section tabs ────────────────────────────────────────────────────── */
+
+/* A segmented control rather than mat-tabs: these switch a whole working
+   surface, and Material's underline tabs read as sub-navigation within one. */
+.tabs {
+  display: inline-flex;
+  gap: 0.125rem;
+  align-self: flex-start;
+  padding: 0.1875rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 8px;
+  background: var(--mat-sys-surface-container-low);
+}
+
 .tab {
-  padding-top: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mat-sys-on-surface-variant);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--gb-ease),
+    color 120ms var(--gb-ease);
+
+  &:hover {
+    color: var(--mat-sys-on-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -2px;
+  }
+
+  &--active {
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface);
+    font-weight: 500;
+  }
+}
+
+.tab__icon {
+  font-size: 0.9375rem;
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+/* Keyed on the tab so switching sections replays the entrance, which makes the
+   change of surface legible rather than instantaneous. */
+.panel-body {
+  animation: section-enter 200ms var(--gb-ease) both;
+}
+
+@keyframes section-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .danger {
   --mat-menu-item-label-text-color: var(--mat-sys-error);
   --mat-menu-item-icon-color: var(--mat-sys-error);
-}
-
-// The file input stays in the accessibility tree but out of sight; the visible
-// trigger is the button next to it.
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }

@@ -1,57 +1,126 @@
-<mat-toolbar class="topbar">
+<header class="topbar">
   <button
     matIconButton
-    class="topbar__menu"
-    aria-label="Toggle navigation"
-    (click)="toggleDrawer()"
+    class="topbar__rail-toggle"
+    [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
+    [attr.aria-expanded]="railOpen()"
+    (click)="toggleRail()"
   >
-    <mat-icon>menu</mat-icon>
+    <mat-icon>dock_to_right</mat-icon>
   </button>
 
-  <a class="brand" routerLink="/dashboard">
-    <mat-icon class="brand__mark">pest_control</mat-icon>
+  <a class="brand" routerLink="/overview">
+    <span class="brand__mark" aria-hidden="true"></span>
     <span class="brand__name">Glassbeetle</span>
+    <span class="brand__scope">workspace</span>
   </a>
 
-  <span class="spacer"></span>
-
-  <app-api-status-indicator />
-
-  <button
-    matIconButton
-    [attr.aria-label]="'Switch to ' + (themeMode() === 'dark' ? 'light' : 'dark') + ' theme'"
-    [matTooltip]="themeMode() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
-    (click)="toggleTheme()"
-  >
-    <mat-icon>{{ themeIcon() }}</mat-icon>
+  <button class="command" (click)="openPalette()">
+    <mat-icon class="command__icon">search</mat-icon>
+    <span class="command__label">Search agents, memory, prompts</span>
+    <kbd class="command__key">{{ commandKey }}K</kbd>
   </button>
-</mat-toolbar>
 
-<mat-sidenav-container class="layout" [hasBackdrop]="drawerMode() === 'over'">
-  <mat-sidenav
-    class="drawer"
-    [mode]="drawerMode()"
-    [opened]="drawerOpen()"
-    (openedChange)="drawerOpen.set($event)"
-  >
-    <mat-nav-list>
+  <div class="topbar__right">
+    <app-api-status-indicator />
+
+    <button
+      matIconButton
+      [attr.aria-label]="'Switch to ' + (themeMode() === 'dark' ? 'light' : 'dark') + ' theme'"
+      [matTooltip]="themeMode() === 'dark' ? 'Light theme' : 'Dark theme'"
+      (click)="toggleTheme()"
+    >
+      <mat-icon>{{ themeIcon() }}</mat-icon>
+    </button>
+  </div>
+</header>
+
+<div class="workspace" [class.workspace--rail-open]="railOpen()">
+  @if (railOpen() && !wideLayout()) {
+    <button class="scrim" type="button" aria-label="Close the rail" (click)="toggleRail()"></button>
+  }
+
+  <nav class="rail" [class.rail--overlay]="!wideLayout()" aria-label="Workspace">
+    <ul class="rail__nav">
       @for (item of navItems; track item.path) {
-        <a
-          mat-list-item
-          [routerLink]="item.path"
-          routerLinkActive
-          #link="routerLinkActive"
-          [activated]="link.isActive"
-          (click)="onNavigate()"
-        >
-          <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
-          <span matListItemTitle>{{ item.label }}</span>
-        </a>
+        <li>
+          <a
+            class="rail__link"
+            [routerLink]="item.path"
+            routerLinkActive="rail__link--active"
+            (click)="closeRailOnNarrow()"
+          >
+            <mat-icon class="rail__link-icon">{{ item.icon }}</mat-icon>
+            <span class="rail__link-label">{{ item.label }}</span>
+          </a>
+        </li>
       }
-    </mat-nav-list>
-  </mat-sidenav>
+    </ul>
 
-  <mat-sidenav-content>
+    <div class="roster">
+      <div class="roster__head">
+        <span class="roster__title">Agents</span>
+        @if (roster.loaded()) {
+          <span class="roster__count mono">
+            {{ roster.readyCount() }}/{{ roster.total() }} ready
+          </span>
+        }
+      </div>
+
+      @if (!roster.loaded()) {
+        <div class="roster__loading">
+          @for (row of [1, 2, 3]; track row) {
+            <div class="roster__skeleton">
+              <gb-skeleton width="1.5rem" height="1.5rem" radius="50%" />
+              <gb-skeleton [width]="row === 2 ? '50%' : '70%'" height="0.75rem" />
+            </div>
+          }
+        </div>
+      } @else if (!roster.total()) {
+        <p class="roster__empty">
+          No agents yet.
+          <a routerLink="/agents" (click)="closeRailOnNarrow()">Create one</a>.
+        </p>
+      } @else {
+        <ul class="roster__list">
+          @for (entry of rosterEntries(); track entry.agent.id) {
+            <li>
+              <a
+                class="roster__item"
+                [routerLink]="['/agents', entry.agent.id]"
+                routerLinkActive="roster__item--active"
+                [matTooltip]="entry.readiness.detail"
+                matTooltipPosition="right"
+                (click)="closeRailOnNarrow()"
+              >
+                <app-agent-avatar
+                  [name]="entry.agent.name"
+                  [hasPicture]="entry.agent.hasPicture"
+                  size="small"
+                />
+                <span class="roster__name">{{ entry.agent.name }}</span>
+                <gb-readiness-badge [readiness]="entry.readiness" compact />
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <footer class="rail__foot">
+      <a
+        class="rail__new"
+        routerLink="/agents"
+        [queryParams]="{ new: 1 }"
+        (click)="closeRailOnNarrow()"
+      >
+        <mat-icon>add</mat-icon>
+        New agent
+      </a>
+    </footer>
+  </nav>
+
+  <main class="surface">
     <router-outlet />
-  </mat-sidenav-content>
-</mat-sidenav-container>
+  </main>
+</div>

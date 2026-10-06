@@ -1,37 +1,31 @@
-@use '../../../shared/styles/list-page';
+@use '../../../shared/styles/view';
 
-@include list-page.list-page;
+@include view.view;
+@include view.blank-state;
+@include view.toolbar;
+@include view.rows;
 
-.agent {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-}
-
-.agent__text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.agent__name {
-  font-weight: 500;
-}
-
-.agent__personality {
+.row__prompt {
+  flex: 0 1 10rem;
   overflow: hidden;
-  max-width: 22rem;
   color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-small);
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  @media (max-width: 60rem) {
+    display: none;
+  }
 }
 
-.sampling {
-  display: flex;
-  gap: 0.75rem;
+.row__time {
+  flex: none;
+  width: 6.5rem;
   color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-small);
-  white-space: nowrap;
+  font-size: 0.6875rem;
+  text-align: right;
+
+  @media (max-width: 48rem) {
+    display: none;
+  }
 }
