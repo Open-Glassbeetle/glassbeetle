@@ -57,6 +57,18 @@ The three tiers talk to each other like this:
 | `npm run openapi:export -w @glassbeetle/api` | Write the OpenAPI spec to a file       |
 | `npm run clean`          | Remove `dist/` output and the Rust `target/` directory      |
 
+## Frontend
+
+The UI is Angular with Angular Material, and covers the endpoints the API
+actually implements: agents (including their profile picture and private
+memories), shared memory, system prompts, and service health. The modules that
+are still empty controllers — chats, projects, teams, providers, artifacts,
+analytics, backups — have no screens and no navigation entries.
+
+Structure and conventions, including how the UI works around the two gaps in
+the current API, are documented in
+[`apps/web/README.md`](apps/web/README.md). Read it before adding a screen.
+
 ## API
 
 The API is served under `/api/v1` and is documented with OpenAPI:
