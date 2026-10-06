@@ -1,58 +1,101 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { RouterOutlet } from '@angular/router';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { BreakpointObserver } from '@angular/cdk/layout';
+import { Component, computed, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatListModule } from '@angular/material/list';
+import { MatSidenavModule } from '@angular/material/sidenav';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { map } from 'rxjs';
 
-import { ApiService, HealthStatus } from './core/api.service';
+import { ApiStatusIndicator } from './features/api-status/api-status-indicator';
+import { ThemeService } from './core/theme/theme.service';
 
-type ConnectionState = 'checking' | 'online' | 'offline';
+interface NavItem {
+  readonly path: string;
+  readonly label: string;
+  readonly icon: string;
+}
 
+/**
+ * Width at which the navigation drawer can sit beside the content instead of
+ * covering it. The Tauri window opens wider than this, so the default desktop
+ * experience is the permanent drawer.
+ */
+const WIDE_LAYOUT = '(min-width: 60rem)';
+
+/**
+ * Application shell: toolbar, navigation drawer and the routed outlet.
+ *
+ * Only features the API actually implements are listed. Chats, projects,
+ * teams, providers and analytics exist as empty NestJS modules, so a nav entry
+ * for them would lead to a page with nothing to show.
+ */
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, RouterOutlet],
+  imports: [
+    ApiStatusIndicator,
+    MatButtonModule,
+    MatIconModule,
+    MatListModule,
+    MatSidenavModule,
+    MatToolbarModule,
+    MatTooltipModule,
+    RouterLink,
+    RouterLinkActive,
+    RouterOutlet,
+  ],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })
-export class App implements OnInit {
-  private readonly api = inject(ApiService);
+export class App {
+  private readonly breakpoints = inject(BreakpointObserver);
+  private readonly theme = inject(ThemeService);
 
-  protected readonly apiState = signal<ConnectionState>('checking');
-  protected readonly health = signal<HealthStatus | null>(null);
-  protected readonly apiError = signal<string | null>(null);
+  protected readonly navItems: readonly NavItem[] = [
+    { path: '/dashboard', label: 'Dashboard', icon: 'space_dashboard' },
+    { path: '/agents', label: 'Agents', icon: 'smart_toy' },
+    { path: '/memories', label: 'Shared memory', icon: 'hard_drive' },
+    { path: '/system-prompts', label: 'System prompts', icon: 'description' },
+  ];
 
-  protected readonly inTauri = signal(isTauri());
-  protected readonly name = signal('Glassbeetle');
-  protected readonly greeting = signal('');
+  protected readonly wideLayout = toSignal(
+    this.breakpoints.observe(WIDE_LAYOUT).pipe(map((state) => state.matches)),
+    { initialValue: true },
+  );
 
-  ngOnInit(): void {
-    this.refreshHealth();
+  protected readonly drawerMode = computed<'side' | 'over'>(() =>
+    this.wideLayout() ? 'side' : 'over',
+  );
+
+  protected readonly drawerOpen = signal(true);
+
+  protected readonly themeMode = this.theme.mode;
+  protected readonly themeIcon = computed(() =>
+    this.themeMode() === 'dark' ? 'light_mode' : 'dark_mode',
+  );
+
+  constructor() {
+    // Follow the window: opening beside the content is right when there is room
+    // and wrong when there is not, so resizing resets the drawer rather than
+    // leaving an overlay covering a narrow window.
+    effect(() => this.drawerOpen.set(this.wideLayout()));
   }
 
-  protected refreshHealth(): void {
-    this.apiState.set('checking');
-    this.apiError.set(null);
-
-    this.api.getHealth().subscribe({
-      next: (health) => {
-        this.health.set(health);
-        this.apiState.set('online');
-      },
-      error: (error: unknown) => {
-        this.health.set(null);
-        this.apiError.set(
-          error instanceof Error ? error.message : 'Could not reach the API.',
-        );
-        this.apiState.set('offline');
-      },
-    });
+  protected toggleTheme(): void {
+    this.theme.toggle();
   }
 
-  protected async greet(): Promise<void> {
-    if (!this.inTauri()) {
-      this.greeting.set('Tauri IPC is only available inside the desktop window.');
-      return;
+  protected toggleDrawer(): void {
+    this.drawerOpen.update((open) => !open);
+  }
+
+  /** Closes the overlay drawer after navigating on a narrow window. */
+  protected onNavigate(): void {
+    if (this.drawerMode() === 'over') {
+      this.drawerOpen.set(false);
     }
-
-    this.greeting.set(await invoke<string>('greet', { name: this.name() }));
   }
 }
