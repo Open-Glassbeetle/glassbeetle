@@ -95,8 +95,10 @@ export class Overview implements OnInit {
   );
 
   ngOnInit(): void {
-    this.status.refresh();
-    this.roster.refresh();
+    // Health and the roster belong to the shell, which loads both at startup
+    // and keeps the roster current after mutations. Refetching them here would
+    // issue a second request for data already on screen every time this page
+    // is opened. The Refresh button below re-reads everything on demand.
     this.loadActivity();
     this.loadCounts();
   }
