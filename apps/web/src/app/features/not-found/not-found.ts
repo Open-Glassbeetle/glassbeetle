@@ -3,24 +3,22 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
 
-import { EmptyState } from '../../shared/empty-state/empty-state';
-
 @Component({
   selector: 'app-not-found',
-  imports: [EmptyState, MatButtonModule, MatIconModule, RouterLink],
+  imports: [MatButtonModule, MatIconModule, RouterLink],
   template: `
-    <div class="page">
-      <app-empty-state
-        icon="explore_off"
-        title="Page not found"
-        message="That route does not exist in this build."
-      >
-        <a matButton="tonal" routerLink="/dashboard">
+    <div class="view">
+      <div class="blank">
+        <mat-icon class="blank__icon">explore_off</mat-icon>
+        <p class="blank__title">Page not found</p>
+        <p class="blank__text">That route does not exist in this build.</p>
+        <a matButton="filled" routerLink="/overview">
           <mat-icon>space_dashboard</mat-icon>
-          Back to the dashboard
+          Back to the workspace
         </a>
-      </app-empty-state>
+      </div>
     </div>
   `,
+  styleUrl: './not-found.scss',
 })
 export class NotFound {}

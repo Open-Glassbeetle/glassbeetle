@@ -1,114 +1,107 @@
-<div class="page">
-  <app-page-header
-    title="Shared memory"
-    subtitle="Facts, preferences and conventions every agent can draw on."
-  >
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">Shared memory</h1>
+      <p class="view__subtitle">
+        Facts, preferences and conventions every agent in the workspace draws on.
+      </p>
+    </div>
+
     <button matButton="filled" (click)="openEditor(null)">
       <mat-icon>add</mat-icon>
       New memory
     </button>
-  </app-page-header>
+  </header>
 
-  <mat-card appearance="outlined">
+  <gb-panel flush>
     <div class="toolbar">
-      <mat-form-field class="toolbar__search" subscriptSizing="fixed">
-        <mat-label>Search content</mat-label>
-        <mat-icon matIconPrefix>search</mat-icon>
+      <div class="search">
+        <mat-icon class="search__icon">search</mat-icon>
         <input
-          matInput
+          class="search__input"
           type="search"
+          placeholder="Search content"
+          aria-label="Search memory content"
           [value]="list.searchTerm()"
           (input)="list.setSearch($any($event.target).value)"
         />
         @if (list.searchTerm()) {
           <button
             matIconButton
-            matIconSuffix
-            aria-label="Clear search"
+            class="search__clear"
+            aria-label="Clear the search"
             (click)="list.clearSearch()"
           >
             <mat-icon>close</mat-icon>
           </button>
         }
-      </mat-form-field>
+      </div>
 
-      <mat-form-field class="toolbar__filter" subscriptSizing="fixed">
-        <mat-label>Filter by tag</mat-label>
-        <mat-icon matIconPrefix>label</mat-icon>
-        <input matInput [value]="tagFilter()" (input)="setTagFilter($any($event.target).value)" />
-        @if (tagFilter()) {
-          <button
-            matIconButton
-            matIconSuffix
-            aria-label="Clear tag filter"
-            (click)="setTagFilter('')"
-          >
-            <mat-icon>close</mat-icon>
-          </button>
-        }
-      </mat-form-field>
+      @if (tagFilter(); as tag) {
+        <button class="tag tag--active" (click)="setTagFilter('')">
+          <mat-icon class="tag__icon">label</mat-icon>
+          {{ tag }}
+          <mat-icon class="tag__icon">close</mat-icon>
+        </button>
+      }
 
-      <span class="toolbar__count">
-        {{ list.total() }} {{ list.total() === 1 ? 'memory' : 'memories' }}
+      <span class="toolbar__count mono">
+        {{ list.total() }} {{ list.total() === 1 ? 'entry' : 'entries' }}
       </span>
     </div>
 
-    @if (list.loading()) {
-      <mat-progress-bar mode="indeterminate" />
-    }
-
-    @if (list.error(); as error) {
-      <app-empty-state
-        icon="cloud_off"
-        title="Could not load shared memory"
-        [message]="error.message"
-      >
-        <button matButton="tonal" (click)="list.reload()">
+    @if (list.loading() && !list.loadedOnce()) {
+      <ul class="rows">
+        @for (row of [1, 2, 3]; track row) {
+          <li class="row row--skeleton">
+            <div class="row__skeleton-text">
+              <gb-skeleton [width]="row % 2 ? '70%' : '55%'" height="0.8125rem" />
+              <gb-skeleton width="25%" height="0.6875rem" />
+            </div>
+          </li>
+        }
+      </ul>
+    } @else if (list.error(); as error) {
+      <div class="blank">
+        <mat-icon class="blank__icon">cloud_off</mat-icon>
+        <p class="blank__title">Could not load shared memory</p>
+        <p class="blank__text">{{ error.message }}</p>
+        <button matButton="filled" (click)="list.reload()">
           <mat-icon>refresh</mat-icon>
           Try again
         </button>
-      </app-empty-state>
+      </div>
     } @else if (list.isEmpty()) {
       @if (list.search() || tagFilter()) {
-        <app-empty-state
-          icon="search_off"
-          title="No matching memories"
-          message="Nothing matches the current search and tag filter."
-        >
+        <div class="blank">
+          <mat-icon class="blank__icon">search_off</mat-icon>
+          <p class="blank__title">No matching memories</p>
+          <p class="blank__text">Nothing matches the current search and tag.</p>
           <button matButton (click)="clearFilters()">Clear filters</button>
-        </app-empty-state>
+        </div>
       } @else {
-        <app-empty-state
-          icon="hard_drive"
-          title="No shared memories yet"
-          message="Shared memories are facts every agent can draw on — conventions, preferences, things about your setup that should not be repeated to each agent."
-        >
+        <div class="blank">
+          <mat-icon class="blank__icon">database</mat-icon>
+          <p class="blank__title">No shared memory yet</p>
+          <p class="blank__text">
+            Shared memory is what every agent should know without being told again — conventions,
+            preferences, facts about your setup.
+          </p>
           <button matButton="filled" (click)="openEditor(null)">
             <mat-icon>add</mat-icon>
             New memory
           </button>
-        </app-empty-state>
+        </div>
       }
     } @else {
-      <div class="table-scroll">
-        <table
-          mat-table
-          [dataSource]="list.items()"
-          matSort
-          [matSortActive]="list.sort()"
-          [matSortDirection]="list.order()"
-          (matSortChange)="list.onSort($event)"
-        >
-          <ng-container matColumnDef="content">
-            <th mat-header-cell *matHeaderCellDef mat-sort-header="content">Memory</th>
-            <td mat-cell *matCellDef="let memory">
-              <span class="preview">{{ memory.content }}</span>
-            </td>
-          </ng-container>
+      <ul class="rows">
+        @for (memory of list.items(); track memory.id) {
+          <li class="row row--memory">
+            <button class="row__open" type="button" (click)="openEditor(memory)">
+              <span class="entry">{{ memory.content }}</span>
+            </button>
 
-          <ng-container matColumnDef="tags">
-            <th mat-header-cell *matHeaderCellDef>Tags</th>
-            <td mat-cell *matCellDef="let memory" (click)="$event.stopPropagation()">
+            <div class="row__side">
               @if (memory.tags.length) {
                 <div class="tags">
                   @for (tag of memory.tags; track tag) {
@@ -122,64 +115,35 @@
                     </button>
                   }
                 </div>
-              } @else {
-                <span class="unset">none</span>
               }
-            </td>
-          </ng-container>
 
-          <ng-container matColumnDef="updatedAt">
-            <th mat-header-cell *matHeaderCellDef mat-sort-header="updatedAt">Updated</th>
-            <td mat-cell *matCellDef="let memory" [title]="memory.updatedAt">
-              {{ memory.updatedAt | relativeTime }}
-            </td>
-          </ng-container>
+              <time class="row__time" [attr.datetime]="memory.updatedAt" [title]="memory.updatedAt">
+                {{ memory.updatedAt | relativeTime }}
+              </time>
 
-          <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef aria-label="Actions"></th>
-            <td
-              mat-cell
-              *matCellDef="let memory"
-              class="cell--actions"
-              (click)="$event.stopPropagation()"
-            >
               <button
                 matIconButton
-                matTooltip="Edit"
-                aria-label="Edit memory"
-                (click)="openEditor(memory)"
-              >
-                <mat-icon>edit</mat-icon>
-              </button>
-              <button
-                matIconButton
+                class="row__delete"
                 matTooltip="Delete"
                 aria-label="Delete memory"
-                class="danger-icon"
                 (click)="remove(memory)"
               >
                 <mat-icon>delete</mat-icon>
               </button>
-            </td>
-          </ng-container>
+            </div>
+          </li>
+        }
+      </ul>
 
-          <tr mat-header-row *matHeaderRowDef="columns"></tr>
-          <tr
-            mat-row
-            *matRowDef="let memory; columns: columns"
-            class="row"
-            (click)="openEditor(memory)"
-          ></tr>
-        </table>
-      </div>
+      @if (list.total() > list.pageSize()) {
+        <mat-paginator
+          [length]="list.total()"
+          [pageIndex]="list.pageIndex()"
+          [pageSize]="list.pageSize()"
+          [pageSizeOptions]="pageSizeOptions"
+          (page)="list.onPage($event)"
+        />
+      }
     }
-
-    <mat-paginator
-      [length]="list.total()"
-      [pageIndex]="list.pageIndex()"
-      [pageSize]="list.pageSize()"
-      [pageSizeOptions]="pageSizeOptions"
-      (page)="list.onPage($event)"
-    />
-  </mat-card>
+  </gb-panel>
 </div>

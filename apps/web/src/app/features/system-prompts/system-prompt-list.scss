@@ -1,7 +1,53 @@
-@use '../../shared/styles/list-page';
+@use '../../shared/styles/view';
 
-@include list-page.list-page;
+@include view.view;
+@include view.blank-state;
+@include view.toolbar;
+@include view.rows;
 
-.cell--name {
-  max-width: 16rem;
+/* The whole row opens the editor, so it is a button rather than a link: it
+   performs an action rather than navigating. */
+.row__main--button {
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row__icon {
+  flex: none;
+  font-size: 1rem;
+  width: 1rem;
+  height: 1rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.row__size {
+  flex: none;
+  width: 6rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+  text-align: right;
+
+  @media (max-width: 52rem) {
+    display: none;
+  }
+}
+
+.row__time {
+  flex: none;
+  width: 6.5rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+  text-align: right;
+
+  @media (max-width: 44rem) {
+    display: none;
+  }
+}
+
+.danger {
+  --mat-menu-item-label-text-color: var(--mat-sys-error);
+  --mat-menu-item-icon-color: var(--mat-sys-error);
 }

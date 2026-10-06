@@ -1,15 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
-import { MatMenuModule } from '@angular/material/menu';
 import { MatPaginatorModule } from '@angular/material/paginator';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSortModule } from '@angular/material/sort';
-import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { firstValueFrom } from 'rxjs';
 
@@ -18,9 +11,9 @@ import { SharedMemoriesService } from '../../core/api/memories.service';
 import { PAGE_SIZE_OPTIONS } from '../../core/api/pagination';
 import { NotificationService } from '../../core/notifications/notification.service';
 import { confirm } from '../../shared/confirm-dialog/confirm-dialog';
-import { EmptyState } from '../../shared/empty-state/empty-state';
 import { ListState } from '../../shared/list-state/list-state';
-import { PageHeader } from '../../shared/page-header/page-header';
+import { Panel } from '../../shared/ui/panel';
+import { Skeleton } from '../../shared/ui/skeleton';
 import { RelativeTimePipe } from '../../shared/relative-time/relative-time.pipe';
 import { MemoryForm, type MemoryFormData } from '../memories/memory-form';
 
@@ -31,20 +24,13 @@ import { MemoryForm, type MemoryFormData } from '../memories/memory-form';
 @Component({
   selector: 'app-shared-memory-list',
   imports: [
-    EmptyState,
     MatButtonModule,
-    MatCardModule,
-    MatFormFieldModule,
     MatIconModule,
-    MatInputModule,
-    MatMenuModule,
     MatPaginatorModule,
-    MatProgressBarModule,
-    MatSortModule,
-    MatTableModule,
     MatTooltipModule,
-    PageHeader,
+    Panel,
     RelativeTimePipe,
+    Skeleton,
   ],
   templateUrl: './shared-memory-list.html',
   styleUrl: './shared-memory-list.scss',
@@ -55,7 +41,6 @@ export class SharedMemoryList {
   private readonly notify = inject(NotificationService);
 
   protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
-  protected readonly columns = ['content', 'tags', 'updatedAt', 'actions'];
 
   /**
    * Exact-tag filter. The API has no endpoint listing the tags in use, so this

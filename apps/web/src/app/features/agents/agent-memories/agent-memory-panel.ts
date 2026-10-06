@@ -1,12 +1,10 @@
 import { Component, inject, input, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule } from '@angular/material/paginator';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import type { Agent } from '../../../core/api/agents.models';
@@ -15,8 +13,9 @@ import { AgentMemoriesService } from '../../../core/api/memories.service';
 import { PAGE_SIZE_OPTIONS } from '../../../core/api/pagination';
 import { NotificationService } from '../../../core/notifications/notification.service';
 import { confirm } from '../../../shared/confirm-dialog/confirm-dialog';
-import { EmptyState } from '../../../shared/empty-state/empty-state';
 import { ListState } from '../../../shared/list-state/list-state';
+import { Panel } from '../../../shared/ui/panel';
+import { Skeleton } from '../../../shared/ui/skeleton';
 import { RelativeTimePipe } from '../../../shared/relative-time/relative-time.pipe';
 import { MemoryForm, type MemoryFormData } from '../../memories/memory-form';
 
@@ -29,15 +28,14 @@ import { MemoryForm, type MemoryFormData } from '../../memories/memory-form';
 @Component({
   selector: 'app-agent-memory-panel',
   imports: [
-    EmptyState,
     MatButtonModule,
-    MatFormFieldModule,
     MatIconModule,
-    MatInputModule,
     MatPaginatorModule,
-    MatProgressBarModule,
     MatTooltipModule,
+    Panel,
     RelativeTimePipe,
+    RouterLink,
+    Skeleton,
   ],
   templateUrl: './agent-memory-panel.html',
   styleUrl: './agent-memory-panel.scss',
