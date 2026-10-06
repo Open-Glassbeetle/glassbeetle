@@ -16,6 +16,25 @@
   padding: 0 0.5rem 0 0.25rem;
   border-bottom: 1px solid var(--mat-sys-outline-variant);
   background: var(--mat-sys-surface-container);
+  /* Nothing in the bar should be selectable: a double-click on a draggable
+     strip otherwise highlights the label underneath it. */
+  user-select: none;
+}
+
+/* macOS draws the traffic lights over the top-left of the window, so the bar
+   starts after them instead of underneath. The window is also taller there,
+   because a title bar's worth of height now belongs to the app. */
+.topbar--inset {
+  height: calc(var(--gb-topbar-height) + 0.5rem);
+  padding-left: 5.25rem;
+}
+
+/* A dependable place to grab the window. Without it the bar can fill edge to
+   edge with controls and leave nothing to drag. */
+.topbar__grip {
+  flex: 1 1 2rem;
+  align-self: stretch;
+  min-width: 0.5rem;
 }
 
 .brand {
@@ -66,7 +85,7 @@
   align-items: center;
   gap: 0.5rem;
   width: min(26rem, 100%);
-  margin: 0 auto;
+  margin-left: auto;
   padding: 0.25rem 0.375rem 0.25rem 0.5rem;
   border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 7px;

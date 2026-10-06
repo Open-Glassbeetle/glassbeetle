@@ -39,8 +39,11 @@ The three tiers talk to each other like this:
   authentication, so the allowlist is what stops any website the user visits
   from reading their data over `localhost`. Override it with
   `GLASSBEETLE_CORS_ORIGINS` if you run the frontend on a different port.
-- Angular can also call into Rust directly — `apps/desktop/src-tauri/src/lib.rs`
-  exposes a `greet` command, invoked from the app shell as a working example.
+- Rust and Angular talk through events rather than through a command surface.
+  The native menu emits `glassbeetle://menu` with an action id, which the
+  Angular shell carries out; the shell emits `glassbeetle://ready` once it has
+  painted, which is what makes the window appear. See
+  [`apps/desktop/src-tauri/src/menu.rs`](apps/desktop/src-tauri/src/menu.rs).
 
 ## Scripts
 

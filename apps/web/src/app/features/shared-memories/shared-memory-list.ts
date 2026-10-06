@@ -1,6 +1,7 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, input, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
+import { Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -39,6 +40,10 @@ export class SharedMemoryList {
   private readonly memories = inject(SharedMemoriesService);
   private readonly dialog = inject(MatDialog);
   private readonly notify = inject(NotificationService);
+  private readonly router = inject(Router);
+
+  /** Bound from `?new=1`, which the native menu's "New Shared Memory" sets. */
+  readonly new = input<string>();
 
   protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
 
@@ -68,6 +73,27 @@ export class SharedMemoryList {
   protected clearFilters(): void {
     this.tagFilter.set('');
     this.list.clearSearch();
+  }
+
+  constructor() {
+    // Opening the editor through a route rather than straight from the menu
+    // keeps the create flow addressable, and means the menu, the rail and the
+    // page's own button all take the same path.
+    effect(() => {
+      if (this.new()) {
+        this.clearNewFlag();
+        this.openEditor(null);
+      }
+    });
+  }
+
+  /** Drops `?new=1` so a reload does not reopen the dialog. */
+  private clearNewFlag(): void {
+    void this.router.navigate([], {
+      queryParams: { new: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   protected openEditor(memory: Memory | null): void {

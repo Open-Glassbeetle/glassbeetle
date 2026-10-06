@@ -1,5 +1,14 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
-import { Component, HostListener, OnInit, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  HostListener,
+  OnInit,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -9,6 +18,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter, map } from 'rxjs';
 
 import { readinessOf } from './core/agents/agent-readiness';
+import { DesktopService, type MenuAction } from './core/desktop/desktop.service';
 import { CapabilitiesService } from './core/platform/capabilities.service';
 import { ThemeService } from './core/theme/theme.service';
 import { AgentRosterService } from './core/workspace/agent-roster.service';
@@ -61,6 +71,7 @@ export class App implements OnInit {
 
   protected readonly roster = inject(AgentRosterService);
   private readonly capabilities = inject(CapabilitiesService);
+  protected readonly desktop = inject(DesktopService);
 
   protected readonly navItems: readonly NavItem[] = [
     { path: '/overview', label: 'Overview', icon: 'space_dashboard' },
@@ -100,6 +111,17 @@ export class App implements OnInit {
     // and wrong when there is not.
     effect(() => this.railOpen.set(this.wideLayout()));
 
+    // The native menu asks; the shell performs. Every action resolves to the
+    // same code path a click in the UI would take, so there is one
+    // implementation of each rather than a menu-shaped copy.
+    this.desktop.menuActions
+      .pipe(takeUntilDestroyed())
+      .subscribe((action) => this.runMenuAction(action));
+
+    // Reveals the window, which Rust creates hidden so the webview's first
+    // paint is never visible as a white flash.
+    afterNextRender(() => void this.desktop.signalReady());
+
     this.router.events
       .pipe(
         filter((event) => event instanceof NavigationEnd),
@@ -115,6 +137,52 @@ export class App implements OnInit {
   ngOnInit(): void {
     this.capabilities.probe();
     this.roster.refresh();
+    void this.desktop.connect();
+  }
+
+  /** Carries out a selection from the native menu. */
+  private runMenuAction(action: MenuAction): void {
+    switch (action) {
+      // The create flows are addressable routes rather than dialogs opened
+      // from here, which is the same path the rail's "New agent" takes.
+      case 'new-agent':
+        void this.router.navigate(['/agents'], { queryParams: { new: 1 } });
+        break;
+      case 'new-memory':
+        void this.router.navigate(['/memory'], { queryParams: { new: 1 } });
+        break;
+      case 'new-prompt':
+        void this.router.navigate(['/prompts'], { queryParams: { new: 1 } });
+        break;
+
+      case 'go-overview':
+        void this.router.navigate(['/overview']);
+        break;
+      case 'go-agents':
+        void this.router.navigate(['/agents']);
+        break;
+      case 'go-memory':
+        void this.router.navigate(['/memory']);
+        break;
+      case 'go-prompts':
+        void this.router.navigate(['/prompts']);
+        break;
+
+      case 'search':
+        this.openPalette();
+        break;
+      case 'toggle-sidebar':
+        this.toggleRail();
+        break;
+      case 'toggle-theme':
+        this.toggleTheme();
+        break;
+
+      case 'refresh':
+        this.capabilities.probe();
+        this.roster.refresh();
+        break;
+    }
   }
 
   /**
