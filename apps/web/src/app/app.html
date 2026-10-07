@@ -9,19 +9,27 @@
       <span class="deck__seam" aria-hidden="true"></span>
     }
 
-    <button
-      matIconButton
-      class="deck__rail-toggle"
-      [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
-      [attr.aria-expanded]="railOpen()"
-      [matTooltip]="(railOpen() ? 'Hide the rail' : 'Show the rail') + '  ' + commandKey + 'B'"
-      matTooltipPosition="below"
-      (click)="toggleRail()"
-    >
-      <mat-icon>dock_to_right</mat-icon>
-    </button>
+    <!-- The rail toggle and the workspace control share one capsule: both are
+         about this workspace, and a lone icon button beside the mark read as a
+         stray piece of UI rather than part of the chrome. -->
+    <div class="cluster">
+      <button
+        class="cluster__toggle"
+        type="button"
+        [class.cluster__toggle--on]="railOpen()"
+        [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
+        [attr.aria-expanded]="railOpen()"
+        [matTooltip]="(railOpen() ? 'Hide the rail' : 'Show the rail') + '  ' + commandKey + 'B'"
+        matTooltipPosition="below"
+        (click)="toggleRail()"
+      >
+        <mat-icon>{{ railOpen() ? 'left_panel_close' : 'left_panel_open' }}</mat-icon>
+      </button>
 
-    <app-workspace-menu />
+      <span class="cluster__divider" aria-hidden="true"></span>
+
+      <app-workspace-menu flush />
+    </div>
 
     <!-- Where you are, as the title bar's actual job — but in the workspace's
          own words, including an agent's real name. -->
@@ -46,7 +54,7 @@
       (click)="openPalette()"
     >
       <mat-icon class="command__icon">search</mat-icon>
-      <span class="command__label">Search</span>
+      <span class="command__label">Search agents, memory and prompts</span>
       <kbd class="command__key">{{ commandKey }}K</kbd>
     </button>
 

@@ -1,5 +1,13 @@
 import { OverlayModule } from '@angular/cdk/overlay';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnInit,
+  booleanAttribute,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { Router } from '@angular/router';
 import { catchError, forkJoin, map, of } from 'rxjs';
@@ -44,6 +52,12 @@ export class WorkspaceMenu implements OnInit {
     { path: '/memory', label: 'Shared memory', icon: 'database', key: '⌘⇧M' },
     { path: '/prompts', label: 'System prompt', icon: 'article', key: '⌘⇧P' },
   ];
+
+  /**
+   * Drops the trigger's own border and fill, for when it is placed inside a
+   * capsule that already provides them.
+   */
+  readonly flush = input(false, { transform: booleanAttribute });
 
   protected readonly open = signal(false);
   protected readonly version = signal<string | null>(null);
