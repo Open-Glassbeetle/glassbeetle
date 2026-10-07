@@ -236,7 +236,10 @@
   flex: 0 1 24rem;
   min-width: 7rem;
   height: 1.75rem;
-  padding: 0 0.3125rem 0 0.625rem;
+  /* The right padding clears the pill's own curve. At 28px high the radius is
+     14px, so a cap inset only 5px sits almost on the arc — which is what made
+     it look wedged in rather than placed. */
+  padding: 0 0.5rem 0 0.75rem;
   border: 0;
   border-radius: 999px;
   background: var(--mat-sys-surface-container-lowest);
@@ -280,26 +283,31 @@
   transition: color 120ms var(--gb-ease);
 }
 
-/* A key cap, not a label in a box. It inherited the deck's 20px line-height,
-   which made it 24px tall inside a 28px pill — filling the capsule instead of
-   sitting in it. Sized explicitly and centred so it reads as a key. */
+/* A key cap. Kept a rounded rectangle rather than a pill so it still reads as
+   a key inside a pill-shaped field, with enough tracking that the ⌘ glyph and
+   the letter are two symbols rather than one blob at 11px. The field's right
+   padding clears the pill's own curve: at 28px high its radius is 14px, so a
+   cap inset only 5px sat almost on the arc and looked wedged in. */
 .command__key {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  height: 1.125rem;
-  min-width: 1.5rem;
-  padding: 0 0.3125rem;
-  border-radius: 4px;
-  background: var(--mat-sys-surface-container-high);
+  height: 1.25rem;
+  min-width: 1.75rem;
+  padding: 0 0.375rem;
+  border-radius: 5px;
+  background: var(--mat-sys-surface-container-highest);
   box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
   color: var(--mat-sys-on-surface-variant);
   font-family: var(--gb-font-mono);
   font-size: 0.6875rem;
+  font-weight: 500;
   line-height: 1;
-  /* The ⌘ glyph sits tight against the letter in a monospace face. */
-  letter-spacing: 0.02em;
+  letter-spacing: 0.08em;
+  /* Tracking also adds space after the final glyph, which would sit the text
+     off-centre; the indent gives it back on the left. */
+  text-indent: 0.08em;
   white-space: nowrap;
 }
 

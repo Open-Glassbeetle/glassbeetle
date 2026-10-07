@@ -1,3 +1,11 @@
+/* The host is the flex item the deck lays out, so it states its own box rather
+   than relying on blockification to give it one. */
+:host {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
 .controls {
   display: flex;
   align-items: center;
