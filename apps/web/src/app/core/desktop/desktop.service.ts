@@ -2,6 +2,7 @@ import { Injectable, signal } from '@angular/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Observable, Subject } from 'rxjs';
 
 /** Mirrors `MENU_EVENT` in `apps/desktop/src-tauri/src/menu.rs`. */
@@ -49,16 +50,26 @@ export class DesktopService {
   /** True inside the Tauri window, false in a browser tab. */
   readonly isDesktop = isTauri();
 
+  /** True on macOS, where several window conventions differ. */
+  readonly isMacOs = /mac/i.test(navigator.platform || navigator.userAgent);
+
   /**
-   * True where the window's own controls are drawn over the app's top bar
-   * rather than in a strip above it.
+   * Which end of the deck the window controls belong on.
    *
-   * macOS only: the window is configured with `titleBarStyle: "Overlay"`, so
-   * the traffic lights sit inside our own bar and it has to leave room for
-   * them. Windows and Linux keep their native frame and need no inset.
+   * The window is undecorated and the app draws its own controls, but where
+   * people reach for them is platform muscle memory, not a style choice — left
+   * on macOS, right everywhere else.
    */
-  readonly overlaysTitleBar =
-    this.isDesktop && /mac/i.test(navigator.platform || navigator.userAgent);
+  readonly controlsOnLeft = this.isDesktop && this.isMacOs;
+
+  /**
+   * True where the app has to provide its own resize edges.
+   *
+   * An undecorated window on macOS still resizes from its borders; on Windows
+   * and Linux that border belongs to the frame that is no longer there, so the
+   * app supplies hit areas of its own.
+   */
+  readonly needsResizeEdges = this.isDesktop && !this.isMacOs;
 
   /** Menu selections, in the order the user made them. */
   readonly menuActions: Observable<ShellAction> = this.actions.asObservable();
@@ -115,6 +126,58 @@ export class DesktopService {
     }
 
     await invoke('open_external', { url });
+  }
+
+  async minimiseWindow(): Promise<void> {
+    if (!this.isDesktop) {
+      return;
+    }
+
+    await getCurrentWindow().minimize();
+  }
+
+  async toggleMaximiseWindow(): Promise<void> {
+    if (!this.isDesktop) {
+      return;
+    }
+
+    await getCurrentWindow().toggleMaximize();
+  }
+
+  async closeWindow(): Promise<void> {
+    if (!this.isDesktop) {
+      return;
+    }
+
+    await getCurrentWindow().close();
+  }
+
+  async isWindowMaximised(): Promise<boolean> {
+    if (!this.isDesktop) {
+      return false;
+    }
+
+    try {
+      return await getCurrentWindow().isMaximized();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Starts a resize drag from one of the app's own edges.
+   *
+   * `direction` is a Tauri `ResizeDirection` string such as `"East"` or
+   * `"SouthWest"`.
+   */
+  async startResize(direction: string): Promise<void> {
+    if (!this.isDesktop) {
+      return;
+    }
+
+    await getCurrentWindow().startResizeDragging(
+      direction as Parameters<ReturnType<typeof getCurrentWindow>['startResizeDragging']>[0],
+    );
   }
 
   /**

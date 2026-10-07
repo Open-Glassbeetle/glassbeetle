@@ -1,49 +1,81 @@
-<!-- The deck: this app's window chrome. `data-tauri-drag-region` applies to the
-     element carrying it, so the bar's own surface moves the window while the
-     controls on it keep behaving as controls. -->
-<header class="deck" [class.deck--inset]="desktop.overlaysTitleBar" data-tauri-drag-region>
-  <button
-    matIconButton
-    class="deck__rail-toggle"
-    [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
-    [attr.aria-expanded]="railOpen()"
-    [matTooltip]="(railOpen() ? 'Hide the rail' : 'Show the rail') + '  ' + commandKey + 'B'"
-    matTooltipPosition="below"
-    (click)="toggleRail()"
-  >
-    <mat-icon>dock_to_right</mat-icon>
-  </button>
-
-  <app-workspace-menu />
-
-  <!-- Where you are, as the title bar's actual job — but with the workspace's
-       own words, including an agent's real name. -->
-  <nav class="trail" aria-label="Location" data-tauri-drag-region>
-    @for (crumb of trail(); track crumb.path; let last = $last) {
-      @if (!last) {
-        <a class="trail__link" [routerLink]="crumb.path">{{ crumb.label }}</a>
-        <span class="trail__sep" aria-hidden="true">/</span>
-      } @else {
-        <span class="trail__here" aria-current="page">{{ crumb.label }}</span>
-      }
+<!-- The deck: this app's window chrome. The window is undecorated, so the
+     title bar, the controls and the drag surface are all drawn here.
+     `data-tauri-drag-region` applies to the element carrying it, so the bar's
+     own surface moves the window while the controls on it keep working. -->
+<header class="deck" data-tauri-drag-region>
+  <div class="deck__bar" data-tauri-drag-region>
+    @if (desktop.controlsOnLeft) {
+      <app-window-controls />
+      <span class="deck__seam" aria-hidden="true"></span>
     }
-  </nav>
 
-  <span class="deck__grip" data-tauri-drag-region aria-hidden="true"></span>
+    <button
+      matIconButton
+      class="deck__rail-toggle"
+      [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
+      [attr.aria-expanded]="railOpen()"
+      [matTooltip]="(railOpen() ? 'Hide the rail' : 'Show the rail') + '  ' + commandKey + 'B'"
+      matTooltipPosition="below"
+      (click)="toggleRail()"
+    >
+      <mat-icon>dock_to_right</mat-icon>
+    </button>
 
-  <button
-    class="command"
-    [matTooltip]="'Search agents, memory and prompts'"
-    matTooltipPosition="below"
-    (click)="openPalette()"
-  >
-    <mat-icon class="command__icon">search</mat-icon>
-    <span class="command__label">Search</span>
-    <kbd class="command__key">{{ commandKey }}K</kbd>
-  </button>
+    <app-workspace-menu />
 
-  <app-fleet-status />
+    <!-- Where you are, as the title bar's actual job — but in the workspace's
+         own words, including an agent's real name. -->
+    <nav class="trail" aria-label="Location" data-tauri-drag-region>
+      <span class="trail__sep" aria-hidden="true">/</span>
+      @for (crumb of trail(); track crumb.path; let last = $last) {
+        @if (!last) {
+          <a class="trail__link" [routerLink]="crumb.path">{{ crumb.label }}</a>
+          <span class="trail__sep" aria-hidden="true">/</span>
+        } @else {
+          <span class="trail__here" aria-current="page">{{ crumb.label }}</span>
+        }
+      }
+    </nav>
+
+    <span class="deck__grip" data-tauri-drag-region aria-hidden="true"></span>
+
+    <button
+      class="command"
+      matTooltip="Search agents, memory and prompts"
+      matTooltipPosition="below"
+      (click)="openPalette()"
+    >
+      <mat-icon class="command__icon">search</mat-icon>
+      <span class="command__label">Search</span>
+      <kbd class="command__key">{{ commandKey }}K</kbd>
+    </button>
+
+    <app-fleet-status />
+
+    @if (desktop.isDesktop && !desktop.controlsOnLeft) {
+      <span class="deck__seam" aria-hidden="true"></span>
+      <app-window-controls />
+    }
+  </div>
+
+  <!-- The deck's bottom edge reports the fleet, in the space a border would
+       have taken anyway. -->
+  <app-fleet-spine />
 </header>
+
+@if (desktop.needsResizeEdges) {
+  <!-- An undecorated window keeps no resize border of its own on Windows and
+       Linux, so the app supplies the hit areas. macOS still resizes from the
+       window's edges and needs none of this. -->
+  <div class="resize" aria-hidden="true">
+    @for (edge of resizeEdges; track edge.direction) {
+      <span
+        class="resize__edge resize__edge--{{ edge.name }}"
+        (mousedown)="startResize($event, edge.direction)"
+      ></span>
+    }
+  </div>
+}
 
 <div class="workspace" [class.workspace--rail-open]="railOpen()">
   @if (railOpen() && !wideLayout()) {

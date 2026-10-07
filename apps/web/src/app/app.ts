@@ -24,7 +24,9 @@ import { ApiStatusService } from './features/api-status/api-status.service';
 import { ThemeService } from './core/theme/theme.service';
 import { AgentRosterService } from './core/workspace/agent-roster.service';
 import { CommandPalette } from './features/command-palette/command-palette';
+import { FleetSpine } from './features/chrome/fleet-spine/fleet-spine';
 import { FleetStatus } from './features/chrome/fleet-status/fleet-status';
+import { WindowControls } from './features/chrome/window-controls/window-controls';
 import { WorkspaceMenu } from './features/chrome/workspace-menu/workspace-menu';
 import { AgentAvatar } from './features/agents/agent-avatar/agent-avatar';
 import { ReadinessBadge } from './shared/ui/readiness-badge';
@@ -58,6 +60,7 @@ const WIDE_LAYOUT = '(min-width: 62rem)';
   selector: 'app-root',
   imports: [
     AgentAvatar,
+    FleetSpine,
     FleetStatus,
     MatButtonModule,
     MatDialogModule,
@@ -68,6 +71,7 @@ const WIDE_LAYOUT = '(min-width: 62rem)';
     RouterLinkActive,
     RouterOutlet,
     Skeleton,
+    WindowControls,
     WorkspaceMenu,
   ],
   templateUrl: './app.html',
@@ -97,6 +101,23 @@ export class App implements OnInit {
   );
 
   protected readonly railOpen = signal(true);
+
+  /**
+   * The hit areas that resize an undecorated window.
+   *
+   * `direction` is Tauri's `ResizeDirection`; `name` only selects the CSS that
+   * places the strip.
+   */
+  protected readonly resizeEdges = [
+    { name: 'n', direction: 'North' },
+    { name: 's', direction: 'South' },
+    { name: 'e', direction: 'East' },
+    { name: 'w', direction: 'West' },
+    { name: 'ne', direction: 'NorthEast' },
+    { name: 'nw', direction: 'NorthWest' },
+    { name: 'se', direction: 'SouthEast' },
+    { name: 'sw', direction: 'SouthWest' },
+  ] as const;
 
   /** The current URL, so the trail recomputes on every navigation. */
   private readonly url = toSignal(
@@ -327,6 +348,17 @@ export class App implements OnInit {
 
   protected toggleTheme(): void {
     this.theme.toggle();
+  }
+
+  protected startResize(event: MouseEvent, direction: string): void {
+    // Only the primary button resizes; a right-click here should fall through
+    // to the context menu rather than grabbing the window.
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    void this.desktop.startResize(direction);
   }
 
   protected toggleRail(): void {

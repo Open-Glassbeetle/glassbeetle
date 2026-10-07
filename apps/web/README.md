@@ -92,16 +92,33 @@ costs no request.
 entry shows its name, resolved from that same roster. That is what a title bar
 is for, and it is why the bar no longer carries a window title.
 
-The deck is the drag surface. `data-tauri-drag-region` applies to the element
-carrying it, so the bar's own surface and the grip move the window while the
-controls on it keep behaving as controls. This needs
-`core:window:allow-start-dragging`, which `core:window:default` does **not**
-include — without it the call is denied silently and the window cannot be
-moved at all.
+**The spine** is the deck's bottom edge: a two-pixel line, split
+proportionally by agent readiness, in the space a border would have taken
+anyway. It costs no height and adds no control, but it means the chrome is
+never merely decorative — at a glance, on every screen, it says how much of the
+fleet is configured. An unreachable API overrides it, because nothing it could
+report would be trustworthy while the backend is silent.
 
-On macOS the window uses `titleBarStyle: "Overlay"`, so the traffic lights sit
-inside the deck and it insets itself for them. Windows and Linux keep their
-native frame and get no inset.
+## Window chrome
+
+The window is **undecorated** (`decorations: false`), so the title bar, the
+controls and the drag surface are all drawn by the app. That has consequences
+worth knowing before changing any of it.
+
+**The controls are the only ones there are** — not a skin over native buttons.
+They keep the platform's *position* (left on macOS, right elsewhere), because
+that is muscle memory worth more than symmetry, while the look is the
+product's: flat glyphs that only take on colour under the cursor.
+
+**Dragging needs `core:window:allow-start-dragging`.** `core:window:default` is
+read-only and grants none of the window operations, so without it the call is
+denied silently and the window cannot be moved at all. The same applies to
+`allow-minimize`, `allow-toggle-maximize` and `allow-close`.
+
+**Resizing is the app's job off macOS.** An undecorated window on macOS still
+resizes from its borders; on Windows and Linux that border belonged to the
+frame that is no longer there, so the shell renders invisible edge strips that
+call `startResizeDragging`. `DesktopService.needsResizeEdges` decides.
 
 ## The native menu
 

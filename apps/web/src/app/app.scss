@@ -9,12 +9,8 @@
 
 .deck {
   display: flex;
-  align-items: center;
-  gap: 0.375rem;
+  flex-direction: column;
   flex: none;
-  height: var(--gb-topbar-height);
-  padding: 0 0.5rem 0 0.3125rem;
-  border-bottom: 1px solid var(--mat-sys-outline-variant);
   /* A touch lighter than the rail below it, so the chrome reads as the lid of
      the window rather than as another panel. */
   background: var(--mat-sys-surface-container);
@@ -23,19 +19,105 @@
   user-select: none;
 }
 
-/* macOS draws the traffic lights over the top-left, so the deck starts after
-   them and gains the height that used to belong to the system title bar. */
-.deck--inset {
-  height: calc(var(--gb-topbar-height) + 0.5rem);
-  padding-left: 5.25rem;
+.deck__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: var(--gb-topbar-height);
+  padding: 0 0.4375rem;
 }
 
-/* Grabbable surface. Two of them — this one and the trail — keep a reliable
-   place to move the window however full the deck gets. */
+/* A hairline marking where the window's own controls end and the product
+   begins — the one seam in the chrome that is structural rather than cosmetic. */
+.deck__seam {
+  flex: none;
+  width: 1px;
+  height: 1.125rem;
+  margin: 0 0.25rem;
+  background: var(--mat-sys-outline-variant);
+}
+
+/* Grabbable surface. Two of them — this and the trail — keep a reliable place
+   to move the window however full the deck gets. */
 .deck__grip {
   flex: 1 1 0;
   align-self: stretch;
   min-width: 0.75rem;
+}
+
+/* ── Resize edges ─────────────────────────────────────────────────────── */
+
+/* Invisible strips over the window's border. Only rendered where the frame
+   that used to provide them is gone and the OS does not step in. */
+.resize {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.resize__edge {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.resize__edge--n,
+.resize__edge--s {
+  left: 6px;
+  right: 6px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.resize__edge--n {
+  top: 0;
+}
+.resize__edge--s {
+  bottom: 0;
+}
+
+.resize__edge--e,
+.resize__edge--w {
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.resize__edge--e {
+  right: 0;
+}
+.resize__edge--w {
+  left: 0;
+}
+
+.resize__edge--ne,
+.resize__edge--nw,
+.resize__edge--se,
+.resize__edge--sw {
+  width: 8px;
+  height: 8px;
+}
+
+.resize__edge--nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.resize__edge--ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.resize__edge--sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.resize__edge--se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
 }
 
 /* ── Location trail ───────────────────────────────────────────────────── */
@@ -45,9 +127,8 @@
   align-items: center;
   gap: 0.3125rem;
   min-width: 0;
-  margin-left: 0.125rem;
-  padding: 0.25rem 0.25rem 0.25rem 0.4375rem;
-  border-left: 1px solid var(--mat-sys-outline-variant);
+  margin-left: 0.0625rem;
+  padding: 0.25rem;
   font-size: 0.75rem;
 
   @media (max-width: 46rem) {
