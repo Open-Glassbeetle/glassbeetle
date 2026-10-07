@@ -1,22 +1,26 @@
-//! The application menu.
+//! The native menu.
 //!
-//! The menu is not a generic File/Edit/View scaffold with the app's name on it.
-//! Its sections mirror the workspace the Angular app presents — the agents, the
-//! context they draw on, and where you are in it — so the two read as one
-//! product rather than as a web app with a menu bar bolted on top.
+//! Deliberately small. Product navigation lives in the deck — the app's own
+//! window chrome — where it can show live state that a menu cannot: how much of
+//! the fleet is configured, which agents need attention, whether the backend is
+//! answering. Rebuilding that as a tree of labels would be a worse copy of
+//! something the user can already see.
 //!
-//! Almost every item is a thin front end for something the UI can already do.
-//! Rust owns only what the webview genuinely cannot: opening a URL in the
-//! system browser, and the native edit and window commands. Everything else is
-//! emitted as a [`MENU_EVENT`] and carried out by the Angular shell, so an
-//! action behaves identically whether it was reached from the menu, a keyboard
-//! shortcut or a click in the UI. There is exactly one implementation of each.
+//! So this menu keeps what the operating system owns and the webview cannot
+//! provide for itself: the application menu macOS expects, clipboard and undo
+//! for text fields, window commands, and the two links that belong in the
+//! system browser rather than in the workspace window.
+//!
+//! The few items that *are* product actions exist because macOS users look for
+//! them in the menu bar, and they emit [`MENU_EVENT`] rather than implementing
+//! anything — the Angular shell owns the one implementation, which the keyboard
+//! and the workspace panel reach too.
 
 use tauri::menu::{AboutMetadataBuilder, Menu, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_opener::OpenerExt;
 
-/// Event carrying a menu action id to the frontend.
+/// Event carrying an action id to the frontend.
 pub const MENU_EVENT: &str = "glassbeetle://menu";
 
 /// The API's own interactive documentation, served by the running backend.
@@ -25,51 +29,24 @@ const REPOSITORY_URL: &str = "https://github.com/Open-Glassbeetle/glassbeetle";
 
 /// Builds the menu.
 ///
-/// The accelerators deliberately match the ones the Angular shell already
-/// binds (⌘K for search, ⌘B for the rail), so the menu documents the keyboard
-/// rather than competing with it.
+/// Accelerators match what the shell already binds, so the menu reflects the
+/// keyboard rather than competing with it.
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let new_agent = MenuItemBuilder::with_id("new-agent", "New Agent…")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
-    let new_memory = MenuItemBuilder::with_id("new-memory", "New Shared Memory…")
-        .accelerator("CmdOrCtrl+Shift+M")
-        .build(app)?;
-    let new_prompt = MenuItemBuilder::with_id("new-prompt", "New System Prompt…")
-        .accelerator("CmdOrCtrl+Shift+P")
-        .build(app)?;
-    let refresh = MenuItemBuilder::with_id("refresh", "Refresh Workspace")
-        .accelerator("CmdOrCtrl+R")
-        .build(app)?;
-
-    let go_overview = MenuItemBuilder::with_id("go-overview", "Overview")
-        .accelerator("CmdOrCtrl+1")
-        .build(app)?;
-    let go_agents = MenuItemBuilder::with_id("go-agents", "Agents")
-        .accelerator("CmdOrCtrl+2")
-        .build(app)?;
-    let go_memory = MenuItemBuilder::with_id("go-memory", "Shared Memory")
-        .accelerator("CmdOrCtrl+3")
-        .build(app)?;
-    let go_prompts = MenuItemBuilder::with_id("go-prompts", "System Prompts")
-        .accelerator("CmdOrCtrl+4")
-        .build(app)?;
     let search = MenuItemBuilder::with_id("search", "Search Workspace…")
         .accelerator("CmdOrCtrl+K")
         .build(app)?;
-
     let toggle_sidebar = MenuItemBuilder::with_id("toggle-sidebar", "Toggle Sidebar")
         .accelerator("CmdOrCtrl+B")
         .build(app)?;
-    let toggle_theme = MenuItemBuilder::with_id("toggle-theme", "Toggle Light / Dark")
-        .accelerator("CmdOrCtrl+Shift+L")
-        .build(app)?;
 
     let api_docs = MenuItemBuilder::with_id("api-docs", "API Reference").build(app)?;
-    let repository = MenuItemBuilder::with_id("repository", "Glassbeetle on GitHub").build(app)?;
+    let repository = MenuItemBuilder::with_id("repository", "Source Repository").build(app)?;
 
-    // The application menu is macOS-only; on Windows and Linux its contents
-    // belong in the first in-window submenu instead.
+    // The application menu is macOS-only. Elsewhere Quit belongs in the first
+    // in-window submenu instead.
     #[cfg(target_os = "macos")]
     let app_menu = {
         let about = AboutMetadataBuilder::new()
@@ -97,12 +74,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     #[allow(unused_mut)]
     let mut workspace = SubmenuBuilder::new(app, "Workspace")
         .item(&new_agent)
-        .item(&new_memory)
-        .item(&new_prompt)
+        .item(&search)
         .separator()
-        .item(&refresh);
+        .item(&toggle_sidebar);
 
-    // Without an application menu there is nowhere else for Quit to live.
     #[cfg(not(target_os = "macos"))]
     {
         workspace = workspace.separator().quit();
@@ -123,31 +98,22 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .select_all()
         .build()?;
 
-    let go = SubmenuBuilder::new(app, "Go")
-        .item(&go_overview)
-        .item(&go_agents)
-        .item(&go_memory)
-        .item(&go_prompts)
-        .separator()
-        .item(&search)
-        .build()?;
-
     #[allow(unused_mut)]
-    let mut view = SubmenuBuilder::new(app, "View")
-        .item(&toggle_sidebar)
-        .item(&toggle_theme)
+    let mut window = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .fullscreen()
         .separator()
-        .fullscreen();
+        .close_window();
 
     #[cfg(debug_assertions)]
     {
         let devtools = MenuItemBuilder::with_id("devtools", "Developer Tools")
             .accelerator("CmdOrCtrl+Alt+I")
             .build(app)?;
-        view = view.separator().item(&devtools);
+        window = window.separator().item(&devtools);
     }
 
-    let view = view.build()?;
+    let window = window.build()?;
 
     let help = SubmenuBuilder::new(app, "Help")
         .item(&api_docs)
@@ -159,7 +125,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     #[cfg(target_os = "macos")]
     menu.append(&app_menu)?;
 
-    menu.append_items(&[&workspace, &edit, &go, &view, &help])?;
+    menu.append_items(&[&workspace, &edit, &window, &help])?;
 
     Ok(menu)
 }
@@ -167,8 +133,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 /// Routes a menu selection.
 ///
 /// Anything the webview cannot do for itself is handled here; everything else
-/// is forwarded to the Angular shell, which owns the single implementation of
-/// that action.
+/// is forwarded to the Angular shell, which owns the single implementation.
 pub fn handle<R: Runtime>(app: &AppHandle<R>, id: &str) {
     match id {
         "api-docs" => open(app, API_DOCS_URL),

@@ -5,105 +5,108 @@
   overflow: hidden;
 }
 
-/* ── Top bar ─────────────────────────────────────────────────────────── */
+/* ── The deck (window chrome) ─────────────────────────────────────────── */
 
-.topbar {
+.deck {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
   flex: none;
   height: var(--gb-topbar-height);
-  padding: 0 0.5rem 0 0.25rem;
+  padding: 0 0.5rem 0 0.3125rem;
   border-bottom: 1px solid var(--mat-sys-outline-variant);
+  /* A touch lighter than the rail below it, so the chrome reads as the lid of
+     the window rather than as another panel. */
   background: var(--mat-sys-surface-container);
-  /* Nothing in the bar should be selectable: a double-click on a draggable
-     strip otherwise highlights the label underneath it. */
+  /* Nothing in a draggable strip should be selectable: a double-click would
+     otherwise highlight the label under the cursor instead of zooming. */
   user-select: none;
 }
 
-/* macOS draws the traffic lights over the top-left of the window, so the bar
-   starts after them instead of underneath. The window is also taller there,
-   because a title bar's worth of height now belongs to the app. */
-.topbar--inset {
+/* macOS draws the traffic lights over the top-left, so the deck starts after
+   them and gains the height that used to belong to the system title bar. */
+.deck--inset {
   height: calc(var(--gb-topbar-height) + 0.5rem);
   padding-left: 5.25rem;
 }
 
-/* The window is dragged by these, one on each side of the palette. They also
-   centre it: an auto margin would consume the free space before flex-grow got
-   a say, which both pushed the palette off-centre and left almost nothing to
-   grab. */
-.topbar__grip {
+/* Grabbable surface. Two of them — this one and the trail — keep a reliable
+   place to move the window however full the deck gets. */
+.deck__grip {
   flex: 1 1 0;
   align-self: stretch;
-  min-width: 0.5rem;
+  min-width: 0.75rem;
 }
 
-.brand {
+/* ── Location trail ───────────────────────────────────────────────────── */
+
+.trail {
   display: flex;
-  align-items: baseline;
-  gap: 0.4375rem;
-  padding: 0.25rem 0.375rem;
-  border-radius: 6px;
-  color: inherit;
-  text-decoration: none;
-
-  &:focus-visible {
-    outline: 2px solid var(--mat-sys-primary);
-    outline-offset: 1px;
-  }
-}
-
-/* The mark is drawn rather than iconographic: a small iridescent lozenge that
-   reads as a product logo without needing an asset. */
-.brand__mark {
-  align-self: center;
-  width: 0.75rem;
-  height: 0.75rem;
-  border-radius: 4px 999px 999px 999px;
-  background: linear-gradient(140deg, var(--mat-sys-primary), var(--mat-sys-tertiary));
-  box-shadow: 0 0 10px -2px var(--mat-sys-primary);
-}
-
-.brand__name {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-.brand__scope {
-  color: var(--mat-sys-on-surface-variant);
+  align-items: center;
+  gap: 0.3125rem;
+  min-width: 0;
+  margin-left: 0.125rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.4375rem;
+  border-left: 1px solid var(--mat-sys-outline-variant);
   font-size: 0.75rem;
 
-  @media (max-width: 48rem) {
+  @media (max-width: 46rem) {
     display: none;
   }
 }
 
-/* The palette trigger reads as a search field but is a button: it opens the
-   palette rather than filtering anything in place. */
+.trail__link {
+  color: var(--mat-sys-on-surface-variant);
+  text-decoration: none;
+  border-radius: 4px;
+
+  &:hover {
+    color: var(--mat-sys-on-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
+}
+
+.trail__sep {
+  color: var(--mat-sys-outline);
+}
+
+.trail__here {
+  overflow: hidden;
+  max-width: 18rem;
+  color: var(--mat-sys-on-surface);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Command trigger ──────────────────────────────────────────────────── */
+
+/* Reads as a field but is a button: it opens the palette rather than filtering
+   anything where it stands. */
 .command {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  width: min(26rem, 100%);
+  gap: 0.375rem;
   flex: none;
-  padding: 0.25rem 0.375rem 0.25rem 0.5rem;
+  padding: 0.25rem 0.3125rem 0.25rem 0.4375rem;
   border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 7px;
   background: var(--mat-sys-surface-container-lowest);
   color: var(--mat-sys-on-surface-variant);
   font: inherit;
   font-size: 0.75rem;
-  text-align: left;
   cursor: pointer;
   transition:
     border-color 120ms var(--gb-ease),
-    background-color 120ms var(--gb-ease);
+    color 120ms var(--gb-ease);
 
   &:hover {
     border-color: var(--mat-sys-outline);
-    background: var(--mat-sys-surface-container-low);
+    color: var(--mat-sys-on-surface);
   }
 
   &:focus-visible {
@@ -119,13 +122,6 @@
   height: 0.9375rem;
 }
 
-.command__label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .command__key {
   flex: none;
   padding: 0.0625rem 0.3125rem;
@@ -136,33 +132,15 @@
   font-size: 0.6875rem;
 }
 
-/* On a narrow window the trigger collapses to its icon. The shortcut hint is
-   dropped with it: a device this width rarely has the keyboard to use it. */
 @media (max-width: 40rem) {
-  .command {
-    width: auto;
-    margin-left: auto;
-    margin-right: 0;
-    padding: 0.375rem;
-  }
-
   .command__label,
   .command__key {
     display: none;
   }
 
-  .command__icon {
-    font-size: 1.125rem;
-    width: 1.125rem;
-    height: 1.125rem;
+  .command {
+    padding: 0.375rem;
   }
-}
-
-.topbar__right {
-  display: flex;
-  align-items: center;
-  gap: 0.125rem;
-  flex: none;
 }
 
 /* ── Workspace ───────────────────────────────────────────────────────── */

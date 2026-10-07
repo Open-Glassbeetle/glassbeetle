@@ -314,3 +314,31 @@
   font-size: 0.6875rem;
   line-height: 1.55;
 }
+
+/* ── Platform capabilities ───────────────────────────────────────────── */
+
+.capabilities {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.capability {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3125rem 0;
+  font-size: 0.75rem;
+
+  & + & {
+    border-top: 1px solid var(--mat-sys-outline-variant);
+  }
+}
+
+/* Dimmed: these are stated for completeness, not asking to be acted on. */
+.capability--planned .capability__name {
+  color: var(--mat-sys-on-surface-variant);
+}

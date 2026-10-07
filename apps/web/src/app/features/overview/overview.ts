@@ -68,7 +68,25 @@ export class Overview implements OnInit {
   protected readonly countsLoaded = signal(false);
 
   protected readonly entityIcon = ENTITY_ICON;
+
+  /**
+   * Modules that exist in the schema and as empty NestJS controllers, but whose
+   * routes return 404. Listed rather than probed: four extra requests on every
+   * load to confirm what the repository already states would be wasteful, and
+   * the one capability that *changes behaviour* — the model catalogue — is
+   * probed for real.
+   */
+  protected readonly plannedSurfaces = [
+    'Chats & inference',
+    'Teams',
+    'Projects',
+    'Artifacts',
+    'Analytics',
+  ];
   protected readonly entityLabel = ENTITY_LABEL;
+
+  /** The one health detail the deck's workspace panel does not already show. */
+  protected readonly databaseCheck = computed(() => this.status.health()?.checks?.database ?? null);
 
   private readonly context = computed(() => ({
     modelsAvailable: this.capabilities.modelsAvailable(),

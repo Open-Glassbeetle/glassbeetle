@@ -139,7 +139,13 @@ describe('App shell', () => {
     expect(element.textContent).toContain('No agents yet');
   });
 
-  it('reports the API as offline when the health check cannot be reached', () => {
+  /** The deck carries the backend's state on the product mark itself. */
+  function stateClass(fixture: { nativeElement: unknown }): string {
+    const element = fixture.nativeElement as HTMLElement;
+    return element.querySelector('.trigger__state')?.className ?? '';
+  }
+
+  it('reports the API as unreachable when the health check gets no response', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
@@ -150,7 +156,7 @@ describe('App shell', () => {
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('API offline');
+    expect(stateClass(fixture)).toContain('trigger__state--offline');
   });
 
   it('reports a degraded API from the 503 body rather than as a failure', () => {
@@ -171,7 +177,8 @@ describe('App shell', () => {
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('API degraded');
+    // A 503 that carries a usable body is a report, not a failure.
+    expect(stateClass(fixture)).toContain('trigger__state--degraded');
   });
 
   it('keeps the rail usable when the roster request fails', () => {

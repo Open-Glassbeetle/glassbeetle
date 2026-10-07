@@ -1,6 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
 import { Observable, Subject } from 'rxjs';
 
 /** Mirrors `MENU_EVENT` in `apps/desktop/src-tauri/src/menu.rs`. */
@@ -10,14 +11,13 @@ const MENU_EVENT = 'glassbeetle://menu';
 const READY_EVENT = 'glassbeetle://ready';
 
 /**
- * Every action the native menu can ask the UI to perform.
+ * Every action the shell can be asked to perform.
  *
- * Keep in step with the item ids in `menu.rs`. The menu only ever *asks*: the
- * implementation of each action lives in the Angular shell, so an action
- * behaves the same whether it came from the menu, a keyboard shortcut or a
- * click in the UI.
+ * One implementation each, in the shell. The keyboard, the native menu and the
+ * workspace panel all route here, so an action behaves identically however it
+ * was reached. Ids shared with Rust are kept in step with `menu.rs`.
  */
-export type MenuAction =
+export type ShellAction =
   | 'new-agent'
   | 'new-memory'
   | 'new-prompt'
@@ -43,7 +43,7 @@ export type MenuAction =
  */
 @Injectable({ providedIn: 'root' })
 export class DesktopService {
-  private readonly actions = new Subject<MenuAction>();
+  private readonly actions = new Subject<ShellAction>();
   private unlisten: UnlistenFn | null = null;
 
   /** True inside the Tauri window, false in a browser tab. */
@@ -61,7 +61,7 @@ export class DesktopService {
     this.isDesktop && /mac/i.test(navigator.platform || navigator.userAgent);
 
   /** Menu selections, in the order the user made them. */
-  readonly menuActions: Observable<MenuAction> = this.actions.asObservable();
+  readonly menuActions: Observable<ShellAction> = this.actions.asObservable();
 
   /** Set once the window has been revealed, for anything that wants to know. */
   readonly revealed = signal(false);
@@ -78,8 +78,43 @@ export class DesktopService {
     }
 
     this.unlisten = await listen<string>(MENU_EVENT, (event) => {
-      this.actions.next(event.payload as MenuAction);
+      this.actions.next(event.payload as ShellAction);
     });
+  }
+
+  /**
+   * The packaged application version, or `null` in a browser tab.
+   *
+   * Read from the bundle rather than from `package.json`: the number that
+   * matters for a bug report is the one the installed app was built with.
+   */
+  async version(): Promise<string | null> {
+    if (!this.isDesktop) {
+      return null;
+    }
+
+    try {
+      return await getVersion();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Opens a URL outside the workspace window.
+   *
+   * Routed through Rust rather than through the opener plugin's JS binding so
+   * the scheme is checked on the far side: a frontend able to ask the host to
+   * open an arbitrary URL is worth narrowing, and nothing here needs more than
+   * http and https.
+   */
+  async openExternal(url: string): Promise<void> {
+    if (!this.isDesktop) {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+
+    await invoke('open_external', { url });
   }
 
   /**

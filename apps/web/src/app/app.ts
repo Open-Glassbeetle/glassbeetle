@@ -18,12 +18,14 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter, map } from 'rxjs';
 
 import { readinessOf } from './core/agents/agent-readiness';
-import { DesktopService, type MenuAction } from './core/desktop/desktop.service';
+import { DesktopService, type ShellAction } from './core/desktop/desktop.service';
 import { CapabilitiesService } from './core/platform/capabilities.service';
+import { ApiStatusService } from './features/api-status/api-status.service';
 import { ThemeService } from './core/theme/theme.service';
 import { AgentRosterService } from './core/workspace/agent-roster.service';
-import { ApiStatusIndicator } from './features/api-status/api-status-indicator';
 import { CommandPalette } from './features/command-palette/command-palette';
+import { FleetStatus } from './features/chrome/fleet-status/fleet-status';
+import { WorkspaceMenu } from './features/chrome/workspace-menu/workspace-menu';
 import { AgentAvatar } from './features/agents/agent-avatar/agent-avatar';
 import { ReadinessBadge } from './shared/ui/readiness-badge';
 import { Skeleton } from './shared/ui/skeleton';
@@ -32,6 +34,13 @@ interface NavItem {
   readonly path: string;
   readonly label: string;
   readonly icon: string;
+  /** The digit this surface answers to, with the platform's command key. */
+  readonly shortcut: string;
+}
+
+interface Crumb {
+  readonly label: string;
+  readonly path: string;
 }
 
 /** Width at which the rail can sit beside the content instead of over it. */
@@ -49,7 +58,7 @@ const WIDE_LAYOUT = '(min-width: 62rem)';
   selector: 'app-root',
   imports: [
     AgentAvatar,
-    ApiStatusIndicator,
+    FleetStatus,
     MatButtonModule,
     MatDialogModule,
     MatIconModule,
@@ -59,6 +68,7 @@ const WIDE_LAYOUT = '(min-width: 62rem)';
     RouterLinkActive,
     RouterOutlet,
     Skeleton,
+    WorkspaceMenu,
   ],
   templateUrl: './app.html',
   styleUrl: './app.scss',
@@ -72,12 +82,13 @@ export class App implements OnInit {
   protected readonly roster = inject(AgentRosterService);
   private readonly capabilities = inject(CapabilitiesService);
   protected readonly desktop = inject(DesktopService);
+  private readonly status = inject(ApiStatusService);
 
   protected readonly navItems: readonly NavItem[] = [
-    { path: '/overview', label: 'Overview', icon: 'space_dashboard' },
-    { path: '/agents', label: 'Agents', icon: 'graph_3' },
-    { path: '/memory', label: 'Shared memory', icon: 'database' },
-    { path: '/prompts', label: 'System prompts', icon: 'article' },
+    { path: '/overview', label: 'Overview', icon: 'space_dashboard', shortcut: '1' },
+    { path: '/agents', label: 'Agents', icon: 'graph_3', shortcut: '2' },
+    { path: '/memory', label: 'Shared memory', icon: 'database', shortcut: '3' },
+    { path: '/prompts', label: 'System prompts', icon: 'article', shortcut: '4' },
   ];
 
   protected readonly wideLayout = toSignal(
@@ -86,6 +97,48 @@ export class App implements OnInit {
   );
 
   protected readonly railOpen = signal(true);
+
+  /** The current URL, so the trail recomputes on every navigation. */
+  private readonly url = toSignal(
+    this.router.events.pipe(
+      filter((event) => event instanceof NavigationEnd),
+      map((event) => event.urlAfterRedirects),
+    ),
+    { initialValue: this.router.url },
+  );
+
+  /**
+   * Where the user is, in the workspace's own words.
+   *
+   * An agent's trail shows its name rather than its id, resolved from the
+   * roster the rail has already loaded — which is the one thing a title bar is
+   * genuinely for, and what makes the chrome feel part of the app rather than
+   * a frame around it.
+   */
+  protected readonly trail = computed<readonly Crumb[]>(() => {
+    const url = this.url().split('?')[0] ?? '';
+    const segments = url.split('/').filter(Boolean);
+
+    if (segments.length === 0) {
+      return [{ label: 'Overview', path: '/overview' }];
+    }
+
+    const root = `/${segments[0]}`;
+    const item = this.navItems.find((entry) => entry.path === root);
+    const head: Crumb = {
+      label: item?.label ?? 'Workspace',
+      path: item?.path ?? '/overview',
+    };
+
+    if (segments[0] !== 'agents' || segments.length < 2) {
+      return [head];
+    }
+
+    const agentId = segments[1]!;
+    const agent = this.roster.agents().find((entry) => entry.id === agentId);
+
+    return [head, { label: agent?.name ?? 'Agent', path: url }];
+  });
 
   protected readonly themeMode = this.theme.mode;
   protected readonly themeIcon = computed(() =>
@@ -116,7 +169,7 @@ export class App implements OnInit {
     // implementation of each rather than a menu-shaped copy.
     this.desktop.menuActions
       .pipe(takeUntilDestroyed())
-      .subscribe((action) => this.runMenuAction(action));
+      .subscribe((action) => this.runAction(action));
 
     // Reveals the window, which Rust creates hidden so the webview's first
     // paint is never visible as a white flash.
@@ -135,13 +188,17 @@ export class App implements OnInit {
   }
 
   ngOnInit(): void {
+    // The shell owns the workspace-wide reads: the deck shows all three, and a
+    // screen that wanted them again would be fetching what is already on
+    // screen.
+    this.status.refresh();
     this.capabilities.probe();
     this.roster.refresh();
     void this.desktop.connect();
   }
 
-  /** Carries out a selection from the native menu. */
-  private runMenuAction(action: MenuAction): void {
+  /** Carries out a shell action, wherever it was triggered from. */
+  private runAction(action: ShellAction): void {
     switch (action) {
       // The create flows are addressable routes rather than dialogs opened
       // from here, which is the same path the rail's "New agent" takes.
@@ -179,6 +236,7 @@ export class App implements OnInit {
         break;
 
       case 'refresh':
+        this.status.refresh();
         this.capabilities.probe();
         this.roster.refresh();
         break;
@@ -194,11 +252,65 @@ export class App implements OnInit {
    */
   @HostListener('window:keydown', ['$event'])
   protected onKeydown(event: KeyboardEvent): void {
-    const isPaletteShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
+    if (!event.metaKey && !event.ctrlKey) {
+      return;
+    }
 
-    if (isPaletteShortcut && this.dialog.openDialogs.length === 0) {
-      event.preventDefault();
-      this.openPalette();
+    // A dialog owns the keyboard while it is open; the palette in particular
+    // would otherwise reopen on top of itself.
+    if (this.dialog.openDialogs.length > 0) {
+      return;
+    }
+
+    const action = this.shortcutFor(event);
+    if (!action) {
+      return;
+    }
+
+    event.preventDefault();
+    this.runAction(action);
+  }
+
+  /**
+   * Maps a chord to an action.
+   *
+   * These live here rather than only in the native menu, so they work the same
+   * in a browser tab and so the menu documents the keyboard instead of being
+   * the only thing that implements it.
+   */
+  private shortcutFor(event: KeyboardEvent): ShellAction | null {
+    const key = event.key.toLowerCase();
+
+    if (event.shiftKey) {
+      switch (key) {
+        case 'm':
+          return 'new-memory';
+        case 'p':
+          return 'new-prompt';
+        case 'l':
+          return 'toggle-theme';
+        default:
+          return null;
+      }
+    }
+
+    switch (key) {
+      case 'k':
+        return 'search';
+      case 'b':
+        return 'toggle-sidebar';
+      case 'n':
+        return 'new-agent';
+      case '1':
+        return 'go-overview';
+      case '2':
+        return 'go-agents';
+      case '3':
+        return 'go-memory';
+      case '4':
+        return 'go-prompts';
+      default:
+        return null;
     }
   }
 

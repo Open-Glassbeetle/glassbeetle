@@ -1,45 +1,48 @@
-<!-- The top bar doubles as the window's title bar. `data-tauri-drag-region`
-     applies to this element only, so its empty areas drag the window while the
-     controls inside it keep behaving as controls. -->
-<header class="topbar" [class.topbar--inset]="desktop.overlaysTitleBar" data-tauri-drag-region>
+<!-- The deck: this app's window chrome. `data-tauri-drag-region` applies to the
+     element carrying it, so the bar's own surface moves the window while the
+     controls on it keep behaving as controls. -->
+<header class="deck" [class.deck--inset]="desktop.overlaysTitleBar" data-tauri-drag-region>
   <button
     matIconButton
-    class="topbar__rail-toggle"
+    class="deck__rail-toggle"
     [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
     [attr.aria-expanded]="railOpen()"
+    [matTooltip]="(railOpen() ? 'Hide the rail' : 'Show the rail') + '  ' + commandKey + 'B'"
+    matTooltipPosition="below"
     (click)="toggleRail()"
   >
     <mat-icon>dock_to_right</mat-icon>
   </button>
 
-  <a class="brand" routerLink="/overview">
-    <span class="brand__mark" aria-hidden="true"></span>
-    <span class="brand__name">Glassbeetle</span>
-    <span class="brand__scope">workspace</span>
-  </a>
+  <app-workspace-menu />
 
-  <span class="topbar__grip" data-tauri-drag-region aria-hidden="true"></span>
+  <!-- Where you are, as the title bar's actual job — but with the workspace's
+       own words, including an agent's real name. -->
+  <nav class="trail" aria-label="Location" data-tauri-drag-region>
+    @for (crumb of trail(); track crumb.path; let last = $last) {
+      @if (!last) {
+        <a class="trail__link" [routerLink]="crumb.path">{{ crumb.label }}</a>
+        <span class="trail__sep" aria-hidden="true">/</span>
+      } @else {
+        <span class="trail__here" aria-current="page">{{ crumb.label }}</span>
+      }
+    }
+  </nav>
 
-  <button class="command" (click)="openPalette()">
+  <span class="deck__grip" data-tauri-drag-region aria-hidden="true"></span>
+
+  <button
+    class="command"
+    [matTooltip]="'Search agents, memory and prompts'"
+    matTooltipPosition="below"
+    (click)="openPalette()"
+  >
     <mat-icon class="command__icon">search</mat-icon>
-    <span class="command__label">Search agents, memory, prompts</span>
+    <span class="command__label">Search</span>
     <kbd class="command__key">{{ commandKey }}K</kbd>
   </button>
 
-  <span class="topbar__grip" data-tauri-drag-region aria-hidden="true"></span>
-
-  <div class="topbar__right">
-    <app-api-status-indicator />
-
-    <button
-      matIconButton
-      [attr.aria-label]="'Switch to ' + (themeMode() === 'dark' ? 'light' : 'dark') + ' theme'"
-      [matTooltip]="themeMode() === 'dark' ? 'Light theme' : 'Dark theme'"
-      (click)="toggleTheme()"
-    >
-      <mat-icon>{{ themeIcon() }}</mat-icon>
-    </button>
-  </div>
+  <app-fleet-status />
 </header>
 
 <div class="workspace" [class.workspace--rail-open]="railOpen()">
@@ -55,6 +58,8 @@
             class="rail__link"
             [routerLink]="item.path"
             routerLinkActive="rail__link--active"
+            [matTooltip]="commandKey + item.shortcut"
+            matTooltipPosition="right"
             (click)="closeRailOnNarrow()"
           >
             <mat-icon class="rail__link-icon">{{ item.icon }}</mat-icon>
@@ -86,7 +91,9 @@
       } @else if (!roster.total()) {
         <p class="roster__empty">
           No agents yet.
-          <a routerLink="/agents" (click)="closeRailOnNarrow()">Create one</a>.
+          <a routerLink="/agents" [queryParams]="{ new: 1 }" (click)="closeRailOnNarrow()">
+            Create one</a
+          >.
         </p>
       } @else {
         <ul class="roster__list">
@@ -119,6 +126,8 @@
         class="rail__new"
         routerLink="/agents"
         [queryParams]="{ new: 1 }"
+        [matTooltip]="commandKey + 'N'"
+        matTooltipPosition="right"
         (click)="closeRailOnNarrow()"
       >
         <mat-icon>add</mat-icon>
