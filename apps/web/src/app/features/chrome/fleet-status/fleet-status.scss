@@ -1,0 +1,132 @@
+.fleet {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.75rem;
+  padding: 0 0.375rem 0 0.25rem;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
+}
+
+.fleet__gauge {
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.0625rem 0.1875rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+}
+
+.ring {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+  /* 12 o'clock, clockwise — a gauge filling up rather than a spinner. */
+  transform: rotate(-90deg);
+}
+
+.ring__track {
+  fill: none;
+  stroke: var(--mat-sys-outline-variant);
+  stroke-width: 2.5;
+}
+
+.ring__value {
+  fill: none;
+  stroke: var(--gb-attention);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 420ms var(--gb-ease),
+    stroke 240ms var(--gb-ease);
+}
+
+.fleet--settled .ring__value {
+  stroke: var(--gb-ready);
+}
+
+.fleet__count {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.fleet__of {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: 400;
+}
+
+.fleet__divider {
+  width: 1px;
+  height: 0.875rem;
+  background: var(--mat-sys-outline-variant);
+}
+
+.fleet__agents {
+  display: flex;
+  align-items: center;
+}
+
+/* Overlapped, so a crowded fleet stays the same width and reads as a group
+   rather than as a row of separate buttons. */
+.fleet__agent {
+  display: flex;
+  margin-left: -0.375rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  transition: transform 140ms var(--gb-ease);
+
+  &:first-child {
+    margin-left: 0;
+  }
+
+  &:hover,
+  &:focus-visible {
+    transform: translateY(-1px);
+    z-index: 1;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+
+  app-agent-avatar {
+    /* A hairline in the bar's own colour separates the overlapped avatars. */
+    border-radius: 999px;
+    box-shadow: 0 0 0 1.5px var(--mat-sys-surface-container-lowest);
+  }
+}
+
+.fleet__more {
+  margin-left: -0.25rem;
+  padding: 0 0.3125rem;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container-high);
+  box-shadow: 0 0 0 1.5px var(--mat-sys-surface-container-lowest);
+  color: var(--mat-sys-on-surface-variant);
+  font: inherit;
+  font-size: 0.625rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+}

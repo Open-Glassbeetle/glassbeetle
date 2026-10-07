@@ -5,118 +5,267 @@
   overflow: hidden;
 }
 
-/* ── Top bar ─────────────────────────────────────────────────────────── */
+/* ── The deck (window chrome) ─────────────────────────────────────────── */
 
-.topbar {
+.deck {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
   flex: none;
-  height: var(--gb-topbar-height);
-  padding: 0 0.5rem 0 0.25rem;
-  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  /* A touch lighter than the rail below it, so the chrome reads as the lid of
+     the window rather than as another panel. */
   background: var(--mat-sys-surface-container);
-  /* Nothing in the bar should be selectable: a double-click on a draggable
-     strip otherwise highlights the label underneath it. */
+  /* Nothing in a draggable strip should be selectable: a double-click would
+     otherwise highlight the label under the cursor instead of zooming. */
   user-select: none;
 }
 
-/* macOS draws the traffic lights over the top-left of the window, so the bar
-   starts after them instead of underneath. The window is also taller there,
-   because a title bar's worth of height now belongs to the app. */
-.topbar--inset {
-  height: calc(var(--gb-topbar-height) + 0.5rem);
-  padding-left: 5.25rem;
-}
-
-/* The window is dragged by these, one on each side of the palette. They also
-   centre it: an auto margin would consume the free space before flex-grow got
-   a say, which both pushed the palette off-centre and left almost nothing to
-   grab. */
-.topbar__grip {
-  flex: 1 1 0;
-  align-self: stretch;
-  min-width: 0.5rem;
-}
-
-.brand {
+.deck__bar {
   display: flex;
-  align-items: baseline;
-  gap: 0.4375rem;
-  padding: 0.25rem 0.375rem;
-  border-radius: 6px;
-  color: inherit;
-  text-decoration: none;
+  align-items: center;
+  gap: 0.375rem;
+  height: var(--gb-topbar-height);
+  padding: 0 0.4375rem;
+}
+
+/* The left cluster: the rail toggle and the workspace control in one capsule,
+   built from the same pill-and-inset-ring the window controls use, so the deck
+   reads as a row of instruments rather than a row of loose buttons. */
+.cluster {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex: none;
+  height: 1.75rem;
+  padding: 0 0.125rem;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
+}
+
+.cluster__toggle {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--mat-sys-on-surface-variant);
+  cursor: pointer;
+  transition:
+    background-color 110ms var(--gb-ease),
+    color 110ms var(--gb-ease);
+
+  mat-icon {
+    font-size: 1rem;
+    width: 1rem;
+    height: 1rem;
+  }
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface);
+  }
+
+  /* Lit while the rail is showing, so the glyph reports state rather than
+     only offering an action. */
+  &--on {
+    color: var(--mat-sys-primary);
+  }
 
   &:focus-visible {
     outline: 2px solid var(--mat-sys-primary);
-    outline-offset: 1px;
+    outline-offset: -2px;
   }
 }
 
-/* The mark is drawn rather than iconographic: a small iridescent lozenge that
-   reads as a product logo without needing an asset. */
-.brand__mark {
-  align-self: center;
-  width: 0.75rem;
-  height: 0.75rem;
-  border-radius: 4px 999px 999px 999px;
-  background: linear-gradient(140deg, var(--mat-sys-primary), var(--mat-sys-tertiary));
-  box-shadow: 0 0 10px -2px var(--mat-sys-primary);
+.cluster__divider {
+  width: 1px;
+  height: 1rem;
+  background: var(--mat-sys-outline-variant);
 }
 
-.brand__name {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+/* A hairline marking where the window's own controls end and the product
+   begins — the one seam in the chrome that is structural rather than cosmetic. */
+.deck__seam {
+  flex: none;
+  width: 1px;
+  height: 1.125rem;
+  margin: 0 0.25rem;
+  background: var(--mat-sys-outline-variant);
 }
 
-.brand__scope {
-  color: var(--mat-sys-on-surface-variant);
+/* Grabbable surface. Two of them — this and the trail — keep a reliable place
+   to move the window however full the deck gets. */
+.deck__grip {
+  flex: 1 1 0;
+  align-self: stretch;
+  min-width: 0.75rem;
+}
+
+/* ── Resize edges ─────────────────────────────────────────────────────── */
+
+/* Invisible strips over the window's border. Only rendered where the frame
+   that used to provide them is gone and the OS does not step in. */
+.resize {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.resize__edge {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.resize__edge--n,
+.resize__edge--s {
+  left: 6px;
+  right: 6px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.resize__edge--n {
+  top: 0;
+}
+.resize__edge--s {
+  bottom: 0;
+}
+
+.resize__edge--e,
+.resize__edge--w {
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.resize__edge--e {
+  right: 0;
+}
+.resize__edge--w {
+  left: 0;
+}
+
+.resize__edge--ne,
+.resize__edge--nw,
+.resize__edge--se,
+.resize__edge--sw {
+  width: 8px;
+  height: 8px;
+}
+
+.resize__edge--nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.resize__edge--ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.resize__edge--sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.resize__edge--se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+/* ── Location trail ───────────────────────────────────────────────────── */
+
+.trail {
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+  min-width: 0;
+  margin-left: 0.0625rem;
+  padding: 0.25rem;
   font-size: 0.75rem;
 
-  @media (max-width: 48rem) {
+  @media (max-width: 46rem) {
     display: none;
   }
 }
 
-/* The palette trigger reads as a search field but is a button: it opens the
-   palette rather than filtering anything in place. */
+.trail__link {
+  color: var(--mat-sys-on-surface-variant);
+  text-decoration: none;
+  border-radius: 4px;
+
+  &:hover {
+    color: var(--mat-sys-on-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
+}
+
+.trail__sep {
+  color: var(--mat-sys-outline);
+}
+
+.trail__here {
+  overflow: hidden;
+  max-width: 18rem;
+  color: var(--mat-sys-on-surface);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Command trigger ──────────────────────────────────────────────────── */
+
+/* Reads as a field but is a button: it opens the palette rather than filtering
+   anything where it stands. */
 .command {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  width: min(26rem, 100%);
-  flex: none;
-  padding: 0.25rem 0.375rem 0.25rem 0.5rem;
-  border: 1px solid var(--mat-sys-outline-variant);
-  border-radius: 7px;
+  gap: 0.4375rem;
+  /* Allowed to grow into the deck's free space rather than hugging its label,
+     which left it looking like a button pretending to be a field. */
+  flex: 0 1 24rem;
+  min-width: 7rem;
+  height: 1.75rem;
+  /* The right padding clears the pill's own curve. At 28px high the radius is
+     14px, so a cap inset only 5px sits almost on the arc — which is what made
+     it look wedged in rather than placed. */
+  padding: 0 0.5rem 0 0.75rem;
+  border: 0;
+  border-radius: 999px;
   background: var(--mat-sys-surface-container-lowest);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
   color: var(--mat-sys-on-surface-variant);
   font: inherit;
   font-size: 0.75rem;
   text-align: left;
   cursor: pointer;
   transition:
-    border-color 120ms var(--gb-ease),
-    background-color 120ms var(--gb-ease);
+    box-shadow 120ms var(--gb-ease),
+    color 120ms var(--gb-ease);
 
   &:hover {
-    border-color: var(--mat-sys-outline);
-    background: var(--mat-sys-surface-container-low);
+    box-shadow: inset 0 0 0 1px var(--mat-sys-outline);
+    color: var(--mat-sys-on-surface);
+  }
+
+  &:hover .command__icon {
+    color: var(--mat-sys-primary);
   }
 
   &:focus-visible {
     outline: 2px solid var(--mat-sys-primary);
     outline-offset: 1px;
   }
-}
-
-.command__icon {
-  flex: none;
-  font-size: 0.9375rem;
-  width: 0.9375rem;
-  height: 0.9375rem;
 }
 
 .command__label {
@@ -126,43 +275,51 @@
   white-space: nowrap;
 }
 
-.command__key {
+.command__icon {
   flex: none;
-  padding: 0.0625rem 0.3125rem;
-  border: 1px solid var(--mat-sys-outline-variant);
-  border-radius: 4px;
-  background: var(--mat-sys-surface-container-high);
-  font-family: var(--gb-font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.9375rem;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  transition: color 120ms var(--gb-ease);
 }
 
-/* On a narrow window the trigger collapses to its icon. The shortcut hint is
-   dropped with it: a device this width rarely has the keyboard to use it. */
-@media (max-width: 40rem) {
-  .command {
-    width: auto;
-    margin-left: auto;
-    margin-right: 0;
-    padding: 0.375rem;
-  }
+/* A key cap. Kept a rounded rectangle rather than a pill so it still reads as
+   a key inside a pill-shaped field, with enough tracking that the ⌘ glyph and
+   the letter are two symbols rather than one blob at 11px. The field's right
+   padding clears the pill's own curve: at 28px high its radius is 14px, so a
+   cap inset only 5px sat almost on the arc and looked wedged in. */
+.command__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 1.25rem;
+  min-width: 1.75rem;
+  padding: 0 0.375rem;
+  border-radius: 5px;
+  background: var(--mat-sys-surface-container-highest);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
+  color: var(--mat-sys-on-surface-variant);
+  font-family: var(--gb-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  /* Tracking also adds space after the final glyph, which would sit the text
+     off-centre; the indent gives it back on the left. */
+  text-indent: 0.08em;
+  white-space: nowrap;
+}
 
+@media (max-width: 40rem) {
   .command__label,
   .command__key {
     display: none;
   }
 
-  .command__icon {
-    font-size: 1.125rem;
-    width: 1.125rem;
-    height: 1.125rem;
+  .command {
+    padding: 0.375rem;
   }
-}
-
-.topbar__right {
-  display: flex;
-  align-items: center;
-  gap: 0.125rem;
-  flex: none;
 }
 
 /* ── Workspace ───────────────────────────────────────────────────────── */

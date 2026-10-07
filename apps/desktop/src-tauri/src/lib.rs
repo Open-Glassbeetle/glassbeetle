@@ -3,6 +3,7 @@ mod menu;
 use std::time::Duration;
 
 use tauri::{AppHandle, Listener, Manager, Runtime};
+use tauri_plugin_opener::OpenerExt;
 
 /// The workspace window's label, as declared in `tauri.conf.json`.
 const MAIN_WINDOW: &str = "main";
@@ -19,6 +20,23 @@ fn reveal<R: Runtime>(app: &AppHandle<R>) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// Opens a URL in the user's browser on the frontend's behalf.
+///
+/// The scheme is checked here rather than trusted from the webview. The
+/// frontend only ever needs to open documentation and the repository, and a
+/// command that hands the host any string it is given is a wider door than
+/// this app has a use for.
+#[tauri::command]
+fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("only http and https URLs can be opened".into());
+    }
+
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -70,6 +88,7 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(|app, event| menu::handle(app, event.id().as_ref()))
+        .invoke_handler(tauri::generate_handler![open_external])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

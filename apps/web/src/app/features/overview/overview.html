@@ -187,52 +187,46 @@
       </ul>
     </gb-panel>
 
-    <!-- ── Runtime ────────────────────────────────────────────────── -->
-    <gb-panel class="grid__runtime" icon="monitor_heart" title="Runtime">
-      <dl class="facts">
-        <dt>API</dt>
-        <dd>
-          @switch (status.state()) {
-            @case ('checking') {
-              <span class="pill pill--idle">checking</span>
-            }
-            @case ('online') {
-              <span class="pill pill--ok">online</span>
-            }
-            @case ('degraded') {
-              <span class="pill pill--warn">degraded</span>
-            }
-            @case ('offline') {
-              <span class="pill pill--error">offline</span>
-            }
-          }
-        </dd>
+    <!-- ── Platform ───────────────────────────────────────────────── -->
+    <gb-panel class="grid__runtime" icon="deployed_code" title="Platform">
+      <!-- What this build can actually do. The deck's workspace panel already
+           reports whether the API is answering, so this answers the different
+           question of which parts of it exist yet. -->
+      <ul class="capabilities">
+        <li class="capability">
+          <span class="capability__name">Database</span>
+          <span
+            class="pill"
+            [class.pill--ok]="databaseCheck()?.status === 'up'"
+            [class.pill--error]="databaseCheck()?.status === 'down'"
+            [class.pill--idle]="!databaseCheck()"
+          >
+            {{ databaseCheck()?.status ?? 'unknown' }}
+          </span>
+        </li>
 
-        @if (status.health(); as health) {
-          <dt>Service</dt>
-          <dd class="mono">{{ health.service }}</dd>
+        <li class="capability">
+          <span class="capability__name">Model catalogue</span>
+          <span
+            class="pill"
+            [class.pill--ok]="capabilities.modelsAvailable()"
+            [class.pill--idle]="!capabilities.modelsAvailable()"
+          >
+            {{ capabilities.modelsAvailable() ? 'available' : 'no endpoint' }}
+          </span>
+        </li>
 
-          <dt>Database</dt>
-          <dd>
-            <span
-              class="pill"
-              [class.pill--ok]="health.checks?.database?.status === 'up'"
-              [class.pill--error]="health.checks?.database?.status === 'down'"
-              [class.pill--idle]="health.checks?.database?.status === 'not_configured'"
-            >
-              {{ health.checks?.database?.status }}
-            </span>
-          </dd>
+        @for (missing of plannedSurfaces; track missing) {
+          <li class="capability capability--planned">
+            <span class="capability__name">{{ missing }}</span>
+            <span class="pill pill--idle">no endpoint</span>
+          </li>
         }
-
-        @if (status.error(); as failure) {
-          <dt>Detail</dt>
-          <dd class="facts__error">{{ failure }}</dd>
-        }
-      </dl>
+      </ul>
 
       <p class="note">
-        Inference, chats and teams have no endpoints yet, so nothing here reports live agent runs.
+        Agents cannot be assigned a model and nothing can be run until the provider and inference
+        modules ship. Everything else on this screen is live.
       </p>
     </gb-panel>
   </div>

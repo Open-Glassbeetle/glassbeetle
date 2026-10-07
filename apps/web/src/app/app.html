@@ -1,46 +1,89 @@
-<!-- The top bar doubles as the window's title bar. `data-tauri-drag-region`
-     applies to this element only, so its empty areas drag the window while the
-     controls inside it keep behaving as controls. -->
-<header class="topbar" [class.topbar--inset]="desktop.overlaysTitleBar" data-tauri-drag-region>
-  <button
-    matIconButton
-    class="topbar__rail-toggle"
-    [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
-    [attr.aria-expanded]="railOpen()"
-    (click)="toggleRail()"
-  >
-    <mat-icon>dock_to_right</mat-icon>
-  </button>
+<!-- The deck: this app's window chrome. The window is undecorated, so the
+     title bar, the controls and the drag surface are all drawn here.
+     `data-tauri-drag-region` applies to the element carrying it, so the bar's
+     own surface moves the window while the controls on it keep working. -->
+<header class="deck" data-tauri-drag-region>
+  <div class="deck__bar" data-tauri-drag-region>
+    @if (desktop.controlsOnLeft) {
+      <app-window-controls />
+      <span class="deck__seam" aria-hidden="true"></span>
+    }
 
-  <a class="brand" routerLink="/overview">
-    <span class="brand__mark" aria-hidden="true"></span>
-    <span class="brand__name">Glassbeetle</span>
-    <span class="brand__scope">workspace</span>
-  </a>
+    <!-- The rail toggle and the workspace control share one capsule: both are
+         about this workspace, and a lone icon button beside the mark read as a
+         stray piece of UI rather than part of the chrome. -->
+    <div class="cluster">
+      <button
+        class="cluster__toggle"
+        type="button"
+        [class.cluster__toggle--on]="railOpen()"
+        [attr.aria-label]="railOpen() ? 'Hide the rail' : 'Show the rail'"
+        [attr.aria-expanded]="railOpen()"
+        [matTooltip]="(railOpen() ? 'Hide the rail' : 'Show the rail') + '  ' + commandKey + 'B'"
+        matTooltipPosition="below"
+        (click)="toggleRail()"
+      >
+        <mat-icon>{{ railOpen() ? 'left_panel_close' : 'left_panel_open' }}</mat-icon>
+      </button>
 
-  <span class="topbar__grip" data-tauri-drag-region aria-hidden="true"></span>
+      <span class="cluster__divider" aria-hidden="true"></span>
 
-  <button class="command" (click)="openPalette()">
-    <mat-icon class="command__icon">search</mat-icon>
-    <span class="command__label">Search agents, memory, prompts</span>
-    <kbd class="command__key">{{ commandKey }}K</kbd>
-  </button>
+      <app-workspace-menu flush />
+    </div>
 
-  <span class="topbar__grip" data-tauri-drag-region aria-hidden="true"></span>
+    <!-- Where you are, as the title bar's actual job — but in the workspace's
+         own words, including an agent's real name. -->
+    <nav class="trail" aria-label="Location" data-tauri-drag-region>
+      <span class="trail__sep" aria-hidden="true">/</span>
+      @for (crumb of trail(); track crumb.path; let last = $last) {
+        @if (!last) {
+          <a class="trail__link" [routerLink]="crumb.path">{{ crumb.label }}</a>
+          <span class="trail__sep" aria-hidden="true">/</span>
+        } @else {
+          <span class="trail__here" aria-current="page">{{ crumb.label }}</span>
+        }
+      }
+    </nav>
 
-  <div class="topbar__right">
-    <app-api-status-indicator />
+    <span class="deck__grip" data-tauri-drag-region aria-hidden="true"></span>
 
     <button
-      matIconButton
-      [attr.aria-label]="'Switch to ' + (themeMode() === 'dark' ? 'light' : 'dark') + ' theme'"
-      [matTooltip]="themeMode() === 'dark' ? 'Light theme' : 'Dark theme'"
-      (click)="toggleTheme()"
+      class="command"
+      matTooltip="Search agents, memory and prompts"
+      matTooltipPosition="below"
+      (click)="openPalette()"
     >
-      <mat-icon>{{ themeIcon() }}</mat-icon>
+      <mat-icon class="command__icon">search</mat-icon>
+      <span class="command__label">Search agents, memory and prompts</span>
+      <kbd class="command__key">{{ commandKey }}K</kbd>
     </button>
+
+    <app-fleet-status />
+
+    @if (desktop.isDesktop && !desktop.controlsOnLeft) {
+      <span class="deck__seam" aria-hidden="true"></span>
+      <app-window-controls />
+    }
   </div>
+
+  <!-- The deck's bottom edge reports the fleet, in the space a border would
+       have taken anyway. -->
+  <app-fleet-spine />
 </header>
+
+@if (desktop.needsResizeEdges) {
+  <!-- An undecorated window keeps no resize border of its own on Windows and
+       Linux, so the app supplies the hit areas. macOS still resizes from the
+       window's edges and needs none of this. -->
+  <div class="resize" aria-hidden="true">
+    @for (edge of resizeEdges; track edge.direction) {
+      <span
+        class="resize__edge resize__edge--{{ edge.name }}"
+        (mousedown)="startResize($event, edge.direction)"
+      ></span>
+    }
+  </div>
+}
 
 <div class="workspace" [class.workspace--rail-open]="railOpen()">
   @if (railOpen() && !wideLayout()) {
@@ -55,6 +98,8 @@
             class="rail__link"
             [routerLink]="item.path"
             routerLinkActive="rail__link--active"
+            [matTooltip]="commandKey + item.shortcut"
+            matTooltipPosition="right"
             (click)="closeRailOnNarrow()"
           >
             <mat-icon class="rail__link-icon">{{ item.icon }}</mat-icon>
@@ -86,7 +131,9 @@
       } @else if (!roster.total()) {
         <p class="roster__empty">
           No agents yet.
-          <a routerLink="/agents" (click)="closeRailOnNarrow()">Create one</a>.
+          <a routerLink="/agents" [queryParams]="{ new: 1 }" (click)="closeRailOnNarrow()">
+            Create one</a
+          >.
         </p>
       } @else {
         <ul class="roster__list">
@@ -119,6 +166,8 @@
         class="rail__new"
         routerLink="/agents"
         [queryParams]="{ new: 1 }"
+        [matTooltip]="commandKey + 'N'"
+        matTooltipPosition="right"
         (click)="closeRailOnNarrow()"
       >
         <mat-icon>add</mat-icon>

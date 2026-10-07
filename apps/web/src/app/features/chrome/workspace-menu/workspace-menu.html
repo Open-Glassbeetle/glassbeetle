@@ -1,0 +1,160 @@
+<button
+  class="trigger"
+  type="button"
+  cdkOverlayOrigin
+  #origin="cdkOverlayOrigin"
+  [class.trigger--open]="open()"
+  [class.trigger--flush]="flush()"
+  [attr.aria-expanded]="open()"
+  aria-haspopup="dialog"
+  aria-label="Workspace"
+  (click)="toggle()"
+>
+  <span class="mark" aria-hidden="true">
+    <span class="mark__core"></span>
+  </span>
+  <span class="trigger__name">Glassbeetle</span>
+  <span
+    class="trigger__state"
+    [class]="'trigger__state--' + status.state()"
+    aria-hidden="true"
+  ></span>
+</button>
+
+<ng-template
+  cdkConnectedOverlay
+  [cdkConnectedOverlayOrigin]="origin"
+  [cdkConnectedOverlayOpen]="open()"
+  [cdkConnectedOverlayOffsetY]="6"
+  [cdkConnectedOverlayHasBackdrop]="true"
+  cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+  (backdropClick)="close()"
+  (detach)="close()"
+>
+  <div class="panel" role="dialog" aria-label="Workspace">
+    <!-- ── Identity ───────────────────────────────────────────────── -->
+    <header class="panel__head">
+      <span class="mark mark--large" aria-hidden="true">
+        <span class="mark__core"></span>
+      </span>
+      <div>
+        <p class="panel__title">Glassbeetle</p>
+        <p class="panel__sub">
+          <span class="mono">{{ version() ?? '—' }}</span>
+          @if (desktop.isDesktop) {
+            · desktop
+          } @else {
+            · browser
+          }
+        </p>
+      </div>
+    </header>
+
+    <!-- ── Live state ─────────────────────────────────────────────── -->
+    <section class="panel__block">
+      <div class="row">
+        <span class="row__label">Backend</span>
+        <span class="row__value">
+          <span class="dot" [class]="'dot--' + status.state()" aria-hidden="true"></span>
+          @switch (status.state()) {
+            @case ('checking') {
+              connecting
+            }
+            @case ('online') {
+              online
+            }
+            @case ('degraded') {
+              degraded
+            }
+            @case ('offline') {
+              unreachable
+            }
+          }
+        </span>
+      </div>
+
+      @if (status.health(); as health) {
+        <div class="row">
+          <span class="row__label">Service</span>
+          <span class="row__value mono">{{ health.service }}</span>
+        </div>
+        <div class="row">
+          <span class="row__label">Uptime</span>
+          <span class="row__value mono">{{ uptime() }}</span>
+        </div>
+      } @else if (status.error(); as failure) {
+        <p class="panel__error">{{ failure }}</p>
+      }
+
+      <div class="row">
+        <span class="row__label">Storage</span>
+        <span class="row__value">on this machine</span>
+      </div>
+    </section>
+
+    <!-- ── Contents ───────────────────────────────────────────────── -->
+    <section class="panel__block panel__block--tiles">
+      <button class="tile" type="button" (click)="go('/agents')">
+        <span class="tile__value mono">{{ roster.total() }}</span>
+        <span class="tile__label">agents</span>
+      </button>
+      <button class="tile" type="button" (click)="go('/memory')">
+        <span class="tile__value mono">{{ memoryCount() ?? '—' }}</span>
+        <span class="tile__label">memories</span>
+      </button>
+      <button class="tile" type="button" (click)="go('/prompts')">
+        <span class="tile__value mono">{{ promptCount() ?? '—' }}</span>
+        <span class="tile__label">prompts</span>
+      </button>
+    </section>
+
+    <!-- ── Quick actions ──────────────────────────────────────────── -->
+    <section class="panel__block">
+      <p class="panel__legend">Create</p>
+      @for (action of createActions; track action.path) {
+        <button class="action" type="button" (click)="go(action.path, { new: 1 })">
+          <mat-icon class="action__icon">{{ action.icon }}</mat-icon>
+          <span class="action__label">{{ action.label }}</span>
+          <kbd class="action__key">{{ action.key }}</kbd>
+        </button>
+      }
+    </section>
+
+    <!-- ── Appearance ─────────────────────────────────────────────── -->
+    <section class="panel__block">
+      <div class="row row--control">
+        <span class="row__label">Appearance</span>
+        <div class="segmented" role="group" aria-label="Appearance">
+          <button
+            type="button"
+            [class.segmented--on]="theme.mode() === 'light'"
+            (click)="theme.set('light')"
+          >
+            Light
+          </button>
+          <button
+            type="button"
+            [class.segmented--on]="theme.mode() === 'dark'"
+            (click)="theme.set('dark')"
+          >
+            Dark
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Links ──────────────────────────────────────────────────── -->
+    <footer class="panel__foot">
+      <button class="link" type="button" (click)="openExternal(apiDocsUrl)">
+        <mat-icon class="link__icon">api</mat-icon>
+        API reference
+        <mat-icon class="link__out">open_in_new</mat-icon>
+      </button>
+      <button class="link" type="button" (click)="openExternal(repositoryUrl)">
+        <mat-icon class="link__icon">code</mat-icon>
+        Source
+        <mat-icon class="link__out">open_in_new</mat-icon>
+      </button>
+    </footer>
+  </div>
+</ng-template>

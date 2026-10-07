@@ -1,0 +1,69 @@
+/* The host is the flex item the deck lays out, so it states its own box rather
+   than relying on blockification to give it one. */
+:host {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.0625rem;
+  flex: none;
+  /* Deliberately the same height as the workspace cluster on the other side of
+     the deck, so the two ends of the chrome close on one line. */
+  height: 1.75rem;
+  padding: 0 0.125rem;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
+}
+
+.control {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--mat-sys-on-surface-variant);
+  cursor: pointer;
+  transition:
+    background-color 110ms var(--gb-ease),
+    color 110ms var(--gb-ease);
+
+  svg {
+    width: 0.625rem;
+    height: 0.625rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+}
+
+/* Each control earns its own colour only under the cursor, so a window full of
+   chrome stays quiet until someone reaches for it. */
+.control--minimise:hover {
+  background: var(--gb-attention-bg);
+  color: var(--gb-attention);
+}
+
+.control--zoom:hover {
+  background: var(--gb-ready-bg);
+  color: var(--gb-ready);
+}
+
+.control--close:hover {
+  background: var(--mat-sys-error);
+  color: var(--mat-sys-on-error);
+}

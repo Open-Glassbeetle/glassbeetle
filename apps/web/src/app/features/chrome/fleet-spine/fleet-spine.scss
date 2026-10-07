@@ -1,0 +1,60 @@
+:host {
+  display: block;
+}
+
+.spine {
+  display: flex;
+  height: 2px;
+  background: var(--mat-sys-outline-variant);
+  overflow: hidden;
+}
+
+.band {
+  flex-basis: 0;
+  transition: flex-grow 420ms var(--gb-ease);
+}
+
+.band--ready {
+  background: var(--gb-ready);
+}
+
+.band--unguided {
+  background: var(--gb-attention);
+}
+
+.band--blocked {
+  background: var(--mat-sys-error);
+}
+
+/* An unreachable backend overrides every other reading: nothing the bands say
+   can be trusted while the API is not answering. */
+.spine--offline .band {
+  background: var(--mat-sys-error);
+  opacity: 0.55;
+}
+
+/* While the first reads are in flight the line sweeps rather than sitting at a
+   value it has not learnt yet. */
+.spine--waiting {
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-outline-variant) 0%,
+    var(--mat-sys-primary) 50%,
+    var(--mat-sys-outline-variant) 100%
+  );
+  background-size: 250% 100%;
+  animation: sweep 1.6s var(--gb-ease) infinite;
+
+  .band {
+    background: transparent;
+  }
+}
+
+@keyframes sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}

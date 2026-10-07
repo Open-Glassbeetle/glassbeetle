@@ -2,9 +2,11 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { EMPTY } from 'rxjs';
 
 import { environment } from '../environments/environment';
 import { App } from './app';
+import { DesktopService } from './core/desktop/desktop.service';
 
 // Derived from the environment so the version prefix cannot drift out of sync
 // with the API again.
@@ -139,7 +141,13 @@ describe('App shell', () => {
     expect(element.textContent).toContain('No agents yet');
   });
 
-  it('reports the API as offline when the health check cannot be reached', () => {
+  /** The deck carries the backend's state on the product mark itself. */
+  function stateClass(fixture: { nativeElement: unknown }): string {
+    const element = fixture.nativeElement as HTMLElement;
+    return element.querySelector('.trigger__state')?.className ?? '';
+  }
+
+  it('reports the API as unreachable when the health check gets no response', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
@@ -150,7 +158,7 @@ describe('App shell', () => {
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('API offline');
+    expect(stateClass(fixture)).toContain('trigger__state--offline');
   });
 
   it('reports a degraded API from the 503 body rather than as a failure', () => {
@@ -171,7 +179,17 @@ describe('App shell', () => {
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('API degraded');
+    // A 503 that carries a usable body is a report, not a failure.
+    expect(stateClass(fixture)).toContain('trigger__state--degraded');
+  });
+
+  it('draws no window controls in a browser tab', () => {
+    // The controls close and resize a real window. Rendering them where there
+    // is none would be three buttons that look live and do nothing.
+    const element = render().nativeElement as HTMLElement;
+
+    expect(element.querySelector('app-window-controls')).toBeNull();
+    expect(element.querySelector('.resize')).toBeNull();
   });
 
   it('keeps the rail usable when the roster request fails', () => {
@@ -191,5 +209,70 @@ describe('App shell', () => {
       (fixture.nativeElement as HTMLElement).querySelectorAll('a[href]'),
     ).map((link) => link.getAttribute('href'));
     expect(hrefs).toContain('/agents');
+  });
+});
+
+describe('App shell on a platform whose controls sit on the right', () => {
+  let httpMock: HttpTestingController;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          // Stands in for Windows or Linux: a real window, drawn by the app,
+          // with no frame of its own to resize from.
+          provide: DesktopService,
+          useValue: {
+            isDesktop: true,
+            isMacOs: false,
+            controlsOnLeft: false,
+            needsResizeEdges: true,
+            menuActions: EMPTY,
+            connect: () => Promise.resolve(),
+            signalReady: () => Promise.resolve(),
+            version: () => Promise.resolve('0.1.0'),
+            isWindowMaximised: () => Promise.resolve(false),
+            minimiseWindow: () => Promise.resolve(),
+            toggleMaximiseWindow: () => Promise.resolve(),
+            closeWindow: () => Promise.resolve(),
+            startResize: () => Promise.resolve(),
+            openExternal: () => Promise.resolve(),
+          } satisfies Partial<DesktopService>,
+        },
+      ],
+    }).compileComponents();
+
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  it('puts the window controls last and supplies resize edges', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    httpMock.expectOne(HEALTH_URL).flush(HEALTHY);
+    httpMock
+      .expectOne((request) => request.url === MODELS_URL)
+      .flush({}, { status: 404, statusText: 'Not Found' });
+    httpMock
+      .expectOne((request) => request.url === AGENTS_URL)
+      .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const children = Array.from(element.querySelector('.deck__bar')?.children ?? []);
+    const controls = children.findIndex(
+      (child) => child.tagName.toLowerCase() === 'app-window-controls',
+    );
+
+    // macOS reaches for them on the left, every other platform on the right.
+    // The look is the product's; the position is muscle memory.
+    expect(controls).toBe(children.length - 1);
+    expect(element.querySelector('.resize')).not.toBeNull();
   });
 });
