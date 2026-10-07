@@ -39,8 +39,11 @@ The three tiers talk to each other like this:
   authentication, so the allowlist is what stops any website the user visits
   from reading their data over `localhost`. Override it with
   `GLASSBEETLE_CORS_ORIGINS` if you run the frontend on a different port.
-- Angular can also call into Rust directly — `apps/desktop/src-tauri/src/lib.rs`
-  exposes a `greet` command, invoked from the app shell as a working example.
+- Rust and Angular talk through events rather than through a command surface.
+  The native menu emits `glassbeetle://menu` with an action id, which the
+  Angular shell carries out; the shell emits `glassbeetle://ready` once it has
+  painted, which is what makes the window appear. See
+  [`apps/desktop/src-tauri/src/menu.rs`](apps/desktop/src-tauri/src/menu.rs).
 
 ## Scripts
 
@@ -50,12 +53,25 @@ The three tiers talk to each other like this:
 | `npm start`              | Alias for `npm run dev`                                    |
 | `npm run dev:api`        | Just the NestJS API, in watch mode                         |
 | `npm run dev:web`        | Just the Angular dev server                                |
+| `npm run stop`           | Stop the API, the dev server and the Tauri window          |
 | `npm run build`          | Compile the API and build the Angular bundle               |
 | `npm run build:desktop`  | Build the API, then bundle the installable desktop app     |
 | `npm test`               | Run the API and frontend unit tests                        |
 | `npm run test:e2e -w @glassbeetle/api` | Run the API end-to-end tests                 |
 | `npm run openapi:export -w @glassbeetle/api` | Write the OpenAPI spec to a file       |
 | `npm run clean`          | Remove `dist/` output and the Rust `target/` directory      |
+
+`npm run dev` shuts all three tiers down when you close the Tauri window, but a
+crashed terminal or a detached run can leave the API or the dev server holding
+their port — and the next start then fails with `EADDRINUSE`. `npm run stop`
+clears that: it finds whatever is listening on 3000 and 4200, stops the
+watchers as well as the servers so nothing restarts itself, and leaves other
+projects alone. It is safe to run when nothing is up.
+
+```bash
+npm run stop -- --dry-run   # show what would be stopped, kill nothing
+API_PORT=3001 npm run stop  # non-default ports
+```
 
 ## Frontend
 

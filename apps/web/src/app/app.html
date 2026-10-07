@@ -1,4 +1,7 @@
-<header class="topbar">
+<!-- The top bar doubles as the window's title bar. `data-tauri-drag-region`
+     applies to this element only, so its empty areas drag the window while the
+     controls inside it keep behaving as controls. -->
+<header class="topbar" [class.topbar--inset]="desktop.overlaysTitleBar" data-tauri-drag-region>
   <button
     matIconButton
     class="topbar__rail-toggle"
@@ -15,11 +18,15 @@
     <span class="brand__scope">workspace</span>
   </a>
 
+  <span class="topbar__grip" data-tauri-drag-region aria-hidden="true"></span>
+
   <button class="command" (click)="openPalette()">
     <mat-icon class="command__icon">search</mat-icon>
     <span class="command__label">Search agents, memory, prompts</span>
     <kbd class="command__key">{{ commandKey }}K</kbd>
   </button>
+
+  <span class="topbar__grip" data-tauri-drag-region aria-hidden="true"></span>
 
   <div class="topbar__right">
     <app-api-status-indicator />

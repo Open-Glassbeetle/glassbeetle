@@ -69,6 +69,39 @@ nothing about the capability. **When the providers and models endpoints ship,
 delete nothing: the probe starts returning 200 and all three behaviours switch
 back on their own.**
 
+## Desktop shell
+
+The app is built as a desktop product, not a web app in a window. Three things
+carry that, and each one has a seam the frontend owns.
+
+**The top bar is the title bar.** On macOS the window uses
+`titleBarStyle: "Overlay"`, so the traffic lights sit inside the app's own bar
+instead of in a strip of system chrome above it. `DesktopService.overlaysTitleBar`
+reports when that is the case and the bar insets itself accordingly; Windows and
+Linux keep their native frame and get no inset. The bar carries
+`data-tauri-drag-region`, which applies to that element only — its empty areas
+drag the window while the controls inside keep behaving as controls.
+
+**The native menu asks, the shell performs.** Menu items emit
+`glassbeetle://menu` with an action id; `DesktopService` forwards it and the
+shell's `runMenuAction` carries it out. Nothing is implemented twice: "New
+Agent" navigates to `/agents?new=1`, exactly as the rail's own button does, and
+⌘K opens the same palette the keyboard binding does. Rust keeps only what a
+webview cannot do — opening a URL in the system browser, and the native edit
+and window commands. Adding a menu item means adding a case to `MenuAction` and
+one to the switch; forgetting the second is a compile error.
+
+The Edit menu matters more than it looks: without it ⌘C/⌘V/⌘A do nothing in the
+webview's text fields, which is the single clearest way an app can feel like a
+web page in a window.
+
+**The window appears already painted.** It is created with `visible: false` and
+revealed when the shell emits `glassbeetle://ready` after its first render,
+because a webview shown before that is a white rectangle for a moment — very
+visible against a dark workspace. Rust also reveals it unconditionally after a
+few seconds: a window that waits on the frontend is only as reliable as the
+frontend, and a window showing an error beats no window at all.
+
 ## Layout
 
 ```

@@ -1,7 +1,8 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject, input } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
+import { Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatPaginatorModule } from '@angular/material/paginator';
@@ -40,6 +41,10 @@ export class SystemPromptList {
   private readonly prompts = inject(SystemPromptsService);
   private readonly dialog = inject(MatDialog);
   private readonly notify = inject(NotificationService);
+  private readonly router = inject(Router);
+
+  /** Bound from `?new=1`, which the native menu's "New System Prompt" sets. */
+  readonly new = input<string>();
 
   protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
 
@@ -48,6 +53,27 @@ export class SystemPromptList {
     initialSort: 'name',
     initialOrder: 'asc',
   });
+
+  constructor() {
+    // Opening the editor through a route rather than straight from the menu
+    // keeps the create flow addressable, and means the menu, the rail and the
+    // page's own button all take the same path.
+    effect(() => {
+      if (this.new()) {
+        this.clearNewFlag();
+        this.openEditor(null);
+      }
+    });
+  }
+
+  /** Drops `?new=1` so a reload does not reopen the dialog. */
+  private clearNewFlag(): void {
+    void this.router.navigate([], {
+      queryParams: { new: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
 
   protected openEditor(prompt: SystemPrompt | null): void {
     this.openDialog({ prompt });
