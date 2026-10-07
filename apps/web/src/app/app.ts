@@ -166,10 +166,16 @@ export class App implements OnInit {
     this.themeMode() === 'dark' ? 'light_mode' : 'dark_mode',
   );
 
-  /** Shown on the ⌘K affordance so the hint matches the user's keyboard. */
+  /**
+   * The platform's command key, with its separator.
+   *
+   * Carries the `+` on Windows and Linux because the word needs one —
+   * `Ctrl+K` rather than `CtrlK` — while the macOS glyph reads correctly
+   * straight against the letter.
+   */
   protected readonly commandKey = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
     ? '⌘'
-    : 'Ctrl';
+    : 'Ctrl+';
 
   protected readonly rosterEntries = computed(() => {
     const context = { modelsAvailable: this.capabilities.modelsAvailable() };

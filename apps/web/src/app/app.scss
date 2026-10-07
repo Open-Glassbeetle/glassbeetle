@@ -280,14 +280,27 @@
   transition: color 120ms var(--gb-ease);
 }
 
+/* A key cap, not a label in a box. It inherited the deck's 20px line-height,
+   which made it 24px tall inside a 28px pill — filling the capsule instead of
+   sitting in it. Sized explicitly and centred so it reads as a key. */
 .command__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  padding: 0.0625rem 0.3125rem;
-  border: 1px solid var(--mat-sys-outline-variant);
+  height: 1.125rem;
+  min-width: 1.5rem;
+  padding: 0 0.3125rem;
   border-radius: 4px;
   background: var(--mat-sys-surface-container-high);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
+  color: var(--mat-sys-on-surface-variant);
   font-family: var(--gb-font-mono);
   font-size: 0.6875rem;
+  line-height: 1;
+  /* The ⌘ glyph sits tight against the letter in a monospace face. */
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 @media (max-width: 40rem) {

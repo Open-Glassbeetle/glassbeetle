@@ -47,10 +47,25 @@ export class WorkspaceMenu implements OnInit {
   protected readonly apiDocsUrl = 'http://localhost:3000/api/docs';
   protected readonly repositoryUrl = 'https://github.com/Open-Glassbeetle/glassbeetle';
 
+  /** The platform's modifiers, so the panel does not promise macOS chords. */
+  private readonly mac = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
+  private readonly cmd = this.mac ? '⌘' : 'Ctrl+';
+  private readonly shift = this.mac ? '⇧' : 'Shift+';
+
   protected readonly createActions = [
-    { path: '/agents', label: 'Agent', icon: 'graph_3', key: '⌘N' },
-    { path: '/memory', label: 'Shared memory', icon: 'database', key: '⌘⇧M' },
-    { path: '/prompts', label: 'System prompt', icon: 'article', key: '⌘⇧P' },
+    { path: '/agents', label: 'Agent', icon: 'graph_3', key: `${this.cmd}N` },
+    {
+      path: '/memory',
+      label: 'Shared memory',
+      icon: 'database',
+      key: `${this.cmd}${this.shift}M`,
+    },
+    {
+      path: '/prompts',
+      label: 'System prompt',
+      icon: 'article',
+      key: `${this.cmd}${this.shift}P`,
+    },
   ];
 
   /**
