@@ -29,10 +29,12 @@
   padding-left: 5.25rem;
 }
 
-/* A dependable place to grab the window. Without it the bar can fill edge to
-   edge with controls and leave nothing to drag. */
+/* The window is dragged by these, one on each side of the palette. They also
+   centre it: an auto margin would consume the free space before flex-grow got
+   a say, which both pushed the palette off-centre and left almost nothing to
+   grab. */
 .topbar__grip {
-  flex: 1 1 2rem;
+  flex: 1 1 0;
   align-self: stretch;
   min-width: 0.5rem;
 }
@@ -85,7 +87,7 @@
   align-items: center;
   gap: 0.5rem;
   width: min(26rem, 100%);
-  margin-left: auto;
+  flex: none;
   padding: 0.25rem 0.375rem 0.25rem 0.5rem;
   border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 7px;
