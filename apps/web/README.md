@@ -20,6 +20,7 @@ controllers, so their routes 404 and they have no screens.
 | --- | --- |
 | Overview | `/health`, plus each collection's `total` and `updatedAt` |
 | Profile | `/user`, `/user/picture` |
+| Spending | `/budget` |
 | Agents · directory | `/agents` |
 | Agents · workspace | `/agents/:agentId`, `/agents/:agentId/picture` |
 | Agents · memory | `/agents/:agentId/memories` |
@@ -29,8 +30,8 @@ controllers, so their routes 404 and they have no screens.
 ## What the UI does *not* invent
 
 The schema in `data/` describes a product with chats, teams, tool calls,
-artifacts and usage events. None of that has endpoints yet. Three places where
-it would have been easy to mock something, and what is shown instead:
+artifacts and usage events. Almost none of that has endpoints yet. Four places
+where it would have been easy to mock something, and what is shown instead:
 
 **Agent state is readiness, not activity.** There is no inference or chat
 endpoint, so nothing reports whether an agent is doing anything. A "running"
@@ -38,10 +39,17 @@ badge would be a claim the UI could never back up. `core/agents/agent-readiness.
 instead derives readiness from stored configuration — is anything steering this
 agent?
 
-**The feed is recent changes, not a run history.** `usage_events` has no
-endpoint. `core/activity/activity.service.ts` assembles the feed from the
-`created_at` / `updated_at` every resource already carries, and the panel is
-labelled as configuration history.
+**The feed is recent changes, not a run history.** Nothing serves
+`usage_events` as a feed. `core/activity/activity.service.ts` assembles one
+from the `created_at` / `updated_at` every resource already carries, and the
+panel is labelled as configuration history.
+
+**Spending is real arithmetic over an empty log.** `/budget` does sum
+`usage_events.cost_usd` for the current period — but only the inference module
+would write those rows, and it is an empty class, so every installation reads
+zero. The screen says so in as many words instead of presenting a full budget
+as a measurement, and the deck's meter stays out of the chrome entirely until
+a limit is set.
 
 **The agent's Context tab is not a rendered prompt.** No endpoint composes one.
 The tab shows the configured layers — system prompt, personality, instructions,

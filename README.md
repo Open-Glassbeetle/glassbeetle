@@ -80,17 +80,18 @@ carrying the live agent roster beside every screen, a ⌘K command palette over
 agents, memory and prompts, and a workspace per agent showing the context it is
 configured to draw on.
 
-It covers the endpoints the API implements — the user's own profile, agents
-(profile picture and private memories included), shared memory, system prompts
-and service health. The modules that are still empty controllers have no
-screens.
+It covers the endpoints the API implements — the user's own profile, the
+spending budget, agents (profile picture and private memories included),
+shared memory, system prompts and service health. The modules that are still
+empty controllers have no screens.
 
 Where the schema promises more than the API serves, the UI says so rather than
 mocking it: agents show configuration *readiness* rather than an invented run
-state, the feed is labelled as configuration history because `usage_events` has
-no endpoint, and model assignment is disabled with its reason stated because
-`agents.model_id` references a `models` table that has no endpoint to populate
-it.
+state, the feed is labelled as configuration history, the spending screen
+states that nothing writes `usage_events` yet rather than presenting an
+untouched budget as a measurement, and model assignment is disabled with its
+reason stated because `agents.model_id` references a `models` table that has no
+endpoint to populate it.
 
 Structure, conventions and the capability probe that drives that last point are
 documented in [`apps/web/README.md`](apps/web/README.md). Read it before adding
