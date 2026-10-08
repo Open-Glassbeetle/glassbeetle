@@ -17,6 +17,8 @@ import { SystemPromptsService } from '../../../core/api/system-prompts.service';
 import { DesktopService } from '../../../core/desktop/desktop.service';
 import { ThemeService } from '../../../core/theme/theme.service';
 import { AgentRosterService } from '../../../core/workspace/agent-roster.service';
+import { SpendService } from '../../../core/workspace/spend.service';
+import { BUDGET_PERIOD_LABEL } from '../../../core/api/budget.models';
 import { ApiStatusService } from '../../api-status/api-status.service';
 
 /**
@@ -41,6 +43,7 @@ export class WorkspaceMenu implements OnInit {
 
   protected readonly status = inject(ApiStatusService);
   protected readonly roster = inject(AgentRosterService);
+  protected readonly spend = inject(SpendService);
   protected readonly theme = inject(ThemeService);
   protected readonly desktop = inject(DesktopService);
 
@@ -78,6 +81,23 @@ export class WorkspaceMenu implements OnInit {
   protected readonly version = signal<string | null>(null);
   protected readonly memoryCount = signal<number | null>(null);
   protected readonly promptCount = signal<number | null>(null);
+
+  /**
+   * What the budget tile says underneath the figure.
+   *
+   * Reads "set a budget" rather than "no limit" when none is set: the panel is
+   * where someone goes looking for what the workspace can do, so the absence
+   * should be an invitation rather than a status.
+   */
+  protected readonly budgetCaption = computed(() => {
+    const budget = this.spend.budget();
+
+    if (!budget || budget.limitUsd === null) {
+      return 'set a budget';
+    }
+
+    return `left ${BUDGET_PERIOD_LABEL[budget.period]}`;
+  });
 
   protected readonly uptime = computed(() => {
     const seconds = this.status.health()?.uptimeSeconds;

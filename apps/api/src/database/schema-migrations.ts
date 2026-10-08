@@ -25,7 +25,8 @@ import type Database from 'better-sqlite3';
  * 16. backup_policy
  * 17. seed (seeds backup_policy)
  * 18. user_profile (no foreign keys)
- * 19-24. index files for each area
+ * 19. spend_budget (no foreign keys)
+ * 20-25. index files for each area
  */
 export const MIGRATION_FILE_SEQUENCE = [
   'system/gloabal.sql',
@@ -47,6 +48,7 @@ export const MIGRATION_FILE_SEQUENCE = [
   'backups/backup_policy.sql',
   'backups/seed.sql',
   'user/user_profile.sql',
+  'budget/spend_budget.sql',
   'providers/index.sql',
   'agents/index.sql',
   'teams/index.sql',
@@ -237,6 +239,15 @@ VALUES (1, 0, 'daily', 7, NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));`,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 );`,
+  'budget/spend_budget.sql': `CREATE TABLE spend_budget (
+    id           TEXT PRIMARY KEY,
+    singleton    INTEGER NOT NULL DEFAULT 1 CHECK (singleton = 1) UNIQUE,
+    limit_usd    REAL,
+    period       TEXT NOT NULL DEFAULT 'monthly'
+                 CHECK (period IN ('daily', 'weekly', 'monthly')),
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);`,
   'providers/index.sql': `CREATE INDEX idx_models_provider_id ON models(provider_id);`,
   'agents/index.sql': `CREATE INDEX idx_agents_system_prompt_id ON agents(system_prompt_id);
 CREATE INDEX idx_agents_model_id ON agents(model_id);
@@ -344,6 +355,18 @@ export const MIGRATIONS_AFTER_BOOTSTRAP: readonly IncrementalMigration[] = [
     picture_updated_at  TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
+);`,
+  },
+  {
+    name: '003_spend_budget',
+    sql: `CREATE TABLE IF NOT EXISTS spend_budget (
+    id           TEXT PRIMARY KEY,
+    singleton    INTEGER NOT NULL DEFAULT 1 CHECK (singleton = 1) UNIQUE,
+    limit_usd    REAL,
+    period       TEXT NOT NULL DEFAULT 'monthly'
+                 CHECK (period IN ('daily', 'weekly', 'monthly')),
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
 );`,
   },
 ];

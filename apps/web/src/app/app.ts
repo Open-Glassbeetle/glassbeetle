@@ -24,10 +24,12 @@ import { ApiStatusService } from './features/api-status/api-status.service';
 import { ThemeService } from './core/theme/theme.service';
 import { AgentRosterService } from './core/workspace/agent-roster.service';
 import { UserProfileService } from './core/workspace/user-profile.service';
+import { SpendService } from './core/workspace/spend.service';
 import { CommandPalette } from './features/command-palette/command-palette';
 import { FleetSpine } from './features/chrome/fleet-spine/fleet-spine';
 import { FleetStatus } from './features/chrome/fleet-status/fleet-status';
 import { WindowControls } from './features/chrome/window-controls/window-controls';
+import { SpendMeter } from './features/chrome/spend-meter/spend-meter';
 import { WorkspaceMenu } from './features/chrome/workspace-menu/workspace-menu';
 import { AgentAvatar } from './features/agents/agent-avatar/agent-avatar';
 import { Avatar } from './shared/ui/avatar';
@@ -74,6 +76,7 @@ const WIDE_LAYOUT = '(min-width: 62rem)';
     RouterLinkActive,
     RouterOutlet,
     Skeleton,
+    SpendMeter,
     WindowControls,
     WorkspaceMenu,
   ],
@@ -88,6 +91,7 @@ export class App implements OnInit {
 
   protected readonly roster = inject(AgentRosterService);
   protected readonly user = inject(UserProfileService);
+  private readonly spend = inject(SpendService);
   private readonly capabilities = inject(CapabilitiesService);
   protected readonly desktop = inject(DesktopService);
   private readonly status = inject(ApiStatusService);
@@ -106,7 +110,10 @@ export class App implements OnInit {
    * the profile reads as "Workspace", which is the fallback for a route the
    * chrome does not recognise.
    */
-  private readonly chromeSurfaces: readonly Crumb[] = [{ label: 'Profile', path: '/profile' }];
+  private readonly chromeSurfaces: readonly Crumb[] = [
+    { label: 'Profile', path: '/profile' },
+    { label: 'Spending', path: '/budget' },
+  ];
 
   protected readonly wideLayout = toSignal(
     this.breakpoints.observe(WIDE_LAYOUT).pipe(map((state) => state.matches)),
@@ -237,6 +244,7 @@ export class App implements OnInit {
     this.capabilities.probe();
     this.roster.refresh();
     this.user.refresh();
+    this.spend.refresh();
     void this.desktop.connect();
   }
 
@@ -283,6 +291,7 @@ export class App implements OnInit {
         this.capabilities.probe();
         this.roster.refresh();
         this.user.refresh();
+        this.spend.refresh();
         break;
     }
   }

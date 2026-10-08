@@ -53,11 +53,14 @@ describe('runMigrations', () => {
     expect(appliedMigrations()).toEqual(first);
   });
 
-  it('creates user_profile on a fresh database', () => {
-    runMigrations(db);
+  it.each(['user_profile', 'spend_budget'])(
+    'creates %s on a fresh database',
+    (table) => {
+      runMigrations(db);
 
-    expect(tableExists('user_profile')).toBe(true);
-  });
+      expect(tableExists(table)).toBe(true);
+    },
+  );
 
   it('upgrades a database that already recorded only the bootstrap', () => {
     // What every installation that exists today looks like: the bootstrap ran
@@ -76,10 +79,13 @@ describe('runMigrations', () => {
 
     runMigrations(db);
 
+    // Asserted against the list rather than against named entries, so adding a
+    // migration does not need this test edited — which is the moment someone
+    // would be tempted to edit it into agreeing.
     expect(tableExists('user_profile')).toBe(true);
     expect(appliedMigrations()).toEqual([
       INITIAL_MIGRATION_NAME,
-      '002_user_profile',
+      ...MIGRATIONS_AFTER_BOOTSTRAP.map((migration) => migration.name),
     ]);
   });
 
@@ -145,5 +151,75 @@ describe('user_profile schema', () => {
       .prepare('SELECT include_in_prompts FROM user_profile')
       .get() as { include_in_prompts: number };
     expect(row.include_in_prompts).toBe(1);
+  });
+});
+
+describe('spend_budget schema', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function insert(
+    id: string,
+    columns: {
+      singleton?: number;
+      period?: string;
+      limitUsd?: number | null;
+    } = {},
+  ): void {
+    db.prepare(
+      `INSERT INTO spend_budget (id, singleton, limit_usd, period, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      columns.singleton ?? 1,
+      columns.limitUsd ?? null,
+      columns.period ?? 'monthly',
+      '2026-01-01',
+      '2026-01-01',
+    );
+  }
+
+  it('refuses a second row, so there is one budget and not a collection', () => {
+    insert('018f3a9e-0000-7000-8000-000000000001');
+
+    expect(() => insert('018f3a9e-0000-7000-8000-000000000002')).toThrow(
+      /UNIQUE/i,
+    );
+  });
+
+  it('refuses a period the service does not know how to window', () => {
+    expect(() =>
+      insert('018f3a9e-0000-7000-8000-000000000001', { period: 'fortnightly' }),
+    ).toThrow(/CHECK/i);
+  });
+
+  it('allows a null limit, which is how "no budget set" is stored', () => {
+    insert('018f3a9e-0000-7000-8000-000000000001', { limitUsd: null });
+
+    const row = db.prepare('SELECT limit_usd FROM spend_budget').get() as {
+      limit_usd: number | null;
+    };
+    expect(row.limit_usd).toBeNull();
+  });
+
+  it('defaults the period to monthly', () => {
+    db.prepare(
+      `INSERT INTO spend_budget (id, singleton, created_at, updated_at)
+       VALUES (?, 1, ?, ?)`,
+    ).run('018f3a9e-0000-7000-8000-000000000001', '2026-01-01', '2026-01-01');
+
+    const row = db.prepare('SELECT period FROM spend_budget').get() as {
+      period: string;
+    };
+    expect(row.period).toBe('monthly');
   });
 });

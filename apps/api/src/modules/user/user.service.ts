@@ -61,6 +61,22 @@ export class UserService {
   }
 
   /**
+   * The user's time zone, or null when it is not set.
+   *
+   * A plain read that deliberately does not provision the profile: callers
+   * want to know which day the user is in, and a question about the user
+   * should not have the side effect of creating them. Everything downstream
+   * already copes with a missing zone by falling back to UTC.
+   */
+  timezone(): string | null {
+    const row = this.db.get<{ timezone: string | null }>(
+      'SELECT timezone FROM user_profile WHERE singleton = 1',
+    );
+
+    return row?.timezone ?? null;
+  }
+
+  /**
    * Applies a partial update to the profile.
    *
    * An empty body is an idempotent no-op: the response is the unchanged profile

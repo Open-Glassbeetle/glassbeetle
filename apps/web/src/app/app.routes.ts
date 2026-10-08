@@ -28,6 +28,11 @@ export const routes: Routes = [
       import('./features/agents/agent-detail/agent-detail').then((m) => m.AgentDetail),
   },
   {
+    path: 'budget',
+    title: 'Spending · Glassbeetle',
+    loadComponent: () => import('./features/budget/budget').then((m) => m.Budget),
+  },
+  {
     path: 'profile',
     title: 'Profile · Glassbeetle',
     loadComponent: () => import('./features/profile/profile').then((m) => m.Profile),

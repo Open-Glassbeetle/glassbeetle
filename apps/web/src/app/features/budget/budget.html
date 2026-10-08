@@ -1,0 +1,172 @@
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">Spending</h1>
+      <p class="view__subtitle">
+        What completions are allowed to cost, and what they have cost so far. Amounts are US
+        dollars, because that is the currency the usage log records.
+      </p>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <gb-panel icon="payments" title="Budget">
+      <div class="loading">
+        <gb-skeleton width="30%" height="2rem" />
+        <gb-skeleton width="55%" height="0.75rem" />
+      </div>
+    </gb-panel>
+  } @else if (error(); as failure) {
+    <gb-panel icon="error" title="The budget could not be read">
+      <p class="failure">{{ failure.message }}</p>
+      <button matButton="filled" type="button" (click)="load()">
+        <mat-icon>refresh</mat-icon>
+        Try again
+      </button>
+    </gb-panel>
+  } @else if (budget(); as current) {
+    <!-- The state of the feature, said plainly. Hardcoded rather than probed:
+         the repository knows that the inference module is an empty controller,
+         and four requests to rediscover it on every load would be waste. -->
+    @if (!spend.hasRecordedSpend()) {
+      <div class="notice">
+        <mat-icon class="notice__icon">info</mat-icon>
+        <div>
+          <p class="notice__title">Nothing has been charged yet</p>
+          <p class="notice__text">
+            Costs are read from the usage log, which the inference module writes when a completion
+            runs. That module is an empty controller today, so no completion can be made and this
+            period reads zero for every installation. A budget set here is stored and applies the
+            moment completions ship — the arithmetic below is real, it has nothing to count.
+          </p>
+        </div>
+      </div>
+    }
+
+    <gb-panel icon="monitoring" title="This period" [subtitle]="'Renews ' + (renewsAt() ?? '—')">
+      <div class="figures">
+        <div class="figure">
+          <span class="figure__label">Spent {{ periodPhrase() }}</span>
+          <span class="figure__value mono">{{ spend.money(current.spentUsd) }}</span>
+        </div>
+
+        <div class="figure">
+          <span class="figure__label">
+            @if (current.remainingUsd !== null && current.remainingUsd < 0) {
+              Over budget
+            } @else {
+              Remaining
+            }
+          </span>
+          <span
+            class="figure__value mono"
+            [class.figure__value--over]="spend.level() === 'over'"
+            [class.figure__value--warning]="spend.level() === 'warning'"
+          >
+            @if (current.remainingUsd === null) {
+              no limit
+            } @else {
+              {{ spend.money(current.remainingUsd) }}
+            }
+          </span>
+        </div>
+
+        <div class="figure">
+          <span class="figure__label">Charged calls</span>
+          <span class="figure__value mono">{{ current.callCount }}</span>
+        </div>
+      </div>
+
+      @if (current.limitUsd !== null) {
+        <div
+          class="bar"
+          role="img"
+          [attr.aria-label]="
+            spend.money(current.spentUsd) + ' of ' + spend.money(current.limitUsd) + ' used'
+          "
+        >
+          <div
+            class="bar__fill"
+            [class]="'bar__fill--' + spend.level()"
+            [style.width.%]="spend.fraction() * 100"
+          ></div>
+        </div>
+      }
+    </gb-panel>
+
+    <form class="config" [formGroup]="form" (ngSubmit)="save()">
+      <gb-panel
+        icon="payments"
+        title="Budget"
+        subtitle="A ceiling for one period. Nothing is blocked when it is reached — the meter reports it."
+      >
+        <div class="fields">
+          <div class="row">
+            <mat-form-field class="row__item">
+              <mat-label>Limit</mat-label>
+              <span matTextPrefix>$&nbsp;</span>
+              <input
+                matInput
+                type="number"
+                formControlName="limitUsd"
+                min="0.01"
+                step="0.01"
+                [max]="maxLimit"
+                placeholder="20.00"
+              />
+              <mat-hint>US dollars. Empty for no budget.</mat-hint>
+              @if (form.controls.limitUsd.hasError('min')) {
+                <mat-error>A budget of nothing is an empty field, not zero.</mat-error>
+              }
+              @if (form.controls.limitUsd.hasError('max')) {
+                <mat-error>That is past the largest limit the API accepts.</mat-error>
+              }
+            </mat-form-field>
+
+            <mat-form-field class="row__item">
+              <mat-label>Period</mat-label>
+              <mat-select formControlName="period">
+                @for (period of periods; track period) {
+                  <mat-option [value]="period">{{ period | titlecase }}</mat-option>
+                }
+              </mat-select>
+              <mat-hint>Resets at midnight in your time zone.</mat-hint>
+            </mat-form-field>
+          </div>
+        </div>
+      </gb-panel>
+
+      <div class="actions">
+        <span class="actions__state">
+          @if (form.dirty) {
+            Unsaved changes
+          }
+        </span>
+
+        @if (current.limitUsd !== null) {
+          <button
+            matButton
+            type="button"
+            [disabled]="saving()"
+            matTooltip="Spending is still reported, it is simply not measured against anything"
+            (click)="removeLimit()"
+          >
+            Remove budget
+          </button>
+        }
+
+        <button matButton type="button" [disabled]="saving() || form.pristine" (click)="reset()">
+          Discard
+        </button>
+        <button matButton="filled" type="submit" [disabled]="saving() || form.invalid">
+          @if (saving()) {
+            <mat-icon class="spin">progress_activity</mat-icon>
+          } @else {
+            <mat-icon>check</mat-icon>
+          }
+          Save changes
+        </button>
+      </div>
+    </form>
+  }
+</div>

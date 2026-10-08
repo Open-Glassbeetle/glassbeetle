@@ -10,6 +10,7 @@ import { CommonModule } from './common/common.module.js';
 import { RequestLoggingMiddleware } from './common/logging/request-logging.middleware.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { UserModule } from './modules/user/user.module.js';
+import { BudgetModule } from './modules/budget/budget.module.js';
 import { AgentsModule } from './modules/agents/agents.module.js';
 import { MemoryModule } from './modules/memory/memory.module.js';
 import { TeamsModule } from './modules/teams/teams.module.js';
@@ -32,6 +33,7 @@ import { ApplicationModule } from './modules/application/application.module.js';
     CommonModule,
     HealthModule,
     UserModule,
+    BudgetModule,
     AgentsModule,
     MemoryModule,
     TeamsModule,
