@@ -24,7 +24,8 @@ import type Database from 'better-sqlite3';
  * 15. backups
  * 16. backup_policy
  * 17. seed (seeds backup_policy)
- * 18-23. index files for each area
+ * 18. user_profile (no foreign keys)
+ * 19-24. index files for each area
  */
 export const MIGRATION_FILE_SEQUENCE = [
   'system/gloabal.sql',
@@ -45,6 +46,7 @@ export const MIGRATION_FILE_SEQUENCE = [
   'backups/backups.sql',
   'backups/backup_policy.sql',
   'backups/seed.sql',
+  'user/user_profile.sql',
   'providers/index.sql',
   'agents/index.sql',
   'teams/index.sql',
@@ -221,6 +223,20 @@ const FALLBACK_SQL: Record<string, string> = {
 );`,
   'backups/seed.sql': `INSERT INTO backup_policy (id, enabled, frequency, retention_count, target_directory, updated_at)
 VALUES (1, 0, 'daily', 7, NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));`,
+  'user/user_profile.sql': `CREATE TABLE user_profile (
+    id                  TEXT PRIMARY KEY,
+    singleton           INTEGER NOT NULL DEFAULT 1 CHECK (singleton = 1) UNIQUE,
+    display_name        TEXT,
+    pronouns            TEXT,
+    about               TEXT,
+    locale              TEXT,
+    timezone            TEXT,
+    include_in_prompts  INTEGER NOT NULL DEFAULT 1,
+    picture_path        TEXT,
+    picture_updated_at  TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);`,
   'providers/index.sql': `CREATE INDEX idx_models_provider_id ON models(provider_id);`,
   'agents/index.sql': `CREATE INDEX idx_agents_system_prompt_id ON agents(system_prompt_id);
 CREATE INDEX idx_agents_model_id ON agents(model_id);
@@ -253,7 +269,10 @@ export function findDataDir(): string | null {
   ];
 
   for (const candidate of candidates) {
-    if (existsSync(candidate) && existsSync(join(candidate, 'system', 'system_propmts.sql'))) {
+    if (
+      existsSync(candidate) &&
+      existsSync(join(candidate, 'system', 'system_propmts.sql'))
+    ) {
       return candidate;
     }
   }
@@ -264,7 +283,10 @@ export function findDataDir(): string | null {
  * Loads SQL content for a relative path from the data directory if available,
  * otherwise falling back to the bundled DDL content.
  */
-export function loadSqlContent(relativePath: string, dataDir: string | null): string {
+export function loadSqlContent(
+  relativePath: string,
+  dataDir: string | null,
+): string {
   if (dataDir) {
     const fullPath = join(dataDir, relativePath);
     if (existsSync(fullPath)) {
@@ -275,24 +297,73 @@ export function loadSqlContent(relativePath: string, dataDir: string | null): st
 }
 
 /**
- * Applies initial schema bootstrap and tracks migration execution in `schema_migrations`.
+ * Name recorded for the initial bootstrap in `schema_migrations`.
  */
-export function runMigrations(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      applied_at TEXT NOT NULL
-    );
-  `);
+export const INITIAL_MIGRATION_NAME = '001_initial_bootstrap';
 
-  const initialMigrationName = '001_initial_bootstrap';
+/**
+ * A schema change applied after the initial bootstrap.
+ */
+export interface IncrementalMigration {
+  /** Name recorded in `schema_migrations`; must never change once released. */
+  readonly name: string;
+  /** DDL applied inside a single transaction. */
+  readonly sql: string;
+}
 
-  const row = db
-    .prepare('SELECT name FROM schema_migrations WHERE name = ?')
-    .get(initialMigrationName);
+/**
+ * Schema changes for databases that already carry the initial bootstrap.
+ *
+ * `MIGRATION_FILE_SEQUENCE` only ever runs on a database that has no schema at
+ * all, so appending a file to it reaches fresh installations and nothing else.
+ * Every installation that exists today has `001_initial_bootstrap` recorded and
+ * would never see the new table. Each entry here closes that gap for one
+ * change.
+ *
+ * The DDL is written out rather than reused from `FALLBACK_SQL`: a released
+ * migration is frozen history, while the bootstrap DDL is free to evolve. If
+ * the two shared a string, editing the bootstrap would retroactively change
+ * what an already-applied migration claims to have done.
+ *
+ * `IF NOT EXISTS` keeps each entry harmless on a database that just received
+ * the same table from the bootstrap sequence.
+ */
+export const MIGRATIONS_AFTER_BOOTSTRAP: readonly IncrementalMigration[] = [
+  {
+    name: '002_user_profile',
+    sql: `CREATE TABLE IF NOT EXISTS user_profile (
+    id                  TEXT PRIMARY KEY,
+    singleton           INTEGER NOT NULL DEFAULT 1 CHECK (singleton = 1) UNIQUE,
+    display_name        TEXT,
+    pronouns            TEXT,
+    about               TEXT,
+    locale              TEXT,
+    timezone            TEXT,
+    include_in_prompts  INTEGER NOT NULL DEFAULT 1,
+    picture_path        TEXT,
+    picture_updated_at  TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);`,
+  },
+];
 
-  if (row) {
+/**
+ * Whether a migration has already been recorded.
+ */
+function isApplied(db: Database.Database, name: string): boolean {
+  return (
+    db
+      .prepare('SELECT name FROM schema_migrations WHERE name = ?')
+      .get(name) !== undefined
+  );
+}
+
+/**
+ * Creates the whole schema from `MIGRATION_FILE_SEQUENCE` on an empty database.
+ */
+function applyInitialBootstrap(db: Database.Database): void {
+  if (isApplied(db, INITIAL_MIGRATION_NAME)) {
     return;
   }
 
@@ -306,11 +377,53 @@ export function runMigrations(db: Database.Database): void {
       }
     }
 
-    db.prepare('INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)').run(
-      initialMigrationName,
-      new Date().toISOString(),
-    );
+    db.prepare(
+      'INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)',
+    ).run(INITIAL_MIGRATION_NAME, new Date().toISOString());
   });
 
   applyMigration();
+}
+
+/**
+ * Applies the incremental migrations an existing database is missing.
+ *
+ * Each migration gets its own transaction, so a failure leaves every earlier
+ * one applied and recorded rather than rolling the whole set back.
+ */
+function applyIncrementalMigrations(db: Database.Database): void {
+  for (const migration of MIGRATIONS_AFTER_BOOTSTRAP) {
+    if (isApplied(db, migration.name)) {
+      continue;
+    }
+
+    const apply = db.transaction(() => {
+      db.exec(migration.sql);
+      db.prepare(
+        'INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)',
+      ).run(migration.name, new Date().toISOString());
+    });
+
+    apply();
+  }
+}
+
+/**
+ * Brings a database up to the current schema and records what it applied.
+ *
+ * Runs in two phases: the bootstrap, which builds the whole schema on an empty
+ * database, and the incremental migrations, which are the only thing an
+ * already-bootstrapped database can still receive.
+ */
+export function runMigrations(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      applied_at TEXT NOT NULL
+    );
+  `);
+
+  applyInitialBootstrap(db);
+  applyIncrementalMigrations(db);
 }
