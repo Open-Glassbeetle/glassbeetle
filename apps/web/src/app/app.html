@@ -60,6 +60,19 @@
 
     <app-fleet-status />
 
+    <!-- The person, at the end of the bar: the one control here that is about
+         you rather than about the workspace. -->
+    <a
+      class="identity"
+      routerLink="/profile"
+      routerLinkActive="identity--active"
+      [matTooltip]="user.displayName() + ' · Profile'"
+      matTooltipPosition="below"
+      [attr.aria-label]="'Profile of ' + user.displayName()"
+    >
+      <gb-avatar [name]="user.displayName()" [imageUrl]="user.pictureUrl()" size="small" />
+    </a>
+
     @if (desktop.isDesktop && !desktop.controlsOnLeft) {
       <span class="deck__seam" aria-hidden="true"></span>
       <app-window-controls />

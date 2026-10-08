@@ -59,6 +59,7 @@ describe('DatabaseService', () => {
         'usage_events',
         'backups',
         'backup_policy',
+        'user_profile',
         'schema_migrations',
       ]),
     );

@@ -28,6 +28,10 @@ export const OPENAPI_JSON_PATH = `${OPENAPI_UI_PATH}-json`;
  */
 const API_TAGS: ReadonlyArray<{ name: string; description: string }> = [
   { name: 'health', description: 'Service health and readiness' },
+  {
+    name: 'user',
+    description: 'The profile of the person this installation belongs to',
+  },
   { name: 'agents', description: 'Agent configuration and lifecycle' },
   { name: 'memory', description: 'Agent-private and shared memory' },
   { name: 'teams', description: 'Teams and team membership' },

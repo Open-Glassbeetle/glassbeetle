@@ -43,6 +43,15 @@ export interface AppConfig {
   readonly logBody: boolean;
   /** Maximum size for uploaded agent pictures in bytes. */
   readonly maxPictureSizeBytes: number;
+  /**
+   * Name the user profile is seeded with on first read.
+   *
+   * `null` means "ask the operating system", which is the default and the
+   * reason the setting exists at all: it lets a packaged or containerised run
+   * state the name explicitly where `os.userInfo()` would report something
+   * unhelpful like `root`.
+   */
+  readonly defaultUserName: string | null;
 }
 
 /**
@@ -108,6 +117,10 @@ export default registerAs(APP_CONFIG_NAMESPACE, (): AppConfig => {
     ? Number(env.GLASSBEETLE_MAX_PICTURE_SIZE_BYTES)
     : DEFAULT_MAX_PICTURE_SIZE_BYTES;
 
+  const defaultUserName = env.GLASSBEETLE_USER_NAME?.trim()
+    ? env.GLASSBEETLE_USER_NAME.trim()
+    : null;
+
   return {
     nodeEnv: (env.NODE_ENV as NodeEnv | undefined) ?? 'development',
     port: env.PORT ? Number(env.PORT) : DEFAULT_PORT,
@@ -118,6 +131,7 @@ export default registerAs(APP_CONFIG_NAMESPACE, (): AppConfig => {
     logLevel,
     logBody,
     maxPictureSizeBytes,
+    defaultUserName,
   };
 });
 

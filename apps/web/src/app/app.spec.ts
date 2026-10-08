@@ -13,6 +13,7 @@ import { DesktopService } from './core/desktop/desktop.service';
 const HEALTH_URL = `${environment.apiBaseUrl}/health`;
 const AGENTS_URL = `${environment.apiBaseUrl}/agents`;
 const MODELS_URL = `${environment.apiBaseUrl}/models`;
+const USER_URL = `${environment.apiBaseUrl}/user`;
 
 const HEALTHY = {
   status: 'ok',
@@ -20,6 +21,20 @@ const HEALTHY = {
   uptimeSeconds: 12,
   timestamp: '2026-10-06T12:00:00.000Z',
   checks: { database: { status: 'up' } },
+};
+
+const PROFILE = {
+  id: 'u1',
+  displayName: 'Ada',
+  pronouns: null,
+  about: null,
+  locale: 'de-CH',
+  timezone: 'Europe/Zurich',
+  includeInPrompts: true,
+  hasPicture: false,
+  pictureUpdatedAt: null,
+  createdAt: '2026-10-01T08:00:00.000Z',
+  updatedAt: '2026-10-01T08:00:00.000Z',
 };
 
 function agent(overrides: Record<string, unknown> = {}) {
@@ -75,9 +90,19 @@ describe('App shell', () => {
     }
   }
 
-  /** Renders the shell and answers the three requests it makes on startup. */
+  /** Answers the profile read the deck fires on startup. */
+  function answerProfile(profile: Record<string, unknown> = PROFILE) {
+    httpMock.expectOne(USER_URL).flush(profile);
+  }
+
+  /** Renders the shell and answers the four requests it makes on startup. */
   function render(
-    options: { agents?: unknown[]; health?: unknown; modelsAvailable?: boolean } = {},
+    options: {
+      agents?: unknown[];
+      health?: unknown;
+      modelsAvailable?: boolean;
+      profile?: Record<string, unknown>;
+    } = {},
   ) {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
@@ -89,12 +114,13 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items, total: items.length, limit: 100, offset: 0 });
+    answerProfile(options.profile);
 
     fixture.detectChanges();
     return fixture;
   }
 
-  it('loads the roster, the health check and the capability probe once each', () => {
+  it('loads the roster, the health check, the capability probe and the profile once each', () => {
     const fixture = render();
     expect(fixture.componentInstance).toBeTruthy();
   });
@@ -156,6 +182,7 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerProfile();
     fixture.detectChanges();
 
     expect(stateClass(fixture)).toContain('trigger__state--offline');
@@ -177,6 +204,7 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerProfile();
     fixture.detectChanges();
 
     // A 503 that carries a usable body is a report, not a failure.
@@ -201,6 +229,7 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ message: 'boom' }, { status: 500, statusText: 'Server Error' });
+    answerProfile();
     fixture.detectChanges();
 
     // The rail degrades to its navigation links; the screen the user is on
@@ -262,6 +291,7 @@ describe('App shell on a platform whose controls sit on the right', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    httpMock.expectOne(USER_URL).flush(PROFILE);
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;

@@ -7,3 +7,5 @@ export * from './memories.service';
 export * from './pagination';
 export * from './system-prompts.models';
 export * from './system-prompts.service';
+export * from './user.models';
+export * from './user.service';

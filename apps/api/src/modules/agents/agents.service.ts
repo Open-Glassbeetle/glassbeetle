@@ -1,10 +1,8 @@
 import {
-  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
   Optional,
-  PayloadTooLargeException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -17,7 +15,10 @@ import { nowIso } from '../../common/persistence/timestamps.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { DEFAULT_MAX_PICTURE_SIZE_BYTES } from '../../config/app.config.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { detectContentType } from '../../file-storage/content-type.js';
+import {
+  ALLOWED_PICTURE_MIME_TYPES,
+  assertUploadablePicture,
+} from '../../file-storage/picture-uploads.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
 import type { AgentResponseDto } from './dto/agent-response.dto.js';
 import {
@@ -42,17 +43,10 @@ export const ALLOWED_AGENT_SORT_COLUMNS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Allowed MIME types for agent profile pictures.
- *
- * Excludes SVG and HTML types to protect against stored XSS attacks
- * within the Tauri desktop application webview.
+ * Re-exported so `AgentsService` keeps naming what an agent picture may be,
+ * while the list itself is shared with every other picture upload endpoint.
  */
-export const ALLOWED_PICTURE_MIME_TYPES: readonly string[] = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-];
+export { ALLOWED_PICTURE_MIME_TYPES };
 
 /**
  * Escapes characters with special meaning in SQLite LIKE patterns (`\`, `%`, `_`).
@@ -413,12 +407,11 @@ export class AgentsService {
     id: string,
     file: Express.Multer.File,
   ): Promise<AgentResponseDto> {
-    if (!file || !file.buffer || file.buffer.length === 0) {
-      throw new BadRequestException({
-        code: 'MISSING_FILE',
-        message: 'No file uploaded or file is empty',
-      });
-    }
+    const maxBytes =
+      this.appConfigService?.maxPictureSizeBytes ??
+      DEFAULT_MAX_PICTURE_SIZE_BYTES;
+
+    assertUploadablePicture(file, maxBytes);
 
     const existing = this.db.get<{ id: string; picture_path: string | null }>(
       'SELECT id, picture_path FROM agents WHERE id = ?',
@@ -429,26 +422,6 @@ export class AgentsService {
       throw new NotFoundException({
         code: 'AGENT_NOT_FOUND',
         message: `Agent with ID "${id}" not found`,
-      });
-    }
-
-    const maxBytes =
-      this.appConfigService?.maxPictureSizeBytes ??
-      DEFAULT_MAX_PICTURE_SIZE_BYTES;
-
-    if (file.buffer.length > maxBytes) {
-      throw new PayloadTooLargeException({
-        code: 'FILE_TOO_LARGE',
-        message: `File size (${file.buffer.length} bytes) exceeds the maximum allowed limit of ${maxBytes} bytes`,
-      });
-    }
-
-    const detected = detectContentType(file.buffer);
-
-    if (!ALLOWED_PICTURE_MIME_TYPES.includes(detected.mime)) {
-      throw new BadRequestException({
-        code: 'UNSUPPORTED_MEDIA_TYPE',
-        message: `Unsupported image format '${detected.mime}'. Allowed formats: ${ALLOWED_PICTURE_MIME_TYPES.join(', ')}`,
       });
     }
 

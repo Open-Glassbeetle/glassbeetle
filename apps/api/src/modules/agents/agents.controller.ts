@@ -32,8 +32,8 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { ApiErrorResponseDto } from '../../common/http/api-error.js';
+import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
-import { AgentPictureInterceptor } from './agent-picture.interceptor.js';
 import { AgentsService } from './agents.service.js';
 import { AgentResponseDto } from './dto/agent-response.dto.js';
 import { CreateAgentDto } from './dto/create-agent.dto.js';
@@ -256,7 +256,7 @@ Cascade behavior across referencing tables:
 
   @Put(':agentId/picture')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(AgentPictureInterceptor)
+  @UseInterceptors(PictureUploadInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Upload an agent profile picture',

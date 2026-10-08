@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   validateSync,
 } from 'class-validator';
@@ -83,6 +84,13 @@ export class EnvironmentVariables {
     message: 'GLASSBEETLE_MAX_PICTURE_SIZE_BYTES must be greater than 0',
   })
   GLASSBEETLE_MAX_PICTURE_SIZE_BYTES?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120, {
+    message: 'GLASSBEETLE_USER_NAME must not exceed 120 characters',
+  })
+  GLASSBEETLE_USER_NAME?: string;
 }
 
 /**

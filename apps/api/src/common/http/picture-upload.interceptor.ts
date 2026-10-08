@@ -14,30 +14,37 @@ import { AppConfigService } from '../../config/app-config.service.js';
 import { DEFAULT_MAX_PICTURE_SIZE_BYTES } from '../../config/app.config.js';
 
 /**
- * Interceptor for agent picture uploads.
+ * Multipart handling for profile picture uploads.
  *
  * Enforces:
  * - Dynamic file size limits from configuration (defaulting to 5 MB).
  * - Limit enforcement during streaming by Multer rather than after full read,
  *   protecting memory.
  * - Single file upload constraint (`files: 1`).
- * - Accepts any single file field name (`file`, `picture`, etc.) for client flexibility.
+ * - Accepts any single file field name (`file`, `picture`, etc.) for client
+ *   flexibility.
+ *
+ * Every picture upload in the API has the same multipart shape and the same
+ * size limit, so they share this one interceptor rather than each configuring
+ * multer themselves — a second copy would be a second place for the limit to
+ * drift out of step with `maxPictureSizeBytes`.
  */
 @Injectable()
-export class AgentPictureInterceptor implements NestInterceptor {
+export class PictureUploadInterceptor implements NestInterceptor {
   private readonly uploader: multer.Multer;
 
-  constructor(@Optional() private readonly config?: AppConfigService) {
-    const maxBytes =
-      this.config?.maxPictureSizeBytes ?? DEFAULT_MAX_PICTURE_SIZE_BYTES;
-
+  constructor(@Optional() protected readonly config?: AppConfigService) {
     this.uploader = multer({
       storage: multer.memoryStorage(),
       limits: {
-        fileSize: maxBytes,
+        fileSize: this.maxBytes,
         files: 1,
       },
     });
+  }
+
+  private get maxBytes(): number {
+    return this.config?.maxPictureSizeBytes ?? DEFAULT_MAX_PICTURE_SIZE_BYTES;
   }
 
   async intercept(
@@ -54,13 +61,10 @@ export class AgentPictureInterceptor implements NestInterceptor {
         if (err) {
           if (err instanceof multer.MulterError) {
             if (err.code === 'LIMIT_FILE_SIZE') {
-              const maxBytes =
-                this.config?.maxPictureSizeBytes ??
-                DEFAULT_MAX_PICTURE_SIZE_BYTES;
               return reject(
                 new PayloadTooLargeException({
                   code: 'FILE_TOO_LARGE',
-                  message: `File size exceeds the configured maximum limit of ${maxBytes} bytes`,
+                  message: `File size exceeds the configured maximum limit of ${this.maxBytes} bytes`,
                 }),
               );
             }

@@ -23,12 +23,14 @@ import { CapabilitiesService } from './core/platform/capabilities.service';
 import { ApiStatusService } from './features/api-status/api-status.service';
 import { ThemeService } from './core/theme/theme.service';
 import { AgentRosterService } from './core/workspace/agent-roster.service';
+import { UserProfileService } from './core/workspace/user-profile.service';
 import { CommandPalette } from './features/command-palette/command-palette';
 import { FleetSpine } from './features/chrome/fleet-spine/fleet-spine';
 import { FleetStatus } from './features/chrome/fleet-status/fleet-status';
 import { WindowControls } from './features/chrome/window-controls/window-controls';
 import { WorkspaceMenu } from './features/chrome/workspace-menu/workspace-menu';
 import { AgentAvatar } from './features/agents/agent-avatar/agent-avatar';
+import { Avatar } from './shared/ui/avatar';
 import { ReadinessBadge } from './shared/ui/readiness-badge';
 import { Skeleton } from './shared/ui/skeleton';
 
@@ -60,6 +62,7 @@ const WIDE_LAYOUT = '(min-width: 62rem)';
   selector: 'app-root',
   imports: [
     AgentAvatar,
+    Avatar,
     FleetSpine,
     FleetStatus,
     MatButtonModule,
@@ -84,6 +87,7 @@ export class App implements OnInit {
   private readonly dialog = inject(MatDialog);
 
   protected readonly roster = inject(AgentRosterService);
+  protected readonly user = inject(UserProfileService);
   private readonly capabilities = inject(CapabilitiesService);
   protected readonly desktop = inject(DesktopService);
   private readonly status = inject(ApiStatusService);
@@ -94,6 +98,15 @@ export class App implements OnInit {
     { path: '/memory', label: 'Shared memory', icon: 'database', shortcut: '3' },
     { path: '/prompts', label: 'System prompts', icon: 'article', shortcut: '4' },
   ];
+
+  /**
+   * Surfaces reached from the window chrome rather than from the rail.
+   *
+   * The trail names where you are, so it has to know about them — otherwise
+   * the profile reads as "Workspace", which is the fallback for a route the
+   * chrome does not recognise.
+   */
+  private readonly chromeSurfaces: readonly Crumb[] = [{ label: 'Profile', path: '/profile' }];
 
   protected readonly wideLayout = toSignal(
     this.breakpoints.observe(WIDE_LAYOUT).pipe(map((state) => state.matches)),
@@ -145,7 +158,9 @@ export class App implements OnInit {
     }
 
     const root = `/${segments[0]}`;
-    const item = this.navItems.find((entry) => entry.path === root);
+    const item =
+      this.navItems.find((entry) => entry.path === root) ??
+      this.chromeSurfaces.find((entry) => entry.path === root);
     const head: Crumb = {
       label: item?.label ?? 'Workspace',
       path: item?.path ?? '/overview',
@@ -221,6 +236,7 @@ export class App implements OnInit {
     this.status.refresh();
     this.capabilities.probe();
     this.roster.refresh();
+    this.user.refresh();
     void this.desktop.connect();
   }
 
@@ -266,6 +282,7 @@ export class App implements OnInit {
         this.status.refresh();
         this.capabilities.probe();
         this.roster.refresh();
+        this.user.refresh();
         break;
     }
   }

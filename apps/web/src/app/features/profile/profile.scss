@@ -1,0 +1,157 @@
+@use '../../shared/styles/view';
+
+@include view.view;
+
+.stamp {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+}
+
+.config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 48rem;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  mat-form-field {
+    width: 100%;
+  }
+}
+
+.row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.row__item {
+  flex: 1 1 12rem;
+}
+
+textarea {
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.loading__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.failure {
+  margin: 0 0 0.75rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.8125rem;
+}
+
+/* ── Identity ────────────────────────────────────────────────────────── */
+
+.identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.identity__picture {
+  min-width: 0;
+}
+
+.identity__name {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.identity__hint {
+  margin: 0.125rem 0 0.625rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+}
+
+.identity__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* The styled buttons above open the picker; the input itself is never shown,
+   but it stays in the layout's flow rather than `display: none` so assistive
+   technology can still reach it. */
+.identity__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.detect {
+  align-self: flex-start;
+}
+
+/* ── Prompt sharing ──────────────────────────────────────────────────── */
+
+.sharing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sharing__text {
+  margin: 0;
+  max-width: 44rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+/* ── Save bar ────────────────────────────────────────────────────────── */
+
+/* Sticky so the save control stays reachable on a long form without the user
+   having to scroll back for it. */
+.actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.625rem 0;
+  background: linear-gradient(to top, var(--mat-sys-surface) 65%, transparent);
+}
+
+.actions__state {
+  margin-right: auto;
+  color: var(--gb-attention);
+  font-size: 0.75rem;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

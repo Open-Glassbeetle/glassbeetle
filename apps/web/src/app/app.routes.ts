@@ -28,6 +28,11 @@ export const routes: Routes = [
       import('./features/agents/agent-detail/agent-detail').then((m) => m.AgentDetail),
   },
   {
+    path: 'profile',
+    title: 'Profile · Glassbeetle',
+    loadComponent: () => import('./features/profile/profile').then((m) => m.Profile),
+  },
+  {
     path: 'memory',
     title: 'Shared memory · Glassbeetle',
     loadComponent: () =>
