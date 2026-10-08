@@ -145,10 +145,14 @@ describe('App shell', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('keeps the spend meter out of the deck until a budget is set', () => {
+  it('invites a budget from the deck when none is set, rather than hiding', () => {
     const element = render().nativeElement as HTMLElement;
+    const meter = element.querySelector('app-spend-meter .meter');
 
-    expect(element.querySelector('app-spend-meter .meter')).toBeNull();
+    expect(meter).not.toBeNull();
+    expect(meter?.textContent).toContain('Budget');
+    // No figure to read: there is nothing being measured yet.
+    expect(meter?.querySelector('.ring__value')).toBeNull();
   });
 
   it('shows what is left in the deck once a budget is set', () => {

@@ -54,6 +54,19 @@
   line-height: 1;
 }
 
+/* With no budget set the pill is an invitation, so it recedes: an empty track,
+   no figure to read, and the label in the quiet colour the deck uses for
+   everything that is not reporting a value. */
+.meter--unset {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.meter__amount--invite {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
 /* Approaching the limit is worth noticing; passing it is worth reading. */
 .meter--warning .ring__value {
   stroke: var(--gb-attention);

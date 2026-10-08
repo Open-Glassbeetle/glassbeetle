@@ -50,8 +50,8 @@ panel is labelled as configuration history.
 `usage_events.cost_usd` for the current period — but only the inference module
 would write those rows, and it is an empty class, so every installation reads
 zero. The screen says so in as many words instead of presenting a full budget
-as a measurement, and the deck's meter stays out of the chrome entirely until
-a limit is set.
+as a measurement, and the deck's meter draws no value ring until there is a
+limit to measure against.
 
 **The agent's Context tab is not a rendered prompt.** No endpoint composes one.
 The tab shows the configured layers — system prompt, personality, instructions,
