@@ -72,4 +72,9 @@ export class AppConfigService {
   get maxPictureSizeBytes(): number {
     return this.config.maxPictureSizeBytes;
   }
+
+  /** Name the user profile is seeded with, or null to use the OS username. */
+  get defaultUserName(): string | null {
+    return this.config.defaultUserName;
+  }
 }

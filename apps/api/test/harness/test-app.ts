@@ -57,6 +57,9 @@ export async function createTestApp(
     logLevel: 'error',
     logBody: false,
     maxPictureSizeBytes: 5 * 1024 * 1024,
+    // Deterministic, so a test can assert what the user profile is seeded
+    // with instead of whatever account the test runner happens to use.
+    defaultUserName: 'Test User',
   };
 
   const moduleBuilder = Test.createTestingModule({
