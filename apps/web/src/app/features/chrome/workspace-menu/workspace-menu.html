@@ -106,6 +106,14 @@
         <span class="tile__value mono">{{ promptCount() ?? '—' }}</span>
         <span class="tile__label">prompts</span>
       </button>
+
+      <!-- Spanning the row rather than crowding in as a fourth column: it is
+           an amount rather than a count, and it is the one tile that is worth
+           reading when the others have not changed. -->
+      <button class="tile tile--wide" type="button" (click)="go('/budget')">
+        <span class="tile__value mono">{{ spend.remainingLabel() ?? '—' }}</span>
+        <span class="tile__label">{{ budgetCaption() }}</span>
+      </button>
     </section>
 
     <!-- ── Quick actions ──────────────────────────────────────────── -->

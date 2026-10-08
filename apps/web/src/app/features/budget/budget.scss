@@ -1,0 +1,171 @@
+@use '../../shared/styles/view';
+
+@include view.view;
+
+.config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 48rem;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  mat-form-field {
+    width: 100%;
+  }
+}
+
+.row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.row__item {
+  flex: 1 1 10rem;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.failure {
+  margin: 0 0 0.75rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.8125rem;
+}
+
+/* ── The state of the feature ────────────────────────────────────────── */
+
+/* Same shape as the agent editor's explanation of a field the API cannot
+   accept a value for yet: say what is missing rather than letting the user
+   deduce it from a number that never moves. */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  max-width: 48rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 10px;
+  background: var(--mat-sys-surface-container);
+}
+
+.notice__icon {
+  flex: none;
+  margin-top: 0.0625rem;
+  font-size: 0.9375rem;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.notice__title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.notice__text {
+  margin: 0.125rem 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+/* ── Figures ─────────────────────────────────────────────────────────── */
+
+.figures {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
+.figure__label {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.figure__value {
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.figure__value--warning {
+  color: var(--gb-attention);
+}
+
+.figure__value--over {
+  color: var(--mat-sys-error);
+}
+
+.bar {
+  margin-top: 1rem;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container-highest);
+  overflow: hidden;
+}
+
+.bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gb-ready);
+  transition:
+    width 420ms var(--gb-ease),
+    background 240ms var(--gb-ease);
+}
+
+.bar__fill--warning {
+  background: var(--gb-attention);
+}
+
+.bar__fill--over {
+  background: var(--mat-sys-error);
+}
+
+/* ── Save bar ────────────────────────────────────────────────────────── */
+
+.actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.625rem 0;
+  background: linear-gradient(to top, var(--mat-sys-surface) 65%, transparent);
+}
+
+.actions__state {
+  margin-right: auto;
+  color: var(--gb-attention);
+  font-size: 0.75rem;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

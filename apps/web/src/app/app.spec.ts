@@ -14,6 +14,7 @@ const HEALTH_URL = `${environment.apiBaseUrl}/health`;
 const AGENTS_URL = `${environment.apiBaseUrl}/agents`;
 const MODELS_URL = `${environment.apiBaseUrl}/models`;
 const USER_URL = `${environment.apiBaseUrl}/user`;
+const BUDGET_URL = `${environment.apiBaseUrl}/budget`;
 
 const HEALTHY = {
   status: 'ok',
@@ -33,6 +34,20 @@ const PROFILE = {
   includeInPrompts: true,
   hasPicture: false,
   pictureUpdatedAt: null,
+  createdAt: '2026-10-01T08:00:00.000Z',
+  updatedAt: '2026-10-01T08:00:00.000Z',
+};
+
+const BUDGET = {
+  id: 'b1',
+  limitUsd: null,
+  period: 'monthly',
+  periodStart: '2026-10-01T00:00:00.000Z',
+  periodEnd: '2026-11-01T00:00:00.000Z',
+  spentUsd: 0,
+  remainingUsd: null,
+  usedFraction: null,
+  callCount: 0,
   createdAt: '2026-10-01T08:00:00.000Z',
   updatedAt: '2026-10-01T08:00:00.000Z',
 };
@@ -90,9 +105,13 @@ describe('App shell', () => {
     }
   }
 
-  /** Answers the profile read the deck fires on startup. */
-  function answerProfile(profile: Record<string, unknown> = PROFILE) {
+  /** Answers the profile and budget reads the deck fires on startup. */
+  function answerProfile(
+    profile: Record<string, unknown> = PROFILE,
+    budget: Record<string, unknown> = BUDGET,
+  ) {
     httpMock.expectOne(USER_URL).flush(profile);
+    httpMock.expectOne(BUDGET_URL).flush(budget);
   }
 
   /** Renders the shell and answers the four requests it makes on startup. */
@@ -102,6 +121,7 @@ describe('App shell', () => {
       health?: unknown;
       modelsAvailable?: boolean;
       profile?: Record<string, unknown>;
+      budget?: Record<string, unknown>;
     } = {},
   ) {
     const fixture = TestBed.createComponent(App);
@@ -114,15 +134,36 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items, total: items.length, limit: 100, offset: 0 });
-    answerProfile(options.profile);
+    answerProfile(options.profile, options.budget);
 
     fixture.detectChanges();
     return fixture;
   }
 
-  it('loads the roster, the health check, the capability probe and the profile once each', () => {
+  it('loads the roster, the health check, the capability probe, the profile and the budget once each', () => {
     const fixture = render();
     expect(fixture.componentInstance).toBeTruthy();
+  });
+
+  it('keeps the spend meter out of the deck until a budget is set', () => {
+    const element = render().nativeElement as HTMLElement;
+
+    expect(element.querySelector('app-spend-meter .meter')).toBeNull();
+  });
+
+  it('shows what is left in the deck once a budget is set', () => {
+    const element = render({
+      budget: {
+        ...BUDGET,
+        limitUsd: 20,
+        spentUsd: 4.12,
+        remainingUsd: 15.88,
+        usedFraction: 0.206,
+        callCount: 37,
+      },
+    }).nativeElement as HTMLElement;
+
+    expect(element.querySelector('app-spend-meter .meter')?.textContent).toContain('15.88');
   });
 
   it('links to every implemented surface', () => {
@@ -292,6 +333,7 @@ describe('App shell on a platform whose controls sit on the right', () => {
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
     httpMock.expectOne(USER_URL).flush(PROFILE);
+    httpMock.expectOne(BUDGET_URL).flush(BUDGET);
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;

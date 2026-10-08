@@ -243,6 +243,12 @@
   }
 }
 
+/* Spans the grid instead of crowding in as a fourth column: it is an amount
+   rather than a count, and three counts plus one orphan read as a mistake. */
+.tile--wide {
+  grid-column: 1 / -1;
+}
+
 .tile__value {
   font-size: 1rem;
   font-weight: 600;

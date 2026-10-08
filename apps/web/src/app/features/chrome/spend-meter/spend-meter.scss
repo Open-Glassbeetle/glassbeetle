@@ -1,0 +1,72 @@
+.meter {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.3125rem;
+  height: 1.75rem;
+  padding: 0 0.5rem 0 0.25rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-outline-variant);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: box-shadow 120ms var(--gb-ease);
+
+  &:hover {
+    box-shadow: inset 0 0 0 1px var(--mat-sys-outline);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+}
+
+.ring {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+  /* 12 o'clock, clockwise — a gauge filling up rather than a spinner. */
+  transform: rotate(-90deg);
+}
+
+.ring__track {
+  fill: none;
+  stroke: var(--mat-sys-outline-variant);
+  stroke-width: 2.5;
+}
+
+.ring__value {
+  fill: none;
+  stroke: var(--gb-ready);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 420ms var(--gb-ease),
+    stroke 240ms var(--gb-ease);
+}
+
+.meter__amount {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Approaching the limit is worth noticing; passing it is worth reading. */
+.meter--warning .ring__value {
+  stroke: var(--gb-attention);
+}
+
+.meter--over {
+  box-shadow: inset 0 0 0 1px var(--mat-sys-error);
+}
+
+.meter--over .ring__value {
+  stroke: var(--mat-sys-error);
+}
+
+.meter--over .meter__amount {
+  color: var(--mat-sys-error);
+}
