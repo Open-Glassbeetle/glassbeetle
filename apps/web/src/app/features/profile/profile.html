@@ -1,0 +1,221 @@
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">Profile</h1>
+      <p class="view__subtitle">
+        Who this workspace belongs to. There is no account and no sign-in — the profile lives in
+        this installation's database, next to the agents.
+      </p>
+    </div>
+
+    @if (profile(); as current) {
+      <span class="stamp">Updated {{ current.updatedAt | relativeTime }}</span>
+    }
+  </header>
+
+  @if (loading()) {
+    <gb-panel icon="person" title="Identity">
+      <div class="loading">
+        <gb-skeleton width="3.5rem" height="3.5rem" radius="50%" />
+        <div class="loading__lines">
+          <gb-skeleton width="40%" height="1rem" />
+          <gb-skeleton width="60%" height="0.75rem" />
+        </div>
+      </div>
+    </gb-panel>
+  } @else if (error(); as failure) {
+    <gb-panel icon="error" title="The profile could not be read">
+      <p class="failure">{{ failure.message }}</p>
+      <button matButton="filled" type="button" (click)="load()">
+        <mat-icon>refresh</mat-icon>
+        Try again
+      </button>
+    </gb-panel>
+  } @else if (profile(); as current) {
+    <form class="config" [formGroup]="form" (ngSubmit)="save()">
+      <gb-panel icon="person" title="Identity" subtitle="What the workspace calls you">
+        <div class="identity">
+          <gb-avatar [name]="avatarName()" [imageUrl]="avatarUrl()" size="large" />
+
+          <div class="identity__picture">
+            <p class="identity__name">{{ avatarName() }}</p>
+            <p class="identity__hint">
+              @if (current.hasPicture) {
+                JPEG, PNG, WebP or GIF, stored on this machine.
+              } @else {
+                No picture yet. Initials are drawn from your name.
+              }
+            </p>
+
+            <div class="identity__actions">
+              <button matButton type="button" [disabled]="uploading()" (click)="picker.click()">
+                @if (uploading()) {
+                  <mat-icon class="spin">progress_activity</mat-icon>
+                } @else {
+                  <mat-icon>photo_camera</mat-icon>
+                }
+                {{ current.hasPicture ? 'Replace picture' : 'Add picture' }}
+              </button>
+
+              @if (current.hasPicture) {
+                <button matButton type="button" [disabled]="uploading()" (click)="removePicture()">
+                  <mat-icon>delete</mat-icon>
+                  Remove
+                </button>
+              }
+            </div>
+
+            <input
+              #picker
+              class="identity__input"
+              type="file"
+              [accept]="acceptedTypes"
+              (change)="onPictureSelected($event)"
+            />
+          </div>
+        </div>
+
+        <div class="fields">
+          <mat-form-field>
+            <mat-label>Name</mat-label>
+            <input matInput formControlName="displayName" placeholder="Ada" />
+            <mat-hint>Seeded from this machine's account. Empty to unset.</mat-hint>
+            @if (form.controls.displayName.hasError('maxlength')) {
+              <mat-error>A name may be at most 120 characters.</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Pronouns</mat-label>
+            <input matInput formControlName="pronouns" placeholder="she/her" />
+            <mat-hint>Agents use these rather than inferring them from your name.</mat-hint>
+            @if (form.controls.pronouns.hasError('maxlength')) {
+              <mat-error>Pronouns may be at most 60 characters.</mat-error>
+            }
+          </mat-form-field>
+        </div>
+      </gb-panel>
+
+      <gb-panel
+        icon="menu_book"
+        title="About you"
+        subtitle="What every agent should know before it answers"
+      >
+        <div class="fields">
+          <mat-form-field>
+            <mat-label>About</mat-label>
+            <textarea
+              matInput
+              formControlName="about"
+              rows="6"
+              placeholder="What you work on, how you want to be addressed, what to avoid."
+            ></textarea>
+            <mat-hint>
+              Prepended to every completion, so it counts against the context window.
+              {{ aboutLength() }} / {{ maxAbout }}
+            </mat-hint>
+            @if (form.controls.about.hasError('maxlength')) {
+              <mat-error>About may be at most {{ maxAbout }} characters.</mat-error>
+            }
+          </mat-form-field>
+        </div>
+      </gb-panel>
+
+      <gb-panel
+        icon="schedule"
+        title="Language and time"
+        subtitle='What an agent needs to answer in your words and resolve "tomorrow"'
+      >
+        <div class="fields">
+          <div class="row">
+            <mat-form-field class="row__item">
+              <mat-label>Language</mat-label>
+              <input
+                matInput
+                formControlName="locale"
+                placeholder="de-CH"
+                spellcheck="false"
+                autocapitalize="off"
+              />
+              <mat-hint>A BCP-47 tag. Empty to unset.</mat-hint>
+              @if (form.controls.locale.hasError('locale')) {
+                <mat-error>That is not a language tag this machine can resolve.</mat-error>
+              }
+            </mat-form-field>
+
+            <mat-form-field class="row__item">
+              <mat-label>Time zone</mat-label>
+              <input
+                matInput
+                formControlName="timezone"
+                placeholder="Europe/Zurich"
+                list="gb-timezones"
+                spellcheck="false"
+                autocapitalize="off"
+              />
+              <mat-hint>An IANA zone name, not an offset. Empty to unset.</mat-hint>
+              @if (form.controls.timezone.hasError('timezone')) {
+                <mat-error>
+                  Use a zone name such as Europe/Zurich. A fixed offset does not track daylight
+                  saving.
+                </mat-error>
+              }
+            </mat-form-field>
+          </div>
+
+          @if (machineDiffers()) {
+            <button matButton type="button" class="detect" (click)="useMachineSettings()">
+              <mat-icon>my_location</mat-icon>
+              Use this machine's settings
+            </button>
+          }
+        </div>
+
+        <datalist id="gb-timezones">
+          @for (zone of timezones; track zone) {
+            <option [value]="zone"></option>
+          }
+        </datalist>
+      </gb-panel>
+
+      <gb-panel
+        icon="shield_person"
+        title="Prompt sharing"
+        subtitle="Whether agents are told who they are talking to"
+      >
+        <div class="sharing">
+          <mat-slide-toggle formControlName="includeInPrompts">
+            Include my profile in prompts
+          </mat-slide-toggle>
+
+          <p class="sharing__text">
+            While this is on, your name, pronouns and the text above are sent with every completion.
+            For a model running on this machine that stays here; for a hosted provider it goes to a
+            third party. Turn it off and agents see nothing about you — including when you write to
+            them.
+          </p>
+        </div>
+      </gb-panel>
+
+      <div class="actions">
+        <span class="actions__state">
+          @if (form.dirty) {
+            Unsaved changes
+          }
+        </span>
+
+        <button matButton type="button" [disabled]="saving() || form.pristine" (click)="reset()">
+          Discard
+        </button>
+        <button matButton="filled" type="submit" [disabled]="saving() || form.invalid">
+          @if (saving()) {
+            <mat-icon class="spin">progress_activity</mat-icon>
+          } @else {
+            <mat-icon>check</mat-icon>
+          }
+          Save changes
+        </button>
+      </div>
+    </form>
+  }
+</div>

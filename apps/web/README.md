@@ -19,6 +19,7 @@ controllers, so their routes 404 and they have no screens.
 | Surface | Endpoints |
 | --- | --- |
 | Overview | `/health`, plus each collection's `total` and `updatedAt` |
+| Profile | `/user`, `/user/picture` |
 | Agents · directory | `/agents` |
 | Agents · workspace | `/agents/:agentId`, `/agents/:agentId/picture` |
 | Agents · memory | `/agents/:agentId/memories` |
@@ -179,6 +180,14 @@ looking like one product.
 
 **Loading.** Skeletons shaped like the result, not spinners: the layout does not
 jump when the data lands.
+
+**Avatars.** One component, `gb-avatar`, draws a stored picture when there is
+one and initials when there is not — with the hue derived from the name, so a
+subject keeps its colour without the server holding a palette. A picture that
+fails to load falls back to the initials, because `GET /user/picture` can
+legitimately 404 for a database restored without its files, and a broken-image
+glyph would be a worse answer. The agent roster and the user's own avatar are
+the same component.
 
 **Talking to the API.** Every resource has a service extending `ApiClient`,
 which holds the absolute base URL from `src/environments/` — a packaged Tauri

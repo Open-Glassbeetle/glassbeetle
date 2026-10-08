@@ -553,3 +553,29 @@
   overflow-y: auto;
   background: var(--mat-sys-surface);
 }
+
+/* The profile control at the end of the deck. A link rather than a button: it
+   goes to a route, so it has to behave like an address — middle-clickable, and
+   marked as the current page when you are on it. */
+.identity {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0.125rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px transparent;
+  transition: box-shadow 120ms var(--gb-ease);
+
+  &:hover {
+    box-shadow: 0 0 0 1px var(--mat-sys-outline);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+}
+
+.identity--active {
+  box-shadow: 0 0 0 1px var(--mat-sys-primary);
+}
