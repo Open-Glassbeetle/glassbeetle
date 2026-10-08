@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { AgentPictureInterceptor } from './agent-picture.interceptor.js';
+import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import { AgentsController } from './agents.controller.js';
 import { AgentsService } from './agents.service.js';
 
 @Module({
   controllers: [AgentsController],
-  providers: [AgentsService, AgentPictureInterceptor],
+  providers: [AgentsService, PictureUploadInterceptor],
   exports: [AgentsService],
 })
 export class AgentsModule {}
