@@ -32,6 +32,10 @@ const API_TAGS: ReadonlyArray<{ name: string; description: string }> = [
     name: 'user',
     description: 'The profile of the person this installation belongs to',
   },
+  {
+    name: 'budget',
+    description: 'The spending budget and the current period',
+  },
   { name: 'agents', description: 'Agent configuration and lifecycle' },
   { name: 'memory', description: 'Agent-private and shared memory' },
   { name: 'teams', description: 'Teams and team membership' },
