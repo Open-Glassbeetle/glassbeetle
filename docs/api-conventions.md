@@ -16,6 +16,13 @@ versioning (`apps/api/src/bootstrap.ts`). Versioning is configured rather than
 baked into a prefix string so an individual controller can pin or opt out of a
 version later without the rest of the API moving.
 
+A **plural** path segment is a collection; a **singular** one is a singleton.
+`/agents` is a list with ids below it, `/user` is one resource with no id and no
+list. The distinction is not decoration: the user profile is a singleton because
+the application is single-user, and a path that could name a second person is
+the first step towards an owner column on every table. See
+[`user-profile.md`](user-profile.md).
+
 Nested resources are expressed in the controller path:
 
 ```ts
@@ -64,11 +71,37 @@ Some columns exist for the server's benefit only and must never appear in a
 response:
 
 - `agents.picture_path`, `projects.image_path`, `artifacts.file_path`,
-  `backups.file_path` — local filesystem references. Expose an API download reference or a boolean
+  `backups.file_path`, `user_profile.picture_path` — local filesystem references. Expose an API download reference or a boolean
   instead; a path leaks the layout of the user's machine.
+- `user_profile.singleton` — the column exists so SQLite can refuse a second
+  row. It constrains the table and says nothing about the user.
 - `provider_credentials.encrypted_value`, `.nonce` — there is no endpoint that
   returns a credential's plaintext, and none should be added. `masked_preview`
   is the only credential value that may be returned.
+
+## Schema changes
+
+`data/` holds the DDL and `runMigrations()`
+(`apps/api/src/database/schema-migrations.ts`) applies it, in two phases:
+
+1. **The bootstrap.** `MIGRATION_FILE_SEQUENCE` builds the whole schema and is
+   recorded once as `001_initial_bootstrap`. It only ever runs on a database
+   with no schema at all.
+2. **The incremental migrations.** `MIGRATIONS_AFTER_BOOTSTRAP` is a list of
+   `{ name, sql }`, each applied in its own transaction and recorded under its
+   own name.
+
+A new table therefore needs **both**: a file in the sequence, for fresh
+installations, and an entry in `MIGRATIONS_AFTER_BOOTSTRAP`, for every database
+that already recorded the bootstrap. Adding only the file is the easy mistake —
+it works on a developer's throwaway database and reaches no existing install.
+
+Write a migration's DDL out in full rather than sharing a string with the
+bootstrap, and guard it with `IF NOT EXISTS`. A released migration is frozen
+history; the bootstrap DDL is free to evolve, and if the two shared a string an
+edit to one would retroactively change what the other claims to have done.
+
+Never edit a migration that has shipped. Add another one.
 
 ## File storage and stored references
 

@@ -3,8 +3,10 @@
 Glassbeetle has agents, teams, chats and memories — and no representation of the
 one person all of it belongs to. This document designs that resource.
 
-It is a design, not a report of something that exists: no `user_profile` table
-and no `/user` route are implemented yet.
+It is the reasoning behind what is now implemented — the table, the endpoints
+and the screen all exist. Conventions every endpoint shares live in
+[`api-conventions.md`](api-conventions.md); this document is only about why this
+resource is shaped the way it is.
 
 ## Why there is no `users` table
 
@@ -32,10 +34,11 @@ Three consumers, in the order they will arrive:
 1. **The UI** — a name and an avatar in the deck, a greeting, and a face beside
    the user's own messages instead of a generic bubble.
 2. **Prompt assembly** — name, pronouns, locale, timezone and a free-text
-   `about` go into the system prompt, so an agent writes in the user's language,
-   resolves "tomorrow" in the user's timezone, and does not have to guess their
-   pronouns. `InferenceService` is still an empty stub; this is the field's
-   eventual reader, not a current one.
+   `about` belong in the system prompt, so an agent writes in the user's
+   language, resolves "tomorrow" in the user's timezone, and does not have to
+   guess their pronouns. `InferenceService` is still an empty stub, so nothing
+   reads them yet: this is the reason the fields exist, not something the API
+   does today. `includeInPrompts` is the switch that assembly must honour.
 3. **Attribution** — `messages.role = 'user'` is already how a user turn is
    recorded. No foreign key is needed or wanted; the profile just gives that
    role a name to render.
@@ -141,8 +144,9 @@ So this endpoint is part of the design, not a follow-up:
   when the column is set but the file is missing — a restored database whose
   storage root did not come along should not produce a `500`.
 
-Once this exists, the identical endpoint belongs on `/agents/:agentId/picture`
-and `/projects/:projectId/image`, with this one as the template.
+The identical endpoint now belongs on `/agents/:agentId/picture` and
+`/projects/:projectId/image`, with this one as the template. Until it is added,
+`AgentAvatar` keeps showing a badge on the initials and saying why.
 
 ## The table
 
@@ -276,54 +280,56 @@ boolean is better than an elaborate matrix nobody configures.
 to that sequence is not enough** — every existing installation has already
 recorded `001` and would never see it.
 
-Two changes, both needed:
+Two changes, both needed, and both made:
 
-1. Add `user/user_profile.sql` to `MIGRATION_FILE_SEQUENCE` (it has no foreign
-   keys, so its position is free) and to `FALLBACK_SQL`, for fresh databases.
-2. Add a second tracked migration for existing ones:
+1. `user/user_profile.sql` is in `MIGRATION_FILE_SEQUENCE` (it has no foreign
+   keys, so its position is free) and in `FALLBACK_SQL`, for fresh databases.
+2. `MIGRATIONS_AFTER_BOOTSTRAP` carries `002_user_profile` for existing ones.
+   Each entry is applied in its own transaction and recorded in
+   `schema_migrations`, and `CREATE TABLE IF NOT EXISTS` keeps it harmless on a
+   database that just got the table from the sequence.
 
-```ts
-const MIGRATIONS_AFTER_BOOTSTRAP = [
-  {
-    name: '002_user_profile',
-    sql: `CREATE TABLE IF NOT EXISTS user_profile ( /* … */ );`,
-  },
-];
-```
+The DDL in a released migration is written out rather than shared with
+`FALLBACK_SQL`: a migration is frozen history while the bootstrap DDL is free
+to evolve, and a shared string would let an edit to the bootstrap retroactively
+change what an already-applied migration claims to have done.
 
-applied after the bootstrap check, each inside its own transaction and recorded
-in `schema_migrations`. `CREATE TABLE IF NOT EXISTS` keeps step 2 harmless on a
-database that just got the table from step 1.
-
-This is the project's first schema change after the initial bootstrap, so the
-mechanism has to be built here regardless of this resource.
+This was the project's first schema change after the initial bootstrap, so the
+mechanism had to be built here regardless of this resource. Every schema change
+from now on adds an entry to `MIGRATIONS_AFTER_BOOTSTRAP`.
 
 ## OpenAPI
 
-A new tag in `apps/api/src/openapi/openapi.ts`:
-
-```ts
-{ name: 'user', description: 'The local user profile' },
-```
-
-Every endpoint annotated per convention, including `@ApiProduces('image/jpeg',
+The `user` tag is declared in `apps/api/src/openapi/openapi.ts` and every
+endpoint is annotated per convention, including `@ApiProduces('image/jpeg',
 'image/png', 'image/webp', 'image/gif')` on the picture download — a binary
 response that the document describes as JSON is worse than undocumented.
+
+`user.openapi.spec.ts` asserts the singleton in the document itself: exactly
+two paths under `/api/v1/user`, neither carrying a parameter, and no `POST`,
+`PUT` or `DELETE` on the resource.
 
 ## Frontend
 
 - `core/api/user.models.ts` and `core/api/user.service.ts`, following
   `agents.service.ts`.
-- The profile is loaded once by the shell and held in a signal: the avatar and
-  the greeting are needed on every screen, and it changes about once a year.
+- `core/workspace/user-profile.service.ts` holds the profile in a signal,
+  loaded once by the shell: the name and the avatar are in the chrome on every
+  route. Unlike the roster it changes about once a year, so the profile screen
+  hands the saved profile back rather than asking the shell to refetch.
 - Avatar `src` is `${base}/user/picture?v=${pictureUpdatedAt}`. The query
   parameter is what makes a replaced avatar appear immediately, independently of
   the `ETag` round trip.
-- Fall back to initials from `displayName`, and to "You" when it is null — the
-  same component the agent roster uses.
-- One profile screen, reachable from the deck, with the picture control, the
-  text fields, and `includeInPrompts` beside them with its consequence spelled
-  out in words.
+- `shared/ui/avatar.ts` draws a picture when there is one and initials when
+  there is not, and falls back to initials when the image fails to load. The
+  agent roster uses the same component, so there is one place that decides what
+  an avatar looks like.
+- The entry point is the deck's own avatar, at the end of the bar: the one
+  control there that is about you rather than about the workspace. It is a link,
+  so it behaves like an address.
+- The screen carries the picture control, the text fields, the language and
+  time zone with a "use this machine's settings" action, and
+  `includeInPrompts` with its consequence spelled out beside it.
 - No capability probe is needed. Unlike `models`, this endpoint is not promising
   something the schema cannot serve.
 

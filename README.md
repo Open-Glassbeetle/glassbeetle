@@ -80,9 +80,10 @@ carrying the live agent roster beside every screen, a ⌘K command palette over
 agents, memory and prompts, and a workspace per agent showing the context it is
 configured to draw on.
 
-It covers the endpoints the API implements — agents (profile picture and
-private memories included), shared memory, system prompts and service health.
-The modules that are still empty controllers have no screens.
+It covers the endpoints the API implements — the user's own profile, agents
+(profile picture and private memories included), shared memory, system prompts
+and service health. The modules that are still empty controllers have no
+screens.
 
 Where the schema promises more than the API serves, the UI says so rather than
 mocking it: agents show configuration *readiness* rather than an invented run
