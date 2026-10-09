@@ -43,6 +43,7 @@ describe('AgentMemoriesController', () => {
             findOne: vi.fn().mockResolvedValue(mockMemory),
             update: vi.fn().mockResolvedValue(mockMemory),
             remove: vi.fn().mockResolvedValue(undefined),
+            removeAll: vi.fn().mockResolvedValue({ deleted: 3 }),
           },
         },
       ],
@@ -118,6 +119,15 @@ describe('AgentMemoriesController', () => {
       await controller.remove('agent-1', 'mem-1');
 
       expect(service.remove).toHaveBeenCalledWith('agent-1', 'mem-1');
+    });
+  });
+
+  describe('removeAll', () => {
+    it('delegates to agentMemoriesService.removeAll with agentId and returns deleted count', async () => {
+      const result = await controller.removeAll('agent-1', { confirm: 'true' });
+
+      expect(service.removeAll).toHaveBeenCalledWith('agent-1');
+      expect(result).toEqual({ deleted: 3 });
     });
   });
 });

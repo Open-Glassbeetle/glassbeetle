@@ -42,6 +42,7 @@ describe('SharedMemoriesController', () => {
             findOne: vi.fn().mockResolvedValue(mockMemory),
             update: vi.fn().mockResolvedValue(mockMemory),
             remove: vi.fn().mockResolvedValue(undefined),
+            removeAll: vi.fn().mockResolvedValue({ deleted: 5 }),
           },
         },
       ],
@@ -117,6 +118,15 @@ describe('SharedMemoriesController', () => {
       await controller.remove(mockMemory.id);
 
       expect(service.remove).toHaveBeenCalledWith(mockMemory.id);
+    });
+  });
+
+  describe('removeAll', () => {
+    it('delegates to sharedMemoriesService.removeAll and returns deleted count', async () => {
+      const result = await controller.removeAll({ confirm: 'true' });
+
+      expect(service.removeAll).toHaveBeenCalled();
+      expect(result).toEqual({ deleted: 5 });
     });
   });
 });

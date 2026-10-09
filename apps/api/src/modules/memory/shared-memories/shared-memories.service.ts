@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { newId } from '../../../common/persistence/identifiers.js';
 import { nowIso } from '../../../common/persistence/timestamps.js';
 import {
@@ -11,6 +11,7 @@ import { DatabaseService } from '../../../database/database.service.js';
 import {
   mapSharedMemoryRowToResponse,
   normalizeTagsOnWrite,
+  type BulkDeleteResponseDto,
   type CreateSharedMemoryDto,
   type ListSharedMemoriesQueryDto,
   type SharedMemoryResponseDto,
@@ -53,6 +54,8 @@ export interface CreateSharedMemoryOptions {
  */
 @Injectable()
 export class SharedMemoriesService {
+  private readonly logger = new Logger(SharedMemoriesService.name);
+
   constructor(private readonly db: DatabaseService) {}
 
   /**
@@ -213,5 +216,21 @@ export class SharedMemoriesService {
     if (result.changes === 0) {
       throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
     }
+  }
+
+  /**
+   * Permanently and irreversibly clears all global shared memories.
+   *
+   * Scoped strictly to `shared_memories`. Never touches `agent_memories`.
+   *
+   * Returns `{ deleted: count }` where count is the number of records removed.
+   * Clearing an empty table succeeds with `{ deleted: 0 }`.
+   */
+  async removeAll(): Promise<BulkDeleteResponseDto> {
+    const result = this.db.run('DELETE FROM shared_memories');
+
+    this.logger.log(`Deleted ${result.changes} shared memories in bulk`);
+
+    return { deleted: result.changes };
   }
 }

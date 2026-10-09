@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { newId } from '../../../common/persistence/identifiers.js';
 import { nowIso } from '../../../common/persistence/timestamps.js';
 import {
@@ -14,6 +14,7 @@ import {
   applyAgentMemoryUpdates,
   type AgentMemoryResponseDto,
   type AgentMemoryRow,
+  type BulkDeleteResponseDto,
   type CreateAgentMemoryDto,
   type ListAgentMemoriesQueryDto,
   type UpdateAgentMemoryDto,
@@ -54,6 +55,8 @@ export interface CreateAgentMemoryOptions {
  */
 @Injectable()
 export class AgentMemoriesService {
+  private readonly logger = new Logger(AgentMemoriesService.name);
+
   constructor(private readonly db: DatabaseService) {}
 
   /**
@@ -247,5 +250,29 @@ export class AgentMemoriesService {
     if (result.changes === 0) {
       throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
     }
+  }
+
+  /**
+   * Permanently and irreversibly clears all private memories for the specified agent.
+   *
+   * Scoped strictly to `agent_memories.agent_id = ?` using a bound parameter.
+   * It never touches memories of other agents and never touches `shared_memories`.
+   *
+   * Throws 404 NotFoundException if the agent does not exist.
+   * Clearing an agent with zero memories succeeds with `{ deleted: 0 }`.
+   */
+  async removeAll(agentId: string): Promise<BulkDeleteResponseDto> {
+    this.assertAgentExists(agentId);
+
+    const result = this.db.run(
+      'DELETE FROM agent_memories WHERE agent_id = ?',
+      [agentId],
+    );
+
+    this.logger.log(
+      `Deleted ${result.changes} private memories for agent "${agentId}"`,
+    );
+
+    return { deleted: result.changes };
   }
 }

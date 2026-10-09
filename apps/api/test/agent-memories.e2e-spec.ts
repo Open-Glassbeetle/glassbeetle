@@ -888,4 +888,133 @@ describe('Agent Memories Endpoints (e2e)', () => {
         .expect(404);
     });
   });
+
+  describe('DELETE /api/v1/agents/:agentId/memories (bulk deletion)', () => {
+    it('returns 400 when ?confirm=true is missing or invalid, and leaves DB untouched', async () => {
+      const agent = testApp.fixtures.createAgent();
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Memory that must survive absent confirm' })
+        .expect(201);
+
+      // 1. Missing confirm query param
+      const resNoConfirm = await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/memories`)
+        .expect(400);
+
+      expect(resNoConfirm.body.statusCode).toBe(400);
+      expect(JSON.stringify(resNoConfirm.body)).toContain('confirm');
+
+      // 2. confirm=false
+      const resConfirmFalse = await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/memories?confirm=false`)
+        .expect(400);
+
+      expect(resConfirmFalse.body.statusCode).toBe(400);
+
+      // Verify row still exists in DB
+      const dbRows = testApp.db.all(
+        'SELECT * FROM agent_memories WHERE agent_id = ?',
+        [agent.id],
+      );
+      expect(dbRows).toHaveLength(1);
+    });
+
+    it('returns 404 when agent does not exist', async () => {
+      const res = await testApp
+        .request()
+        .delete('/api/v1/agents/unknown-agent-id/memories?confirm=true')
+        .expect(404);
+
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
+    });
+
+    it('returns 200 with { deleted: 0 } when agent has no memories (not 404)', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Empty Agent' });
+
+      const res = await testApp
+        .request()
+        .delete(`/api/v1/agents/${agent.id}/memories?confirm=true`)
+        .expect(200);
+
+      expect(res.body).toEqual({ deleted: 0 });
+    });
+
+    it("clears only the target agent's memories, leaving other agents and shared memories intact (cross-contamination guard)", async () => {
+      const agentA = testApp.fixtures.createAgent({ name: 'Agent A' });
+      const agentB = testApp.fixtures.createAgent({ name: 'Agent B' });
+
+      // Seed 2 memories for Agent A
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agentA.id}/memories`)
+        .send({ content: 'Agent A fact 1' })
+        .expect(201);
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agentA.id}/memories`)
+        .send({ content: 'Agent A fact 2' })
+        .expect(201);
+
+      // Seed 2 memories for Agent B
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agentB.id}/memories`)
+        .send({ content: 'Agent B fact 1' })
+        .expect(201);
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agentB.id}/memories`)
+        .send({ content: 'Agent B fact 2' })
+        .expect(201);
+
+      // Seed 2 shared memories
+      await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Global shared memory 1' })
+        .expect(201);
+      await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Global shared memory 2' })
+        .expect(201);
+
+      // Clear Agent A's memories
+      const deleteRes = await testApp
+        .request()
+        .delete(`/api/v1/agents/${agentA.id}/memories?confirm=true`)
+        .expect(200);
+
+      expect(deleteRes.body).toEqual({ deleted: 2 });
+
+      // Verify Agent A has 0 memories via GET
+      const getResA = await testApp
+        .request()
+        .get(`/api/v1/agents/${agentA.id}/memories`)
+        .expect(200);
+      expect(getResA.body.total).toBe(0);
+      expect(getResA.body.items).toHaveLength(0);
+
+      // Verify Agent B still has all 2 memories
+      const getResB = await testApp
+        .request()
+        .get(`/api/v1/agents/${agentB.id}/memories`)
+        .expect(200);
+      expect(getResB.body.total).toBe(2);
+      expect(getResB.body.items).toHaveLength(2);
+
+      // Verify shared memories are untouched
+      const getSharedRes = await testApp
+        .request()
+        .get('/api/v1/memories')
+        .expect(200);
+      expect(getSharedRes.body.total).toBe(2);
+      expect(getSharedRes.body.items).toHaveLength(2);
+    });
+  });
 });

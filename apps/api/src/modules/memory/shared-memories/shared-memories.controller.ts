@@ -11,10 +11,19 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Response } from 'express';
+import { ApiErrorResponseDto } from '../../../common/http/api-error.js';
 import type { PaginatedResponse } from '../../../common/pagination/paginated-response.dto.js';
 import {
+  BulkDeleteQueryDto,
+  BulkDeleteResponseDto,
   CreateSharedMemoryDto,
   ListSharedMemoriesQueryDto,
   SharedMemoryResponseDto,
@@ -28,6 +37,7 @@ import { SharedMemoriesService } from './shared-memories.service.js';
  * Endpoints:
  * - `GET /api/v1/memories`: Lists global shared memories with pagination, sorting, and filters.
  * - `POST /api/v1/memories`: Appends a new global shared memory.
+ * - `DELETE /api/v1/memories`: Clears all shared memories (requires ?confirm=true).
  * - `GET /api/v1/memories/:memoryId`: Retrieves a single shared memory.
  * - `PATCH /api/v1/memories/:memoryId`: Partially updates an existing shared memory.
  * - `DELETE /api/v1/memories/:memoryId`: Deletes a shared memory.
@@ -53,6 +63,35 @@ export class SharedMemoriesController {
     const created = await this.sharedMemoriesService.create(dto);
     res.setHeader('Location', `/api/v1/memories/${created.id}`);
     return created;
+  }
+
+  @Delete()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Clear all shared memories',
+    description:
+      'Permanently and irreversibly deletes all global shared memories. This operation cannot be undone. Requires explicit confirmation via the `?confirm=true` query parameter.',
+  })
+  @ApiQuery({
+    name: 'confirm',
+    description:
+      'Safety confirmation parameter. Must be set to "true" to authorize irreversible deletion.',
+    required: true,
+    type: String,
+    example: 'true',
+  })
+  @ApiOkResponse({
+    description: 'Shared memories successfully cleared',
+    type: BulkDeleteResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Missing or invalid confirmation parameter',
+    type: ApiErrorResponseDto,
+  })
+  async removeAll(
+    @Query() _query: BulkDeleteQueryDto,
+  ): Promise<BulkDeleteResponseDto> {
+    return this.sharedMemoriesService.removeAll();
   }
 
   @Get(':memoryId')
