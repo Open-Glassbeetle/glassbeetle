@@ -475,4 +475,71 @@ describe('SharedMemoriesService', () => {
       expect(agentMem?.content).toBe('Permanent agent memory');
     });
   });
+
+  describe('removeAll (bulk delete)', () => {
+    it('returns { deleted: 0 } when shared memories table is empty', async () => {
+      const result = await service.removeAll();
+
+      expect(result).toEqual({ deleted: 0 });
+    });
+
+    it('deletes all shared memories and returns deleted count', async () => {
+      await service.create({ content: 'Shared fact 1' });
+      await service.create({ content: 'Shared fact 2' });
+      await service.create({ content: 'Shared fact 3' });
+
+      const result = await service.removeAll();
+
+      expect(result).toEqual({ deleted: 3 });
+
+      const count = db.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM shared_memories',
+      );
+      expect(count?.count).toBe(0);
+    });
+
+    it('leaves agent_memories untouched (strict isolation)', async () => {
+      // Seed an agent and an agent memory
+      db.run(
+        'INSERT INTO agents (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        [
+          'agent-iso-1',
+          'Agent Iso',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+      db.run(
+        'INSERT INTO agent_memories (id, agent_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        [
+          'agent-mem-iso',
+          'agent-iso-1',
+          'Agent private secret that must survive',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+
+      // Create shared memories
+      await service.create({ content: 'Shared to delete 1' });
+      await service.create({ content: 'Shared to delete 2' });
+
+      const result = await service.removeAll();
+      expect(result).toEqual({ deleted: 2 });
+
+      // Verify shared_memories is empty
+      const sharedCount = db.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM shared_memories',
+      );
+      expect(sharedCount?.count).toBe(0);
+
+      // Verify agent memory survived
+      const agentMem = db.get<{ id: string; content: string }>(
+        'SELECT id, content FROM agent_memories WHERE id = ?',
+        ['agent-mem-iso'],
+      );
+      expect(agentMem).toBeDefined();
+      expect(agentMem?.content).toBe('Agent private secret that must survive');
+    });
+  });
 });

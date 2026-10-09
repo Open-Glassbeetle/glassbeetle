@@ -572,4 +572,85 @@ describe('AgentMemoriesService', () => {
       expect(memRow).toBeUndefined();
     });
   });
+
+  describe('removeAll (bulk delete)', () => {
+    it('throws 404 NotFoundException when agent does not exist', async () => {
+      await expect(service.removeAll('unknown-agent-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('returns { deleted: 0 } when agent has no memories', async () => {
+      const agent = fixtures.createAgent({ name: 'Empty Agent' });
+
+      const result = await service.removeAll(agent.id);
+
+      expect(result).toEqual({ deleted: 0 });
+    });
+
+    it('deletes all private memories of the agent and returns deleted count', async () => {
+      const agent = fixtures.createAgent({ name: 'Agent with memories' });
+      await service.create(agent.id, { content: 'Memory 1' });
+      await service.create(agent.id, { content: 'Memory 2' });
+      await service.create(agent.id, { content: 'Memory 3' });
+
+      const result = await service.removeAll(agent.id);
+
+      expect(result).toEqual({ deleted: 3 });
+
+      const remaining = db.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM agent_memories WHERE agent_id = ?',
+        [agent.id],
+      );
+      expect(remaining?.count).toBe(0);
+    });
+
+    it("leaves other agents' memories and shared memories untouched (strict isolation)", async () => {
+      const agentA = fixtures.createAgent({ name: 'Agent A' });
+      const agentB = fixtures.createAgent({ name: 'Agent B' });
+
+      await service.create(agentA.id, { content: 'Agent A fact 1' });
+      await service.create(agentA.id, { content: 'Agent A fact 2' });
+      const memB = await service.create(agentB.id, {
+        content: 'Agent B fact 1',
+      });
+
+      // Seed a shared memory
+      db.run(
+        'INSERT INTO shared_memories (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        [
+          'shared-1',
+          'Global convention',
+          '2026-10-04T00:00:00.000Z',
+          '2026-10-04T00:00:00.000Z',
+        ],
+      );
+
+      const result = await service.removeAll(agentA.id);
+      expect(result).toEqual({ deleted: 2 });
+
+      // Verify Agent A has 0 memories
+      const countA = db.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM agent_memories WHERE agent_id = ?',
+        [agentA.id],
+      );
+      expect(countA?.count).toBe(0);
+
+      // Verify Agent B still has its memory
+      const memBRow = db.get<AgentMemoryRow>(
+        'SELECT * FROM agent_memories WHERE id = ?',
+        [memB.id],
+      );
+      expect(memBRow).toBeDefined();
+      expect(memBRow?.content).toBe('Agent B fact 1');
+
+      // Verify shared memory is untouched
+      const sharedRow = db.get<{ id: string; content: string }>(
+        'SELECT * FROM shared_memories WHERE id = ?',
+        ['shared-1'],
+      );
+      expect(sharedRow).toBeDefined();
+      expect(sharedRow?.content).toBe('Global convention');
+    });
+  });
 });
