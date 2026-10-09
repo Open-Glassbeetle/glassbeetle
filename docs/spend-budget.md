@@ -161,9 +161,15 @@ should follow the person.
   of the budget, `over` from the limit itself. It is refreshed on demand rather
   than polled — nothing in this application spends money on its own, so the
   number cannot change without a request this app made.
-- `features/chrome/spend-meter/` is the deck's ring. **It renders nothing until
-  a limit is set.** The deck is on every screen, and a meter reading "no limit"
-  forever would be a permanent reminder of a feature the user declined.
+- `features/chrome/spend-meter/` is the deck's ring. It appears as soon as the
+  budget has been read, with or without a limit: without one it is an empty
+  track and the word "Budget", with one it reports what is left. The first
+  version hid it until a limit was set, reasoning that an empty meter is a
+  standing reminder of a declined feature. That had it backwards — nobody can
+  decline something they never saw, and the deck was the only place the budget
+  was asked to appear, so the feature was invisible to the person who asked
+  for it. It still stays out while the budget has not loaded, and after a
+  failed read, rather than flashing an invitation it cannot act on.
 - `features/budget/` is the screen: the figures for the period, the limit and
   the period itself, and the notice about the usage log having no writer.
 - The workspace panel carries a tile spanning its grid, so the budget is

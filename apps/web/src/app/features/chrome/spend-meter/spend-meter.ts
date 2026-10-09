@@ -11,10 +11,14 @@ const RING = 2 * Math.PI * 7;
 /**
  * What is left of the spending budget, in the window chrome.
  *
- * Deliberately absent until a budget is set. The deck is the one surface
- * present on every screen, and a meter reading "no limit" forever would be a
- * permanent reminder of a feature the user declined. Setting a budget is how
- * you ask for it to be watched.
+ * Present as soon as the budget has been read, with or without a limit. It was
+ * hidden until a limit was set, on the reasoning that an empty meter is a
+ * standing reminder of a declined feature — which got it backwards: nobody can
+ * decline something they never saw, and the deck was the only place the budget
+ * was asked to appear. Without a limit it invites one; with a limit it reports.
+ *
+ * It stays out of the chrome while the budget has not loaded, and after a
+ * failed read, rather than flashing an invitation it cannot act on.
  *
  * Everything here comes from the budget the shell already loaded, so it costs
  * no extra request.
@@ -23,7 +27,7 @@ const RING = 2 * Math.PI * 7;
   selector: 'app-spend-meter',
   imports: [MatTooltipModule],
   template: `
-    @if (spend.hasLimit()) {
+    @if (spend.budget()) {
       <button
         class="meter"
         type="button"
@@ -34,16 +38,24 @@ const RING = 2 * Math.PI * 7;
       >
         <svg class="ring" viewBox="0 0 18 18" aria-hidden="true">
           <circle class="ring__track" cx="9" cy="9" r="7" />
-          <circle
-            class="ring__value"
-            cx="9"
-            cy="9"
-            r="7"
-            [style.stroke-dasharray]="circumference"
-            [style.stroke-dashoffset]="dashOffset()"
-          />
+          @if (spend.hasLimit()) {
+            <circle
+              class="ring__value"
+              cx="9"
+              cy="9"
+              r="7"
+              [style.stroke-dasharray]="circumference"
+              [style.stroke-dashoffset]="dashOffset()"
+            />
+          }
         </svg>
-        <span class="meter__amount mono">{{ amount() }}</span>
+
+        @if (spend.hasLimit()) {
+          <span class="meter__amount mono">{{ amount() }}</span>
+        } @else {
+          <span class="meter__amount meter__amount--invite">Budget</span>
+        }
+
         <span class="sr-only">{{ summary() }}</span>
       </button>
     }
@@ -82,7 +94,7 @@ export class SpendMeter {
     const budget = this.spend.budget();
 
     if (!budget || budget.limitUsd === null) {
-      return 'No spending budget set';
+      return 'No spending budget set — choose what completions may cost';
     }
 
     const period = BUDGET_PERIOD_LABEL[budget.period];
