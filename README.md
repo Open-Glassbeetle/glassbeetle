@@ -82,8 +82,8 @@ configured to draw on.
 
 It covers the endpoints the API implements — the user's own profile, the
 spending budget, agents (profile picture and private memories included),
-shared memory, system prompts and service health. The modules that are still
-empty controllers have no screens.
+teams and their rosters, shared memory, system prompts and service health.
+The modules that are still empty controllers have no screens.
 
 Where the schema promises more than the API serves, the UI says so rather than
 mocking it: agents show configuration *readiness* rather than an invented run

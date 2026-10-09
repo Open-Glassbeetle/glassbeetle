@@ -174,6 +174,7 @@ describe('App shell', () => {
     );
     expect(hrefs).toContain('/overview');
     expect(hrefs).toContain('/agents');
+    expect(hrefs).toContain('/teams');
     expect(hrefs).toContain('/memory');
     expect(hrefs).toContain('/prompts');
   });

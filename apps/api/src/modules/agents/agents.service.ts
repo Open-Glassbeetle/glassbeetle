@@ -9,7 +9,10 @@ import {
   createPaginatedResponse,
   type PaginatedResponse,
 } from '../../common/pagination/paginated-response.dto.js';
-import { buildPaginationSqlFragment } from '../../common/pagination/sql-query-builder.js';
+import {
+  buildPaginationSqlFragment,
+  escapeLikePattern,
+} from '../../common/pagination/sql-query-builder.js';
 import { newId } from '../../common/persistence/identifiers.js';
 import { nowIso } from '../../common/persistence/timestamps.js';
 import { AppConfigService } from '../../config/app-config.service.js';
@@ -49,12 +52,10 @@ export const ALLOWED_AGENT_SORT_COLUMNS: Readonly<Record<string, string>> = {
 export { ALLOWED_PICTURE_MIME_TYPES };
 
 /**
- * Escapes characters with special meaning in SQLite LIKE patterns (`\`, `%`, `_`).
- * This ensures user-supplied search terms are treated strictly as literal substrings.
+ * Re-exported so the agents service keeps naming the escaping its search
+ * depends on, while the implementation is shared with every other name filter.
  */
-export function escapeLikePattern(term: string): string {
-  return term.replace(/([\\%_])/g, '\\$1');
-}
+export { escapeLikePattern };
 
 @Injectable()
 export class AgentsService {
@@ -454,10 +455,9 @@ export class AgentsService {
       }
     }
 
-    const updated = this.db.get<AgentRow>(
-      'SELECT * FROM agents WHERE id = ?',
-      [id],
-    );
+    const updated = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+      id,
+    ]);
 
     if (!updated) {
       throw new Error('Failed to retrieve agent after picture upload');
@@ -510,6 +510,3 @@ export class AgentsService {
     }
   }
 }
-
-
-

@@ -99,8 +99,9 @@ export class App implements OnInit {
   protected readonly navItems: readonly NavItem[] = [
     { path: '/overview', label: 'Overview', icon: 'space_dashboard', shortcut: '1' },
     { path: '/agents', label: 'Agents', icon: 'graph_3', shortcut: '2' },
-    { path: '/memory', label: 'Shared memory', icon: 'database', shortcut: '3' },
-    { path: '/prompts', label: 'System prompts', icon: 'article', shortcut: '4' },
+    { path: '/teams', label: 'Teams', icon: 'groups', shortcut: '3' },
+    { path: '/memory', label: 'Shared memory', icon: 'database', shortcut: '4' },
+    { path: '/prompts', label: 'System prompts', icon: 'article', shortcut: '5' },
   ];
 
   /**
@@ -173,14 +174,22 @@ export class App implements OnInit {
       path: item?.path ?? '/overview',
     };
 
-    if (segments[0] !== 'agents' || segments.length < 2) {
+    if (segments.length < 2) {
       return [head];
     }
 
-    const agentId = segments[1]!;
-    const agent = this.roster.agents().find((entry) => entry.id === agentId);
+    if (segments[0] === 'agents') {
+      const agent = this.roster.agents().find((entry) => entry.id === segments[1]);
+      return [head, { label: agent?.name ?? 'Agent', path: url }];
+    }
 
-    return [head, { label: agent?.name ?? 'Agent', path: url }];
+    // A team's name is not held by the shell, so the trail says what kind of
+    // thing you are looking at rather than inventing a name it cannot know.
+    if (segments[0] === 'teams') {
+      return [head, { label: 'Team', path: url }];
+    }
+
+    return [head];
   });
 
   protected readonly themeMode = this.theme.mode;
@@ -268,6 +277,9 @@ export class App implements OnInit {
         break;
       case 'go-agents':
         void this.router.navigate(['/agents']);
+        break;
+      case 'go-teams':
+        void this.router.navigate(['/teams']);
         break;
       case 'go-memory':
         void this.router.navigate(['/memory']);
@@ -359,8 +371,10 @@ export class App implements OnInit {
       case '2':
         return 'go-agents';
       case '3':
-        return 'go-memory';
+        return 'go-teams';
       case '4':
+        return 'go-memory';
+      case '5':
         return 'go-prompts';
       default:
         return null;

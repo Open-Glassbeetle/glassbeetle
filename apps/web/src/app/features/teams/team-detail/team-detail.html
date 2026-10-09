@@ -1,0 +1,220 @@
+<div class="view">
+  @if (loading()) {
+    <gb-panel icon="groups" title="Team">
+      <div class="loading">
+        <gb-skeleton width="30%" height="1.5rem" />
+        <gb-skeleton width="60%" height="0.75rem" />
+      </div>
+    </gb-panel>
+  } @else if (error(); as failure) {
+    <gb-panel icon="error" title="This team could not be loaded">
+      <p class="failure">{{ failure.message }}</p>
+      <div class="failure__actions">
+        <button matButton="filled" type="button" (click)="load(teamId())">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+        <a matButton routerLink="/teams">Back to teams</a>
+      </div>
+    </gb-panel>
+  } @else if (team(); as current) {
+    <header class="view__head">
+      <div>
+        <h1 class="view__title">{{ current.name }}</h1>
+        <p class="view__subtitle">
+          {{ current.memberCount }} {{ current.memberCount === 1 ? 'agent' : 'agents' }} · updated
+          {{ current.updatedAt | relativeTime }}
+        </p>
+      </div>
+
+      <button matIconButton [matMenuTriggerFor]="menu" aria-label="More actions for this team">
+        <mat-icon>more_vert</mat-icon>
+      </button>
+
+      <mat-menu #menu>
+        <a mat-menu-item routerLink="/teams">
+          <mat-icon>arrow_back</mat-icon>
+          <span>All teams</span>
+        </a>
+        <button mat-menu-item class="danger" (click)="removeTeam()">
+          <mat-icon>delete</mat-icon>
+          <span>Delete team</span>
+        </button>
+      </mat-menu>
+    </header>
+
+    <!-- ── Roster ───────────────────────────────────────────────────── -->
+    <gb-panel
+      icon="groups"
+      title="Roster"
+      subtitle="The order agents take their turn in. Nothing runs yet — there is no inference endpoint — so this is the sequence a team chat will use once there is one."
+    >
+      <!-- Not gated on the agent roster having loaded: the membership is
+           already in hand, and a name is an enhancement on top of it. If the
+           rail's request failed, the rows still show which agents are on the
+           team. -->
+      @if (!members().length) {
+        <p class="empty">
+          No agents on this team yet. A team needs at least two to be worth the name — one to hand
+          off from, one to hand off to.
+        </p>
+      } @else {
+        <ol class="roster">
+          @for (entry of entries(); track entry.member.agentId; let index = $index) {
+            <li class="member">
+              <span class="member__rank mono" aria-hidden="true">{{ index + 1 }}</span>
+
+              <app-agent-avatar
+                [name]="entry.name"
+                [hasPicture]="entry.agent?.hasPicture ?? false"
+                size="small"
+              />
+
+              <span class="member__name">
+                @if (entry.agent) {
+                  <a [routerLink]="['/agents', entry.member.agentId]">{{ entry.name }}</a>
+                } @else {
+                  <span
+                    class="mono member__unknown"
+                    matTooltip="This agent is not in the roster the rail loaded"
+                  >
+                    {{ entry.name }}
+                  </span>
+                }
+              </span>
+
+              <mat-form-field class="member__role" subscriptSizing="dynamic">
+                <mat-label>Role</mat-label>
+                <input
+                  matInput
+                  [value]="entry.member.role ?? ''"
+                  [attr.maxlength]="maxRoleLength"
+                  placeholder="Supervisor"
+                  [disabled]="busy()"
+                  (change)="setRole(entry.member.agentId, $any($event.target).value)"
+                />
+              </mat-form-field>
+
+              <span class="member__order">
+                <button
+                  matIconButton
+                  type="button"
+                  matTooltip="Move earlier"
+                  [attr.aria-label]="'Move ' + entry.name + ' earlier'"
+                  [disabled]="busy() || index === 0"
+                  (click)="move(index, -1)"
+                >
+                  <mat-icon>arrow_upward</mat-icon>
+                </button>
+                <button
+                  matIconButton
+                  type="button"
+                  matTooltip="Move later"
+                  [attr.aria-label]="'Move ' + entry.name + ' later'"
+                  [disabled]="busy() || index === entries().length - 1"
+                  (click)="move(index, 1)"
+                >
+                  <mat-icon>arrow_downward</mat-icon>
+                </button>
+              </span>
+
+              <button
+                matIconButton
+                type="button"
+                class="danger"
+                matTooltip="Take off the team"
+                [attr.aria-label]="'Take ' + entry.name + ' off the team'"
+                [disabled]="busy()"
+                (click)="removeAgent(entry.member.agentId, entry.name)"
+              >
+                <mat-icon>close</mat-icon>
+              </button>
+            </li>
+          }
+        </ol>
+      }
+
+      <div class="add">
+        @if (available().length) {
+          <mat-form-field class="add__field" subscriptSizing="dynamic">
+            <mat-label>Add an agent</mat-label>
+            <mat-select
+              [disabled]="busy()"
+              [value]="null"
+              (selectionChange)="addAgent($any($event).value)"
+            >
+              @for (agent of available(); track agent.id) {
+                <mat-option [value]="agent.id">{{ agent.name }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+        } @else if (roster.total() === 0) {
+          <p class="add__note">
+            There are no agents to add yet.
+            <a routerLink="/agents" [queryParams]="{ new: 1 }">Create one</a>.
+          </p>
+        } @else {
+          <p class="add__note">Every agent in the workspace is already on this team.</p>
+        }
+      </div>
+    </gb-panel>
+
+    <!-- ── Settings ─────────────────────────────────────────────────── -->
+    <form class="config" [formGroup]="form" (ngSubmit)="save()">
+      <gb-panel
+        icon="badge"
+        title="Settings"
+        subtitle="What this team is called and what it is for"
+      >
+        <div class="fields">
+          <mat-form-field>
+            <mat-label>Name</mat-label>
+            <input matInput formControlName="name" [attr.maxlength]="maxNameLength" />
+            @if (form.controls.name.hasError('required')) {
+              <mat-error>A name is required.</mat-error>
+            }
+            @if (form.controls.name.hasError('maxlength')) {
+              <mat-error>A name may be at most {{ maxNameLength }} characters.</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Description</mat-label>
+            <textarea
+              matInput
+              formControlName="description"
+              rows="3"
+              placeholder="Gathers sources, checks them, and writes the summary."
+            ></textarea>
+            <mat-hint>Empty to unset.</mat-hint>
+            @if (form.controls.description.hasError('maxlength')) {
+              <mat-error>
+                A description may be at most {{ maxDescriptionLength }} characters.
+              </mat-error>
+            }
+          </mat-form-field>
+        </div>
+      </gb-panel>
+
+      <div class="actions">
+        <span class="actions__state">
+          @if (form.dirty) {
+            Unsaved changes
+          }
+        </span>
+
+        <button matButton type="button" [disabled]="saving() || form.pristine" (click)="reset()">
+          Discard
+        </button>
+        <button matButton="filled" type="submit" [disabled]="saving() || form.invalid">
+          @if (saving()) {
+            <mat-icon class="spin">progress_activity</mat-icon>
+          } @else {
+            <mat-icon>check</mat-icon>
+          }
+          Save changes
+        </button>
+      </div>
+    </form>
+  }
+</div>
