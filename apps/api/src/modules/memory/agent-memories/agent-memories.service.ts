@@ -8,6 +8,7 @@ import {
 import type { PaginationQueryDto } from '../../../common/pagination/pagination-query.dto.js';
 import { buildPaginationSqlFragment } from '../../../common/pagination/sql-query-builder.js';
 import { DatabaseService } from '../../../database/database.service.js';
+import { buildTagFilterPredicate } from '../tags/index.js';
 import {
   mapAgentMemoryRowToResponse,
   normalizeTagsOnWrite,
@@ -89,11 +90,16 @@ export class AgentMemoriesService {
     const conditions: string[] = ['agent_memories.agent_id = ?'];
     const filterParams: unknown[] = [agentId];
 
-    if (query.tag !== undefined && query.tag.trim() !== '') {
-      conditions.push(
-        'EXISTS (SELECT 1 FROM json_each(agent_memories.tags) WHERE json_each.value = ?)',
-      );
-      filterParams.push(query.tag.trim());
+    const tagFilter = query.tags ?? query.tag;
+    if (tagFilter !== undefined && tagFilter.trim() !== '') {
+      const tagPredicate = buildTagFilterPredicate(tagFilter, {
+        column: 'agent_memories.tags',
+        mode: query.tagMode,
+      });
+      if (tagPredicate) {
+        conditions.push(tagPredicate.sqlClause);
+        filterParams.push(...tagPredicate.params);
+      }
     }
 
     const contentSearch = query.content ?? query.search;

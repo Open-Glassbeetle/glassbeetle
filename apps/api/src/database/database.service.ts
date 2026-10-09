@@ -58,7 +58,31 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     this.dbInstance.pragma('foreign_keys = ON');
     this.dbInstance.pragma('journal_mode = WAL');
 
+    this.assertJson1Supported();
     runMigrations(this.dbInstance);
+  }
+
+  /**
+   * Verifies that SQLite JSON1 functions are available and functional.
+   * Throws an Error if the JSON1 extension is unavailable.
+   */
+  public assertJson1Supported(): void {
+    if (!this.dbInstance) {
+      throw new Error('Database is not initialized');
+    }
+
+    try {
+      const probe = this.dbInstance
+        .prepare("SELECT json_valid('[]') AS valid")
+        .get() as { valid: number } | undefined;
+      if (probe?.valid !== 1) {
+        throw new Error('JSON1 probe query returned unexpected result');
+      }
+    } catch (error) {
+      throw new Error(
+        `SQLite JSON1 extension is required but not functional: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**

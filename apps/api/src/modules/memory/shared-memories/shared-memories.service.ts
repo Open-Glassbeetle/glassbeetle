@@ -8,6 +8,7 @@ import {
 import type { PaginationQueryDto } from '../../../common/pagination/pagination-query.dto.js';
 import { buildPaginationSqlFragment } from '../../../common/pagination/sql-query-builder.js';
 import { DatabaseService } from '../../../database/database.service.js';
+import { buildTagFilterPredicate } from '../tags/index.js';
 import {
   mapSharedMemoryRowToResponse,
   normalizeTagsOnWrite,
@@ -67,11 +68,16 @@ export class SharedMemoriesService {
     const conditions: string[] = [];
     const filterParams: unknown[] = [];
 
-    if (query.tag !== undefined && query.tag.trim() !== '') {
-      conditions.push(
-        'EXISTS (SELECT 1 FROM json_each(shared_memories.tags) WHERE json_each.value = ?)',
-      );
-      filterParams.push(query.tag.trim());
+    const tagFilter = query.tags ?? query.tag;
+    if (tagFilter !== undefined && tagFilter.trim() !== '') {
+      const tagPredicate = buildTagFilterPredicate(tagFilter, {
+        column: 'shared_memories.tags',
+        mode: query.tagMode,
+      });
+      if (tagPredicate) {
+        conditions.push(tagPredicate.sqlClause);
+        filterParams.push(...tagPredicate.params);
+      }
     }
 
     const contentSearch = query.content ?? query.search;

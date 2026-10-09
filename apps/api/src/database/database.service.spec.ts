@@ -217,4 +217,16 @@ describe('DatabaseService', () => {
 
     await moduleFixture.close();
   });
+
+  it('verifies that SQLite JSON1 extension is available and functional', () => {
+    expect(() => {
+      service.assertJson1Supported();
+    }).not.toThrow();
+
+    const probe = service.get<{ valid: number }>(
+      "SELECT json_valid('[]') AS valid",
+    );
+    expect(probe?.valid).toBe(1);
+  });
 });
+
