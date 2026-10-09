@@ -189,7 +189,157 @@ describe('Agent Memories Endpoints (e2e)', () => {
 
       expect(res.body.total).toBe(1);
       expect(res.body.items[0].content).toBe('Work memory');
-      expect(res.body.items[0].tags).toEqual(['work', 'project-x']);
+      expect(res.body.items[0].tags).toEqual(['project-x', 'work']);
+    });
+
+    it('proves tag filtering composes correctly in SQL with pagination across pages', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      // Seed 10 untagged memories first
+      for (let i = 1; i <= 10; i++) {
+        await testApp
+          .request()
+          .post(`/api/v1/agents/${agent.id}/memories`)
+          .send({ content: `Untagged background item ${i}` })
+          .expect(201);
+      }
+
+      // Seed 5 tagged memories
+      for (let i = 1; i <= 5; i++) {
+        await testApp
+          .request()
+          .post(`/api/v1/agents/${agent.id}/memories`)
+          .send({
+            content: `Tagged target item ${i}`,
+            tags: ['filtered-topic'],
+          })
+          .expect(201);
+      }
+
+      // Request page 1 with limit=2 (if pagination happened in app before filter, this would return 0 items)
+      const page1 = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories?tag=filtered-topic&limit=2&offset=0&sortBy=content&order=asc`)
+        .expect(200);
+
+      expect(page1.body.total).toBe(5);
+      expect(page1.body.items).toHaveLength(2);
+      expect(page1.body.items[0].content).toBe('Tagged target item 1');
+      expect(page1.body.items[1].content).toBe('Tagged target item 2');
+
+      // Request page 2 with limit=2, offset=2
+      const page2 = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories?tag=filtered-topic&limit=2&offset=2&sortBy=content&order=asc`)
+        .expect(200);
+
+      expect(page2.body.total).toBe(5);
+      expect(page2.body.items).toHaveLength(2);
+      expect(page2.body.items[0].content).toBe('Tagged target item 3');
+      expect(page2.body.items[1].content).toBe('Tagged target item 4');
+
+      // Request page 3 with limit=2, offset=4
+      const page3 = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories?tag=filtered-topic&limit=2&offset=4&sortBy=content&order=asc`)
+        .expect(200);
+
+      expect(page3.body.total).toBe(5);
+      expect(page3.body.items).toHaveLength(1);
+      expect(page3.body.items[0].content).toBe('Tagged target item 5');
+    });
+
+    it('supports multi-tag filtering with all and any modes', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Both tags', tags: ['alpha', 'beta'] })
+        .expect(201);
+
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Alpha only', tags: ['alpha'] })
+        .expect(201);
+
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Beta only', tags: ['beta'] })
+        .expect(201);
+
+      // Mode all (default): requires alpha AND beta
+      const allRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories?tags=alpha,beta&tagMode=all`)
+        .expect(200);
+
+      expect(allRes.body.total).toBe(1);
+      expect(allRes.body.items[0].content).toBe('Both tags');
+
+      // Mode any: requires alpha OR beta
+      const anyRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories?tags=alpha,beta&tagMode=any`)
+        .expect(200);
+
+      expect(anyRes.body.total).toBe(3);
+    });
+
+    it('safely handles SQL injection attempts through tag query parameter', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Confidential knowledge', tags: ['confidential'] })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories?tag=' OR '1'='1`)
+        .expect(200);
+
+      expect(res.body.total).toBe(0);
+      expect(res.body.items).toHaveLength(0);
+    });
+
+    it('gracefully degrades when database contains a row with malformed JSON tags', async () => {
+      const agent = testApp.fixtures.createAgent();
+
+      await testApp
+        .request()
+        .post(`/api/v1/agents/${agent.id}/memories`)
+        .send({ content: 'Valid memory', tags: ['valid'] })
+        .expect(201);
+
+      // Manually corrupt one row's tags column
+      testApp.db.run(
+        `INSERT INTO agent_memories (id, agent_id, content, tags, created_at, updated_at)
+         VALUES ('bad-json-row-e2e', ?, 'Corrupt tags content', '{corrupt json', '2026-10-04T00:00:00.000Z', '2026-10-04T00:00:00.000Z')`,
+        [agent.id],
+      );
+
+      // List endpoint succeeds and parses bad tags row as []
+      const listRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories`)
+        .expect(200);
+
+      expect(listRes.body.total).toBe(2);
+      const corruptItem = listRes.body.items.find((i: any) => i.id === 'bad-json-row-e2e');
+      expect(corruptItem.tags).toEqual([]);
+
+      // Filter query also succeeds without json_each throwing
+      const filterRes = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/memories?tag=valid`)
+        .expect(200);
+
+      expect(filterRes.body.total).toBe(1);
+      expect(filterRes.body.items[0].content).toBe('Valid memory');
     });
 
     it('supports filtering by content and search alias', async () => {

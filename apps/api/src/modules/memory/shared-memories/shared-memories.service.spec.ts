@@ -139,7 +139,111 @@ describe('SharedMemoriesService', () => {
 
       expect(result.total).toBe(1);
       expect(result.items[0]?.content).toBe('Project X guidelines');
-      expect(result.items[0]?.tags).toEqual(['project-x', 'guidelines']);
+      expect(result.items[0]?.tags).toEqual(['guidelines', 'project-x']);
+    });
+
+    it('filters memories by case-insensitive tag matching', async () => {
+      await service.create({
+        content: 'Database convention',
+        tags: ['SQLITE', 'Architecture'],
+      });
+
+      const result = await service.findAll({
+        limit: 10,
+        offset: 0,
+        tag: 'sqlite',
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.items[0]?.tags).toEqual(['architecture', 'sqlite']);
+    });
+
+    it('filters memories by multiple tags with all (intersection) mode', async () => {
+      await service.create({
+        content: 'Both tags convention',
+        tags: ['security', 'auth'],
+      });
+      await service.create({
+        content: 'Auth only convention',
+        tags: ['auth'],
+      });
+
+      const result = await service.findAll({
+        limit: 10,
+        offset: 0,
+        tags: 'security,auth',
+        tagMode: 'all',
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.items[0]?.content).toBe('Both tags convention');
+    });
+
+    it('filters memories by multiple tags with any (union) mode', async () => {
+      await service.create({
+        content: 'Security note',
+        tags: ['security'],
+      });
+      await service.create({
+        content: 'Auth note',
+        tags: ['auth'],
+      });
+      await service.create({
+        content: 'Other note',
+        tags: ['other'],
+      });
+
+      const result = await service.findAll({
+        limit: 10,
+        offset: 0,
+        tags: 'security, auth',
+        tagMode: 'any',
+      });
+
+      expect(result.total).toBe(2);
+    });
+
+    it('safely handles SQL injection attempts in tag filter value', async () => {
+      await service.create({
+        content: 'Injection test',
+        tags: ['secure'],
+      });
+
+      const result = await service.findAll({
+        limit: 10,
+        offset: 0,
+        tag: "' OR '1'='1",
+      });
+
+      expect(result.total).toBe(0);
+      expect(result.items).toHaveLength(0);
+    });
+
+    it('gracefully tolerates database rows with malformed JSON tags without crashing list queries', async () => {
+      await service.create({
+        content: 'Valid shared row',
+        tags: ['valid-tag'],
+      });
+
+      // Insert corrupted JSON row directly into DB
+      db.run(
+        `INSERT INTO shared_memories (id, content, tags, created_at, updated_at)
+         VALUES ('bad-json-shared', 'Corrupted tags shared row', 'corrupt-json-value', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+      );
+
+      // Listing all should not throw and should fallback corrupt tags to []
+      const allResult = await service.findAll({ limit: 10, offset: 0 });
+      const badRow = allResult.items.find((i) => i.id === 'bad-json-shared');
+      expect(badRow?.tags).toEqual([]);
+
+      // Filtering by tag should not crash SQLite with malformed JSON error
+      const filteredResult = await service.findAll({
+        limit: 10,
+        offset: 0,
+        tag: 'valid-tag',
+      });
+      expect(filteredResult.total).toBe(1);
+      expect(filteredResult.items[0]?.id).not.toBe('bad-json-shared');
     });
 
     it('filters memories by content substring and search alias', async () => {
@@ -176,7 +280,7 @@ describe('SharedMemoriesService', () => {
 
       expect(created.id).toBeDefined();
       expect(created.content).toBe('TypeScript strict mode enabled');
-      expect(created.tags).toEqual(['typescript', 'rules']);
+      expect(created.tags).toEqual(['rules', 'typescript']);
       expect(created.createdAt).toBeDefined();
       expect(created.updatedAt).toBe(created.createdAt);
 
@@ -185,7 +289,7 @@ describe('SharedMemoriesService', () => {
         [created.id],
       );
       expect(dbRow).toBeDefined();
-      expect(dbRow?.tags).toBe('["typescript","rules"]');
+      expect(dbRow?.tags).toBe('["rules","typescript"]');
     });
 
     it('normalises empty tags array to SQL NULL in storage and reads back as empty array', async () => {

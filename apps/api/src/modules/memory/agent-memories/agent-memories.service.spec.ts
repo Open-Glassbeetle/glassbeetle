@@ -199,6 +199,123 @@ describe('AgentMemoriesService', () => {
       expect(result.items[0]?.tags).toEqual(['project-x', 'secret']);
     });
 
+    it('filters memories by case-insensitive tag matching', async () => {
+      const agent = fixtures.createAgent();
+
+      await service.create(agent.id, {
+        content: 'Case test',
+        tags: ['Frontend', 'REACT'],
+      });
+
+      const result = await service.findAll(agent.id, {
+        limit: 10,
+        offset: 0,
+        tag: 'react',
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.items[0]?.tags).toEqual(['frontend', 'react']);
+    });
+
+    it('filters memories by multiple tags with all (intersection) mode', async () => {
+      const agent = fixtures.createAgent();
+
+      await service.create(agent.id, {
+        content: 'Both tags',
+        tags: ['alpha', 'beta'],
+      });
+      await service.create(agent.id, {
+        content: 'Alpha only',
+        tags: ['alpha'],
+      });
+
+      const result = await service.findAll(agent.id, {
+        limit: 10,
+        offset: 0,
+        tags: 'alpha,beta',
+        tagMode: 'all',
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.items[0]?.content).toBe('Both tags');
+    });
+
+    it('filters memories by multiple tags with any (union) mode', async () => {
+      const agent = fixtures.createAgent();
+
+      await service.create(agent.id, {
+        content: 'Alpha note',
+        tags: ['alpha'],
+      });
+      await service.create(agent.id, {
+        content: 'Beta note',
+        tags: ['beta'],
+      });
+      await service.create(agent.id, {
+        content: 'Gamma note',
+        tags: ['gamma'],
+      });
+
+      const result = await service.findAll(agent.id, {
+        limit: 10,
+        offset: 0,
+        tags: 'alpha, beta',
+        tagMode: 'any',
+      });
+
+      expect(result.total).toBe(2);
+    });
+
+    it('safely handles SQL injection attempts in tag filter value', async () => {
+      const agent = fixtures.createAgent();
+
+      await service.create(agent.id, {
+        content: 'Injection test',
+        tags: ['secure'],
+      });
+
+      const result = await service.findAll(agent.id, {
+        limit: 10,
+        offset: 0,
+        tag: "' OR '1'='1",
+      });
+
+      expect(result.total).toBe(0);
+      expect(result.items).toHaveLength(0);
+    });
+
+    it('gracefully tolerates database rows with malformed JSON tags without crashing list queries', async () => {
+      const agent = fixtures.createAgent();
+
+      // Insert valid row
+      await service.create(agent.id, {
+        content: 'Valid row',
+        tags: ['valid-tag'],
+      });
+
+      // Insert a row directly with invalid JSON text in tags column
+      db.run(
+        `INSERT INTO agent_memories (id, agent_id, content, tags, created_at, updated_at)
+         VALUES ('bad-json-row', ?, 'Corrupted tags row', 'not-valid-json', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+        [agent.id],
+      );
+
+      // Listing all should not throw and should fallback corrupt tags to []
+      const allResult = await service.findAll(agent.id, { limit: 10, offset: 0 });
+      expect(allResult.total).toBe(2);
+      const badRow = allResult.items.find((i) => i.id === 'bad-json-row');
+      expect(badRow?.tags).toEqual([]);
+
+      // Filtering by tag should not crash SQLite with malformed JSON error
+      const filteredResult = await service.findAll(agent.id, {
+        limit: 10,
+        offset: 0,
+        tag: 'valid-tag',
+      });
+      expect(filteredResult.total).toBe(1);
+      expect(filteredResult.items[0]?.id).not.toBe('bad-json-row');
+    });
+
     it('filters memories by content substring and search alias', async () => {
       const agent = fixtures.createAgent();
 
