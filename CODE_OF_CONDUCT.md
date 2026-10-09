@@ -59,8 +59,21 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
---.
+reported privately to the community leaders responsible for enforcement, by
+either of these routes:
+
+* **[Open a private report through GitHub](https://github.com/Open-Glassbeetle/glassbeetle/security/advisories/new)**
+  — the form under the repository's *Security* tab is visible only to the
+  maintainers. It is labelled for vulnerabilities, but it works just as well
+  as a private channel for a conduct report; write "Code of Conduct" in the
+  title.
+* **Message a maintainer directly on GitHub** — currently
+  [@nathanschmid08](https://github.com/nathanschmid08).
+
+You do not need to have proof, and you do not need to be the person it
+happened to. If you are unsure whether something is worth reporting, report
+it.
+
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
