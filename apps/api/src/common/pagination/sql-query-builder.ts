@@ -72,10 +72,7 @@ export function buildPaginationSqlFragment(
 
   if (requestedSort) {
     if (
-      !Object.prototype.hasOwnProperty.call(
-        allowedSortColumns,
-        requestedSort,
-      )
+      !Object.prototype.hasOwnProperty.call(allowedSortColumns, requestedSort)
     ) {
       const allowedKeys = Object.keys(allowedSortColumns).join(', ');
       throw new BadRequestException(
@@ -85,10 +82,7 @@ export function buildPaginationSqlFragment(
     sortColumn = allowedSortColumns[requestedSort];
   } else {
     if (
-      !Object.prototype.hasOwnProperty.call(
-        allowedSortColumns,
-        defaultSortKey,
-      )
+      !Object.prototype.hasOwnProperty.call(allowedSortColumns, defaultSortKey)
     ) {
       throw new Error(
         `Default sort key "${defaultSortKey}" is not in allowedSortColumns mapping`,
@@ -118,4 +112,16 @@ export function buildPaginationSqlFragment(
     limitOffsetSql,
     params: [limit, offset],
   };
+}
+
+/**
+ * Escapes characters with special meaning in SQLite LIKE patterns (`\`, `%`, `_`).
+ *
+ * Ensures a user-supplied search term is matched as a literal substring: without
+ * it, typing `%` in a search box matches every row, and `_` matches any
+ * character. Shared by every endpoint with a name filter, so the behaviour of
+ * the search box does not depend on which list it is in.
+ */
+export function escapeLikePattern(term: string): string {
+  return term.replace(/([\\%_])/g, '\\$1');
 }
