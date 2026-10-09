@@ -1,0 +1,19 @@
+# A blank issue is always allowed — not every thought fits a form.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/Open-Glassbeetle/glassbeetle/blob/main/CONTRIBUTING.md
+    about: Setup, the fast dev loop, conventions, and what a mergeable PR looks like.
+
+  - name: Good first issues
+    url: https://github.com/Open-Glassbeetle/glassbeetle/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22
+    about: Scoped so you can finish one without reading the whole codebase.
+
+  - name: Report a security issue privately
+    url: https://github.com/Open-Glassbeetle/glassbeetle/security/advisories/new
+    about: Please do not open a public issue for a vulnerability.
+
+  - name: Code of Conduct
+    url: https://github.com/Open-Glassbeetle/glassbeetle/blob/main/CODE_OF_CONDUCT.md
+    about: What you can expect from this community, and what it expects of you.

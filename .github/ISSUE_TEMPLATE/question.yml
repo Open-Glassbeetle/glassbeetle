@@ -1,0 +1,32 @@
+name: Question
+description: Ask how something works, or why it was built that way
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        There are no stupid questions here. Answers often end up in `docs/`,
+        which makes your question useful to the next person — so asking is a
+        contribution.
+
+        If you are stuck part-way through a change, opening a **draft pull
+        request** and asking there is usually faster: the code is in front of
+        the question.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What you have already looked at
+      description: >
+        Optional, and only so nobody sends you back to a file you have read.
+        `README.md`, `CONTRIBUTING.md`, `docs/api-conventions.md` and
+        `apps/web/README.md` are the four that cover most of it.
+    validations:
+      required: false

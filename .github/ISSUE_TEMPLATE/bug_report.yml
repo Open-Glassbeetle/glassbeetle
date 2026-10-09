@@ -1,0 +1,101 @@
+name: Bug report
+description: Something does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A rough report is far better than none — if
+        you cannot fill in a field, leave it empty and say so.
+
+        If the project would not start or set up at all, that counts as a bug
+        and belongs here. A first-run failure is a bug in our documentation.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, in a sentence or two?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The smallest sequence that shows the problem. A `curl` command, a
+        request body or a click path is ideal.
+      placeholder: |
+        1. npm run dev:api
+        2. curl http://localhost:3000/api/v1/agents
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: >
+        Error messages, the HTTP status, the response body, or the browser
+        console. Paste the text rather than a screenshot where you can — it is
+        searchable.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happens
+      options:
+        - API (apps/api)
+        - Frontend (apps/web)
+        - Desktop shell (apps/desktop, Tauri)
+        - Setup, install or the dev scripts
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        `node --version`, your OS, and — if it is relevant — `npm --version`
+        and `rustc --version`. The README's toolchain notes explain why the
+        Node version matters here.
+      placeholder: |
+        node: 24.2.0
+        npm: 11.3.0
+        OS: macOS 15.3
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: >
+        Guesses about the cause are welcome. So is "I have no idea".
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Would you like to fix it?
+      description: Entirely optional, and "no" is a perfectly good answer.
+      options:
+        - label: I would like to work on this myself
+          required: false
+        - label: I would be happy to try with some guidance
+          required: false

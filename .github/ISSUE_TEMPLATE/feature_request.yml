@@ -1,0 +1,117 @@
+name: Feature or change proposal
+description: Propose a new capability, an endpoint, a screen or a change to one
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The sections below mirror how the existing backlog is written, so a new
+        issue sits next to the old ones without translation.
+
+        **You do not have to fill in all of them.** Summary and Motivation
+        carry an idea perfectly well on their own; the rest is for proposals
+        you have already thought through. An idea with two sentences behind it
+        is still worth opening.
+
+        Check the [open issues](https://github.com/Open-Glassbeetle/glassbeetle/issues)
+        first — much of the product the schema in `data/` describes is already
+        filed as an issue waiting to be picked up.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should exist that does not exist today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: >
+        What becomes possible, or stops being painful? If it unblocks
+        something else, name it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - API (apps/api)
+        - Frontend (apps/web)
+        - Desktop shell (apps/desktop, Tauri)
+        - Database schema (data/)
+        - Tests or tooling
+        - Documentation
+        - Spans several / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: >
+        What the change covers — endpoints, screens, tables, files. A bullet
+        list is fine.
+    validations:
+      required: false
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: >
+        What this deliberately does *not* include. Often the most useful
+        section: it is what keeps a proposal reviewable and stops it growing
+        in review.
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: A checklist of what must be true before this is done.
+      placeholder: |
+        - [ ] GET /api/v1/projects returns a paginated list
+        - [ ] 404 for an unknown id follows the error envelope
+    validations:
+      required: false
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing
+      description: >
+        How would this be verified? Integration tests against the harness in
+        `apps/api/test/harness/` are the norm for endpoints — see
+        `docs/testing.md`.
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Technical notes
+      description: >
+        Existing code worth knowing about, a convention in `docs/` that
+        applies, a decision that has not been made yet, or a constraint — for
+        example that the API is the only process allowed to open the SQLite
+        database.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Would you like to build it?
+      description: Optional. Filing a good issue is a contribution by itself.
+      options:
+        - label: I would like to work on this myself
+          required: false
+        - label: I would be happy to try with some guidance
+          required: false
