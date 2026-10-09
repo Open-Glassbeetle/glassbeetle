@@ -62,6 +62,14 @@ under SQLite's lexicographic `TEXT` comparison, so `ORDER BY created_at` and
 `created_at` and `updated_at` are always server-managed. A client that sends
 `id`, `createdAt` or `updatedAt` gets a `400`.
 
+Team memberships are an exception to the timestamp shape. `team_members` has a
+composite primary key, `(team_id, agent_id)`, so a membership has no standalone
+`id` and its route uses both ids: `/teams/:teamId/members/:agentId`. The table
+has `created_at` but no `updated_at`; membership responses therefore include
+`createdAt` without `updatedAt`. `PATCH` returns the updated membership in the
+same shape, so changing a role does not add a change timestamp. This reflects
+the schema, not an omission in the endpoint.
+
 **Nullable columns** are emitted as `null`, not omitted. A client can then tell
 "not set" from "field does not exist in this version of the API".
 
