@@ -12,7 +12,7 @@ npm run build -w @glassbeetle/web
 
 ## What the UI covers
 
-The UI shows only what the API implements. Chats, projects, teams, providers,
+The UI shows only what the API implements. Chats, projects, providers,
 artifacts, analytics and backups exist as NestJS modules with empty
 controllers, so their routes 404 and they have no screens.
 
@@ -24,6 +24,8 @@ controllers, so their routes 404 and they have no screens.
 | Agents · directory | `/agents` |
 | Agents · workspace | `/agents/:agentId`, `/agents/:agentId/picture` |
 | Agents · memory | `/agents/:agentId/memories` |
+| Teams · directory | `/teams` |
+| Teams · roster | `/teams/:teamId`, `/teams/:teamId/members` |
 | Shared memory | `/memories` |
 | System prompts | `/system-prompts` |
 
@@ -188,6 +190,17 @@ looking like one product.
 
 **Loading.** Skeletons shaped like the result, not spinners: the layout does not
 jump when the data lands.
+
+**Team order.** A team's roster is its turn order, so the list is explicitly
+ranked and moved with controls rather than sorted by anything incidental. A
+move sends the whole order to `PUT /teams/:teamId/members/order`, which is what
+that endpoint takes: a move renumbers several rows, and sending the end state
+makes it one atomic write rather than a sequence that can half-apply. The
+roster is re-read afterwards instead of patched in place — positions are
+renumbered server-side on every add, remove and reorder, and guessing the
+result here would be a second implementation of the same rule. Agent names come
+from the roster the shell already holds; the API returns ids, so there is one
+source for a name and the rail and the team page cannot disagree.
 
 **Avatars.** One component, `gb-avatar`, draws a stored picture when there is
 one and initials when there is not — with the hue derived from the name, so a
