@@ -1,9 +1,17 @@
 # Glassbeetle
 
 [![CI](https://github.com/Open-Glassbeetle/glassbeetle/actions/workflows/ci.yml/badge.svg)](https://github.com/Open-Glassbeetle/glassbeetle/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Good first issues](https://img.shields.io/github/issues/Open-Glassbeetle/glassbeetle/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/Open-Glassbeetle/glassbeetle/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+[![Contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 A NestJS backend, an Angular frontend, and a Tauri desktop shell in one npm
 workspace — all three start with a single command.
+
+**New here?** [`CONTRIBUTING.md`](CONTRIBUTING.md) is the short path from a
+clone to a merged pull request, and there is
+[a backlog of self-contained issues](https://github.com/Open-Glassbeetle/glassbeetle/issues)
+waiting for someone to pick them up.
 
 ```bash
 npm install
@@ -22,8 +30,16 @@ glassbeetle/
 │   ├── api/                  NestJS 12 backend  → http://localhost:3000/api/v1
 │   ├── web/                  Angular 21 frontend → http://localhost:4200
 │   └── desktop/src-tauri/    Tauri 2 shell (Rust)
+├── data/                     The SQL schema, one file per table
+├── docs/                     Conventions and design records
+├── scripts/                  Repository tooling (npm run stop)
 └── package.json              npm workspaces + orchestration scripts
 ```
+
+The API is the only process that opens the SQLite database — not the frontend,
+not the Rust shell. `data/` holds the schema as executable SQL, applied in the
+order declared in
+[`apps/api/src/database/schema-migrations.ts`](apps/api/src/database/schema-migrations.ts).
 
 The three tiers talk to each other like this:
 
@@ -140,6 +156,27 @@ packaged build expects the API to already be running on port 3000. To ship the
 backend inside the installer, compile it to a binary and register it as a
 [Tauri sidecar](https://v2.tauri.app/develop/sidecar/).
 
+## Contributing
+
+Glassbeetle is meant to be built by more than one person, and the backlog is
+deliberately sliced so that you can finish a piece of it without reading the
+whole codebase. Most open issues name a single endpoint or a single screen and
+come with acceptance criteria already written.
+
+- [**Contributing guide**](CONTRIBUTING.md) — setup, the fast dev loop without
+  Rust or Tauri, the conventions, and what makes a pull request easy to merge
+- [**Good first issues**](https://github.com/Open-Glassbeetle/glassbeetle/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+  — scoped for a first contribution
+- [**Code of Conduct**](CODE_OF_CONDUCT.md) · [**Security policy**](SECURITY.md)
+
+Questions are welcome as issues, and an unfinished change is welcome as a draft
+pull request. You do not need permission to start.
+
+Conventions live next to the code they govern:
+[`docs/api-conventions.md`](docs/api-conventions.md) before adding an endpoint,
+[`apps/web/README.md`](apps/web/README.md) before adding a screen,
+[`docs/testing.md`](docs/testing.md) before writing a test.
+
 ## Toolchain notes
 
 Two things on this machine are pinned by the installed Node version (24.2.0):
@@ -154,3 +191,7 @@ Two things on this machine are pinned by the installed Node version (24.2.0):
   `npx npm@latest install`.
 
 Upgrading Node to a current LTS resolves both.
+
+## Licence
+
+[MIT](LICENSE). Contributions are accepted under the same terms.
