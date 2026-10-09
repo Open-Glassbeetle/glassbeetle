@@ -1,0 +1,147 @@
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">Teams</h1>
+      <p class="view__subtitle">
+        A team is an ordered roster of agents. The order is the order they would take their turn in
+        a shared chat.
+      </p>
+    </div>
+
+    <button matButton="filled" (click)="create()">
+      <mat-icon>add</mat-icon>
+      New team
+    </button>
+  </header>
+
+  <gb-panel flush>
+    <div class="toolbar">
+      <div class="search">
+        <mat-icon class="search__icon">search</mat-icon>
+        <input
+          class="search__input"
+          type="search"
+          placeholder="Filter by name"
+          aria-label="Filter teams by name"
+          [value]="list.searchTerm()"
+          (input)="list.setSearch($any($event.target).value)"
+        />
+        @if (list.searchTerm()) {
+          <button
+            matIconButton
+            class="search__clear"
+            aria-label="Clear the filter"
+            (click)="list.clearSearch()"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </div>
+
+      <span class="toolbar__count mono">
+        {{ list.total() }} {{ list.total() === 1 ? 'team' : 'teams' }}
+      </span>
+    </div>
+
+    @if (list.loading() && !list.loadedOnce()) {
+      <ul class="rows">
+        @for (row of [1, 2, 3]; track row) {
+          <li class="row row--skeleton">
+            <div class="row__skeleton-text">
+              <gb-skeleton [width]="row % 2 ? '8rem' : '11rem'" height="0.8125rem" />
+              <gb-skeleton [width]="row % 2 ? '22rem' : '17rem'" height="0.6875rem" />
+            </div>
+          </li>
+        }
+      </ul>
+    } @else if (list.error(); as error) {
+      <div class="blank">
+        <mat-icon class="blank__icon">cloud_off</mat-icon>
+        <p class="blank__title">Could not load teams</p>
+        <p class="blank__text">{{ error.message }}</p>
+        <button matButton="filled" (click)="list.reload()">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+      </div>
+    } @else if (list.isEmpty()) {
+      @if (list.search()) {
+        <div class="blank">
+          <mat-icon class="blank__icon">search_off</mat-icon>
+          <p class="blank__title">No matching teams</p>
+          <p class="blank__text">Nothing matches “{{ list.search() }}”.</p>
+          <button matButton (click)="list.clearSearch()">Clear the filter</button>
+        </div>
+      } @else {
+        <div class="blank">
+          <mat-icon class="blank__icon">groups</mat-icon>
+          <p class="blank__title">No teams yet</p>
+          <p class="blank__text">
+            A team puts several agents in a fixed order, so a conversation can hand off from one to
+            the next.
+          </p>
+          <button matButton="filled" (click)="create()">
+            <mat-icon>add</mat-icon>
+            New team
+          </button>
+        </div>
+      }
+    } @else {
+      <ul class="rows">
+        @for (team of list.items(); track team.id) {
+          <li class="row">
+            <a class="row__main" [routerLink]="['/teams', team.id]">
+              <mat-icon class="row__icon">groups</mat-icon>
+
+              <span class="row__text">
+                <span class="row__name">{{ team.name }}</span>
+                @if (team.description) {
+                  <span class="row__desc">{{ team.description }}</span>
+                } @else {
+                  <span class="row__desc row__desc--empty">No description</span>
+                }
+              </span>
+
+              <span class="row__size mono">
+                {{ team.memberCount }} {{ team.memberCount === 1 ? 'agent' : 'agents' }}
+              </span>
+
+              <time class="row__time" [attr.datetime]="team.updatedAt" [title]="team.updatedAt">
+                {{ team.updatedAt | relativeTime }}
+              </time>
+            </a>
+
+            <button
+              matIconButton
+              [matMenuTriggerFor]="menu"
+              [attr.aria-label]="'More actions for ' + team.name"
+            >
+              <mat-icon>more_vert</mat-icon>
+            </button>
+
+            <mat-menu #menu>
+              <a mat-menu-item [routerLink]="['/teams', team.id]">
+                <mat-icon>edit</mat-icon>
+                <span>Open</span>
+              </a>
+              <button mat-menu-item class="danger" (click)="remove(team)">
+                <mat-icon>delete</mat-icon>
+                <span>Delete</span>
+              </button>
+            </mat-menu>
+          </li>
+        }
+      </ul>
+
+      @if (list.total() > list.pageSize()) {
+        <mat-paginator
+          [length]="list.total()"
+          [pageIndex]="list.pageIndex()"
+          [pageSize]="list.pageSize()"
+          [pageSizeOptions]="pageSizeOptions"
+          (page)="list.onPage($event)"
+        />
+      }
+    }
+  </gb-panel>
+</div>

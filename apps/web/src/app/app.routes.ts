@@ -38,6 +38,17 @@ export const routes: Routes = [
     loadComponent: () => import('./features/profile/profile').then((m) => m.Profile),
   },
   {
+    path: 'teams',
+    title: 'Teams · Glassbeetle',
+    loadComponent: () => import('./features/teams/team-list/team-list').then((m) => m.TeamList),
+  },
+  {
+    path: 'teams/:teamId',
+    title: 'Team · Glassbeetle',
+    loadComponent: () =>
+      import('./features/teams/team-detail/team-detail').then((m) => m.TeamDetail),
+  },
+  {
     path: 'memory',
     title: 'Shared memory · Glassbeetle',
     loadComponent: () =>

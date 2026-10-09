@@ -25,6 +25,7 @@ export type ShellAction =
   | 'refresh'
   | 'go-overview'
   | 'go-agents'
+  | 'go-teams'
   | 'go-memory'
   | 'go-prompts'
   | 'search'
