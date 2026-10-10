@@ -167,6 +167,7 @@ come with acceptance criteria already written.
   Rust or Tauri, the conventions, and what makes a pull request easy to merge
 - [**Good first issues**](https://github.com/Open-Glassbeetle/glassbeetle/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
   — scoped for a first contribution
+- [**Contributors**](CONTRIBUTORS.md) — everyone who has helped build this
 - [**Code of Conduct**](CODE_OF_CONDUCT.md) · [**Security policy**](SECURITY.md)
 
 Questions are welcome as issues, and an unfinished change is welcome as a draft

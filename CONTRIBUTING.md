@@ -427,6 +427,11 @@ Your first PR will have the CI workflow approved by a maintainer before it
 runs; that is a GitHub default for new contributors, not a comment on your
 change.
 
+Once it is merged you are added to [CONTRIBUTORS.md](CONTRIBUTORS.md), for
+whatever you actually did — documentation, tests and bug reports are listed
+there the same as code. If you were missed, say so in the thread; it is an
+oversight, not a judgement.
+
 By opening a pull request you agree that your contribution is licensed under
 the repository's [MIT licence](LICENSE).
 
