@@ -121,13 +121,10 @@ export class ChatsService {
   }
 
   /**
-   * Retrieves a single chat by ID.
-   *
-   * Throws 404 NotFoundException if no chat exists with that ID.
-   * Employs defensive row mapping so that orphaned chats (whose owner was deleted)
-   * can still be inspected.
+   * Asserts that a chat exists in SQLite.
+   * Throws 404 NotFoundException with CHAT_NOT_FOUND if the chat does not exist.
    */
-  async findOne(chatId: string): Promise<ChatResponseDto> {
+  assertExists(chatId: string): ChatRow {
     const row = this.db.get<ChatRow>('SELECT * FROM chats WHERE id = ?', [
       chatId,
     ]);
@@ -139,6 +136,18 @@ export class ChatsService {
       });
     }
 
+    return row;
+  }
+
+  /**
+   * Retrieves a single chat by ID.
+   *
+   * Throws 404 NotFoundException if no chat exists with that ID.
+   * Employs defensive row mapping so that orphaned chats (whose owner was deleted)
+   * can still be inspected.
+   */
+  async findOne(chatId: string): Promise<ChatResponseDto> {
+    const row = this.assertExists(chatId);
     return mapChatRowToResponse(row);
   }
 
