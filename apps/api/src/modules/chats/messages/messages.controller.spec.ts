@@ -33,6 +33,7 @@ describe('MessagesController', () => {
               limit: 50,
               offset: 0,
             }),
+            create: vi.fn().mockResolvedValue(MESSAGE),
           },
         },
       ],
@@ -65,5 +66,17 @@ describe('MessagesController', () => {
       limit: 50,
       offset: 0,
     });
+  });
+
+  it('delegates create passing chatId and dto through to MessagesService', async () => {
+    const dto = {
+      content: 'Hello, world!',
+      role: 'user' as const,
+    };
+
+    const result = await controller.create('chat-123', dto);
+
+    expect(service.create).toHaveBeenCalledWith('chat-123', dto);
+    expect(result).toEqual(MESSAGE);
   });
 });
