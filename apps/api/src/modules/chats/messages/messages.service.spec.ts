@@ -1,5 +1,9 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../../database/database.service.js';
 import { TestFixtures } from '../../../../test/harness/fixtures.js';
 import { ChatsService } from '../chats.service.js';
@@ -422,6 +426,217 @@ describe('MessagesService', () => {
       expect(res.items).toHaveLength(1);
       expect(res.items[0].content).toBe('Target 2');
       expect(res.items[0].sequence).toBe(3);
+    });
+  });
+
+  describe('create', () => {
+    it('assigns sequence = 1 to the first message in a chat', async () => {
+      const chat = fixtures.createChat();
+
+      const message = await service.create(chat.id, {
+        content: 'Initial message',
+      });
+
+      expect(message.sequence).toBe(1);
+      expect(message.chatId).toBe(chat.id);
+      expect(message.role).toBe('user');
+      expect(message.status).toBe('complete');
+      expect(message.tokenCount).toBeNull();
+      expect(message.agentId).toBeNull();
+      expect(message.content).toBe('Initial message');
+    });
+
+    it('assigns sequential sequences (1, 2, 3) with no gaps', async () => {
+      const chat = fixtures.createChat();
+
+      const m1 = await service.create(chat.id, { content: 'Turn 1' });
+      const m2 = await service.create(chat.id, { content: 'Turn 2' });
+      const m3 = await service.create(chat.id, { content: 'Turn 3' });
+
+      expect(m1.sequence).toBe(1);
+      expect(m2.sequence).toBe(2);
+      expect(m3.sequence).toBe(3);
+
+      const list = await service.findAll(chat.id, {});
+      expect(list.total).toBe(3);
+      expect(list.items.map((m) => m.sequence)).toEqual([1, 2, 3]);
+      expect(list.items.map((m) => m.content)).toEqual(['Turn 1', 'Turn 2', 'Turn 3']);
+    });
+
+    it('maintains independent sequence numbering for different chats', async () => {
+      const chatA = fixtures.createChat({ title: 'Chat A' });
+      const chatB = fixtures.createChat({ title: 'Chat B' });
+
+      const a1 = await service.create(chatA.id, { content: 'A - 1' });
+      const b1 = await service.create(chatB.id, { content: 'B - 1' });
+      const a2 = await service.create(chatA.id, { content: 'A - 2' });
+      const b2 = await service.create(chatB.id, { content: 'B - 2' });
+
+      expect(a1.sequence).toBe(1);
+      expect(a2.sequence).toBe(2);
+      expect(b1.sequence).toBe(1);
+      expect(b2.sequence).toBe(2);
+    });
+
+    it('persists explicit roles (assistant, system, tool)', async () => {
+      const chat = fixtures.createChat();
+
+      const systemMsg = await service.create(chat.id, {
+        content: 'System prompt instructions',
+        role: 'system',
+      });
+      const assistantMsg = await service.create(chat.id, {
+        content: 'Assistant answer',
+        role: 'assistant',
+      });
+      const toolMsg = await service.create(chat.id, {
+        content: '{"result": 42}',
+        role: 'tool',
+      });
+
+      expect(systemMsg.role).toBe('system');
+      expect(assistantMsg.role).toBe('assistant');
+      expect(toolMsg.role).toBe('tool');
+    });
+
+    it('stores and returns valid agentId when supplied', async () => {
+      const agent = fixtures.createAgent({ name: 'Coder Agent' });
+      const chat = fixtures.createChat();
+
+      const message = await service.create(chat.id, {
+        content: 'Hello from agent',
+        role: 'assistant',
+        agentId: agent.id,
+      });
+
+      expect(message.agentId).toBe(agent.id);
+
+      const retrieved = await service.findAll(chat.id, {});
+      expect(retrieved.items[0].agentId).toBe(agent.id);
+    });
+
+    it('throws 404 NotFoundException when chat does not exist', async () => {
+      await expect(
+        service.create('018f3a9e-0000-7000-8000-000000000099', {
+          content: 'Hello',
+        }),
+      ).rejects.toThrow(NotFoundException);
+
+      try {
+        await service.create('018f3a9e-0000-7000-8000-000000000099', {
+          content: 'Hello',
+        });
+      } catch (err: any) {
+        expect(err.getResponse()).toEqual({
+          code: 'CHAT_NOT_FOUND',
+          message: 'Chat with ID "018f3a9e-0000-7000-8000-000000000099" not found',
+        });
+      }
+    });
+
+    it('throws 404 NotFoundException naming agentId field when agent does not exist', async () => {
+      const chat = fixtures.createChat();
+      const nonExistentAgentId = '018f3a9e-0000-7000-8000-000000000088';
+
+      await expect(
+        service.create(chat.id, {
+          content: 'Message with bad agent',
+          agentId: nonExistentAgentId,
+        }),
+      ).rejects.toThrow(NotFoundException);
+
+      try {
+        await service.create(chat.id, {
+          content: 'Message with bad agent',
+          agentId: nonExistentAgentId,
+        });
+      } catch (err: any) {
+        expect(err.getResponse()).toEqual({
+          code: 'AGENT_NOT_FOUND',
+          message: `Referenced agentId "${nonExistentAgentId}" does not exist`,
+        });
+      }
+    });
+
+    it("advances the parent chat's updated_at timestamp in SQLite in the same transaction", async () => {
+      const chat = fixtures.createChat({
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      });
+
+      const futureNow = '2026-10-18T12:00:00.000Z';
+      await service.create(
+        chat.id,
+        { content: 'Advancing time' },
+        { now: futureNow },
+      );
+
+      const updatedChat = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM chats WHERE id = ?',
+        [chat.id],
+      );
+
+      expect(updatedChat?.updated_at).toBe(futureNow);
+    });
+
+    it('defensively permits posting to a chat whose owning agent was deleted', async () => {
+      const agent = fixtures.createAgent();
+      const chat = fixtures.createChat({ agent_id: agent.id });
+
+      // Simulate orphaned chat row where agent was deleted and foreign key set to NULL
+      db.exec('PRAGMA ignore_check_constraints = ON');
+      db.run('UPDATE chats SET agent_id = NULL WHERE id = ?', [chat.id]);
+      db.exec('PRAGMA ignore_check_constraints = OFF');
+
+      const msg = await service.create(chat.id, {
+        content: 'Appending to orphaned chat',
+      });
+
+      expect(msg.sequence).toBe(1);
+      expect(msg.content).toBe('Appending to orphaned chat');
+    });
+
+    it('atomically assigns dense, distinct sequences under concurrent insertions without gaps', async () => {
+      const chat = fixtures.createChat();
+      const messageCount = 15;
+
+      const results = await Promise.all(
+        Array.from({ length: messageCount }, (_, i) =>
+          service.create(chat.id, {
+            content: `Concurrent turn #${i + 1}`,
+          }),
+        ),
+      );
+
+      expect(results).toHaveLength(messageCount);
+
+      const assignedSequences = results.map((m) => m.sequence).sort((a, b) => a - b);
+      const expectedSequences = Array.from({ length: messageCount }, (_, i) => i + 1);
+
+      expect(assignedSequences).toEqual(expectedSequences);
+
+      // Verify directly in DB
+      const list = await service.findAll(chat.id, { limit: 100 });
+      expect(list.total).toBe(messageCount);
+      expect(list.items.map((m) => m.sequence)).toEqual(expectedSequences);
+    });
+
+    it('throws 409 ConflictException when sequence assignment retries are exhausted', async () => {
+      const chat = fixtures.createChat();
+
+      vi.spyOn(db, 'transaction').mockImplementation(() => {
+        const error: any = new Error(
+          'UNIQUE constraint failed: messages.chat_id, messages.sequence',
+        );
+        error.code = 'SQLITE_CONSTRAINT_UNIQUE';
+        throw error;
+      });
+
+      await expect(
+        service.create(chat.id, { content: 'Will fail due to exhausted retries' }),
+      ).rejects.toThrow(ConflictException);
+
+      vi.restoreAllMocks();
     });
   });
 });

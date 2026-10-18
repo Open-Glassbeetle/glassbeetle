@@ -436,4 +436,272 @@ describe('Chat Messages Endpoints (e2e)', () => {
       expect(res.body.items[0].content).toBe('Response before agent deletion');
     });
   });
+
+  describe('POST /api/v1/chats/:chatId/messages', () => {
+    it('creates a message and returns 201 with sequence 1 for the first message', async () => {
+      const chat = testApp.fixtures.createChat();
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Hello world' })
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        chatId: chat.id,
+        sequence: 1,
+        role: 'user',
+        agentId: null,
+        content: 'Hello world',
+        status: 'complete',
+        tokenCount: null,
+      });
+      expect(typeof res.body.id).toBe('string');
+      expect(typeof res.body.createdAt).toBe('string');
+    });
+
+    it('assigns sequential sequences (1, 2, 3) on subsequent posts and advances chat updated_at', async () => {
+      const chat = testApp.fixtures.createChat({
+        updated_at: '2026-01-01T00:00:00.000Z',
+      });
+
+      const res1 = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Turn 1' })
+        .expect(201);
+
+      const res2 = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Turn 2' })
+        .expect(201);
+
+      const res3 = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Turn 3' })
+        .expect(201);
+
+      expect(res1.body.sequence).toBe(1);
+      expect(res2.body.sequence).toBe(2);
+      expect(res3.body.sequence).toBe(3);
+
+      // Verify chat updated_at advanced beyond original timestamp
+      const chatRow = testApp.db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM chats WHERE id = ?',
+        [chat.id],
+      );
+      expect(chatRow?.updated_at).toBe(res3.body.createdAt);
+      expect(chatRow?.updated_at).not.toBe('2026-01-01T00:00:00.000Z');
+    });
+
+    it('maintains independent sequence numbering for different chats', async () => {
+      const chatA = testApp.fixtures.createChat({ title: 'Chat A' });
+      const chatB = testApp.fixtures.createChat({ title: 'Chat B' });
+
+      const resA1 = await testApp
+        .request()
+        .post(`/api/v1/chats/${chatA.id}/messages`)
+        .send({ content: 'A1' })
+        .expect(201);
+
+      const resB1 = await testApp
+        .request()
+        .post(`/api/v1/chats/${chatB.id}/messages`)
+        .send({ content: 'B1' })
+        .expect(201);
+
+      const resA2 = await testApp
+        .request()
+        .post(`/api/v1/chats/${chatA.id}/messages`)
+        .send({ content: 'A2' })
+        .expect(201);
+
+      expect(resA1.body.sequence).toBe(1);
+      expect(resB1.body.sequence).toBe(1);
+      expect(resA2.body.sequence).toBe(2);
+    });
+
+    it('returns 404 when the chat does not exist', async () => {
+      const res = await testApp
+        .request()
+        .post('/api/v1/chats/018f3a9e-0000-7000-8000-000000000099/messages')
+        .send({ content: 'Lost in the void' })
+        .expect(404);
+
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('CHAT_NOT_FOUND');
+      expect(res.body.message).toContain('not found');
+    });
+
+    it('returns 404 when referenced agentId does not exist naming the field', async () => {
+      const chat = testApp.fixtures.createChat();
+      const nonExistentAgentId = '018f3a9e-0000-7000-8000-000000000088';
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Agent turn', agentId: nonExistentAgentId })
+        .expect(404);
+
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('AGENT_NOT_FOUND');
+      expect(res.body.message).toContain('agentId');
+    });
+
+    it('accepts valid agentId and explicit roles', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Assistant Agent' });
+      const chat = testApp.fixtures.createChat();
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({
+          content: 'I can assist you!',
+          role: 'assistant',
+          agentId: agent.id,
+        })
+        .expect(201);
+
+      expect(res.body.agentId).toBe(agent.id);
+      expect(res.body.role).toBe('assistant');
+      expect(res.body.sequence).toBe(1);
+    });
+
+    it('rejects invalid role with 400 Bad Request', async () => {
+      const chat = testApp.fixtures.createChat();
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Invalid role message', role: 'root' })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body)).toContain('role');
+    });
+
+    it('rejects missing content with 400 Bad Request', async () => {
+      const chat = testApp.fixtures.createChat();
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({})
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body)).toContain('content');
+    });
+
+    it('rejects client-supplied server-managed fields with 400 Bad Request', async () => {
+      const chat = testApp.fixtures.createChat();
+
+      const forbiddenPayloads = [
+        { id: '018f3a9e-0000-7000-8000-000000000001' },
+        { sequence: 10 },
+        { status: 'complete' },
+        { tokenCount: 100 },
+        { token_count: 100 },
+        { createdAt: '2026-10-18T00:00:00.000Z' },
+        { created_at: '2026-10-18T00:00:00.000Z' },
+      ];
+
+      for (const payload of forbiddenPayloads) {
+        const res = await testApp
+          .request()
+          .post(`/api/v1/chats/${chat.id}/messages`)
+          .send({ content: 'Valid message', ...payload })
+          .expect(400);
+
+        expect(res.body.statusCode).toBe(400);
+      }
+    });
+
+    it('defensively permits posting to a chat whose owning agent was deleted', async () => {
+      const agent = testApp.fixtures.createAgent();
+      const chat = testApp.fixtures.createChat({ agent_id: agent.id });
+
+      testApp.db.exec('PRAGMA ignore_check_constraints = ON');
+      testApp.db.run('UPDATE chats SET agent_id = NULL WHERE id = ?', [chat.id]);
+      testApp.db.exec('PRAGMA ignore_check_constraints = OFF');
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Message in orphaned chat' })
+        .expect(201);
+
+      expect(res.body.sequence).toBe(1);
+      expect(res.body.content).toBe('Message in orphaned chat');
+    });
+
+    it('allows posted messages to be retrieved via the GET list endpoint in the correct order', async () => {
+      const chat = testApp.fixtures.createChat();
+
+      await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Step 1', role: 'user' })
+        .expect(201);
+
+      await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'Step 2', role: 'assistant' })
+        .expect(201);
+
+      const listRes = await testApp
+        .request()
+        .get(`/api/v1/chats/${chat.id}/messages`)
+        .expect(200);
+
+      expect(listRes.body.total).toBe(2);
+      expect(listRes.body.items).toHaveLength(2);
+      expect(listRes.body.items[0]).toMatchObject({
+        sequence: 1,
+        content: 'Step 1',
+        role: 'user',
+      });
+      expect(listRes.body.items[1]).toMatchObject({
+        sequence: 2,
+        content: 'Step 2',
+        role: 'assistant',
+      });
+    });
+
+    it('handles concurrent POST requests to the same chat atomically without gaps or lost messages', async () => {
+      const chat = testApp.fixtures.createChat();
+      const count = 12;
+
+      const requests = Array.from({ length: count }, (_, i) =>
+        testApp
+          .request()
+          .post(`/api/v1/chats/${chat.id}/messages`)
+          .send({ content: `Concurrent e2e post #${i + 1}` }),
+      );
+
+      const responses = await Promise.all(requests);
+
+      for (const res of responses) {
+        expect(res.status).toBe(201);
+      }
+
+      const assignedSequences = responses
+        .map((r) => r.body.sequence)
+        .sort((a, b) => a - b);
+      const expectedSequences = Array.from({ length: count }, (_, i) => i + 1);
+
+      expect(assignedSequences).toEqual(expectedSequences);
+
+      const listRes = await testApp
+        .request()
+        .get(`/api/v1/chats/${chat.id}/messages?limit=50`)
+        .expect(200);
+
+      expect(listRes.body.total).toBe(count);
+      expect(listRes.body.items.map((m: any) => m.sequence)).toEqual(expectedSequences);
+    });
+  });
 });

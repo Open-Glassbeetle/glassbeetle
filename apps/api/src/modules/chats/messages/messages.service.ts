@@ -1,13 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   createPaginatedResponse,
   type PaginatedResponse,
 } from '../../../common/pagination/paginated-response.dto.js';
 import { buildPaginationSqlFragment } from '../../../common/pagination/sql-query-builder.js';
+import { newId } from '../../../common/persistence/identifiers.js';
+import { nowIso } from '../../../common/persistence/timestamps.js';
 import { DatabaseService } from '../../../database/database.service.js';
 import { ChatsService } from '../chats.service.js';
 import {
   mapMessageRowToResponse,
+  type CreateMessageDto,
   type ListMessagesQueryDto,
   type MessageResponseDto,
   type MessageRow,
@@ -114,5 +121,136 @@ export class MessagesService {
       query.limit,
       query.offset,
     );
+  }
+
+  /**
+   * Appends a message to a chat with atomic, race-free sequence assignment.
+   *
+   * Architectural & concurrency guarantees:
+   * 1. Chat existence:
+   *    - The parent chat is verified prior to insertion; non-existent chats throw 404 CHAT_NOT_FOUND.
+   *    - Defensive handling: If the chat's owning agent was deleted, appending is still permitted
+   *      because conversation history is append-only and the chat row itself exists.
+   * 2. Agent attribution:
+   *    - If `agentId` is supplied, it must exist in `agents` table (404 AGENT_NOT_FOUND naming the field).
+   *    - Team membership is intentionally not required, allowing guest agents, departed team members,
+   *      and imported multi-agent transcripts.
+   * 3. Atomic sequence computation:
+   *    - The sequence is assigned via an atomic subquery: `COALESCE(MAX(sequence), 0) + 1` scoped to `chat_id`.
+   *    - The first message in an empty chat receives `sequence = 1`; subsequent messages increment by 1.
+   *    - Executed in a single atomic SQL statement inside a transaction, eliminating read-then-write drift.
+   * 4. Conflict retry (belt-and-braces):
+   *    - The database `UNIQUE (chat_id, sequence)` constraint guarantees absolute integrity.
+   *    - If a collision occurs under high concurrency, up to 3 retries are performed before throwing 409 ConflictException.
+   * 5. Parent chat timestamp:
+   *    - The chat's `updated_at` column is advanced to match `created_at` in the exact same transaction.
+   * 6. Status and token count:
+   *    - Status is fixed to `'complete'` for directly posted messages.
+   *    - `token_count` is explicitly left `null` (token counting belongs to model inference).
+   */
+  async create(
+    chatId: string,
+    dto: CreateMessageDto,
+    options?: { id?: string; now?: string },
+  ): Promise<MessageResponseDto> {
+    // 1. Verify parent chat exists.
+    this.chats.assertExists(chatId);
+
+    // 2. Validate referenced agent exists if agentId was provided.
+    if (dto.agentId) {
+      const agent = this.db.get<{ id: string }>(
+        'SELECT id FROM agents WHERE id = ?',
+        [dto.agentId],
+      );
+      if (!agent) {
+        throw new NotFoundException({
+          code: 'AGENT_NOT_FOUND',
+          message: `Referenced agentId "${dto.agentId}" does not exist`,
+        });
+      }
+    }
+
+    const role = dto.role ?? 'user';
+    const agentId = dto.agentId ?? null;
+    const maxRetries = 3;
+    let attempts = 0;
+
+    while (attempts < maxRetries) {
+      attempts += 1;
+      const messageId = options?.id && attempts === 1 ? options.id : newId();
+      const now = options?.now && attempts === 1 ? options.now : nowIso();
+
+      try {
+        return this.db.transaction(() => {
+          const insertSql = `
+            INSERT INTO messages (
+              id,
+              chat_id,
+              sequence,
+              role,
+              agent_id,
+              content,
+              status,
+              token_count,
+              created_at
+            ) VALUES (
+              ?,
+              ?,
+              (SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE chat_id = ?),
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?
+            )
+            RETURNING *
+          `;
+
+          const row = this.db.get<MessageRow>(insertSql, [
+            messageId,
+            chatId,
+            chatId,
+            role,
+            agentId,
+            dto.content,
+            'complete',
+            null,
+            now,
+          ]);
+
+          this.db.run('UPDATE chats SET updated_at = ? WHERE id = ?', [
+            now,
+            chatId,
+          ]);
+
+          return mapMessageRowToResponse(row!);
+        });
+      } catch (error: any) {
+        const isUniqueConstraint =
+          error?.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+          (typeof error?.message === 'string' &&
+            error.message.includes('UNIQUE constraint failed: messages.chat_id, messages.sequence'));
+
+        if (isUniqueConstraint && attempts < maxRetries) {
+          continue;
+        }
+
+        if (isUniqueConstraint) {
+          throw new ConflictException({
+            code: 'MESSAGE_SEQUENCE_CONFLICT',
+            message: 'Could not resolve sequence assignment conflict after multiple retries',
+          });
+        }
+
+        throw error;
+      }
+    }
+
+    /* istanbul ignore next */
+    throw new ConflictException({
+      code: 'MESSAGE_SEQUENCE_CONFLICT',
+      message: 'Could not resolve sequence assignment conflict',
+    });
   }
 }
