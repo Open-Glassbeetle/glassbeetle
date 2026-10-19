@@ -31,7 +31,7 @@ export class HealthController {
         timestamp: { type: 'string', format: 'date-time' },
         checks: {
           type: 'object',
-          required: ['database'],
+          required: ['database', 'storage'],
           properties: {
             database: {
               type: 'object',
@@ -45,6 +45,23 @@ export class HealthController {
                 error: { type: 'string', example: 'Connection failed' },
               },
             },
+            storage: {
+              type: 'object',
+              required: ['status'],
+              description:
+                'Whether the file storage root exists and is writable by the API process.',
+              properties: {
+                status: {
+                  type: 'string',
+                  enum: ['up', 'down', 'not_configured'],
+                  example: 'up',
+                },
+                error: {
+                  type: 'string',
+                  example: 'Storage root is not writable (EACCES)',
+                },
+              },
+            },
           },
         },
       },
@@ -55,8 +72,10 @@ export class HealthController {
     description:
       'Service is degraded (one or more dependency readiness checks failed).',
   })
-  getHealth(@Res({ passthrough: true }) res: Response): HealthStatus {
-    const health = this.healthService.getHealth();
+  async getHealth(
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<HealthStatus> {
+    const health = await this.healthService.getHealth();
     if (health.status !== 'ok') {
       res.status(HttpStatus.SERVICE_UNAVAILABLE);
     }
