@@ -43,7 +43,91 @@ describe('Chats endpoints (e2e)', () => {
     return response.body;
   }
 
+  it('asserts foreign-key enforcement is enabled (PRAGMA foreign_keys = ON) as the suite first test', () => {
+    const row = testApp.db.get<{ foreign_keys: number }>(
+      'PRAGMA foreign_keys',
+    );
+    expect(row?.foreign_keys).toBe(1);
+  });
+
   describe('Lifecycle and Owner Rule', () => {
+    it('covers complete chat lifecycle with identical representation across create, list and get', async () => {
+      const agent = createAgent('Lifecycle Agent');
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/chats')
+        .send({ agentId: agent.id, title: 'Lifecycle Chat' })
+        .expect(201);
+
+      const created = createRes.body;
+      expect(createRes.headers.location).toBe(`/api/v1/chats/${created.id}`);
+      expect(created).toEqual({
+        id: expect.any(String),
+        title: 'Lifecycle Chat',
+        agentId: agent.id,
+        teamId: null,
+        projectId: null,
+        contextSummary: null,
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      });
+
+      // 1. Retrieve by ID and assert identical representation
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/chats/${created.id}`)
+        .expect(200);
+      expect(getRes.body).toEqual(created);
+
+      // 2. List chats and assert consistent representation in items
+      const listRes = await testApp
+        .request()
+        .get(`/api/v1/chats?agentId=${agent.id}`)
+        .expect(200);
+      expect(listRes.body.total).toBe(1);
+      expect(listRes.body.items[0]).toEqual(created);
+
+      // 3. Update title via PATCH
+      const patchRes = await testApp
+        .request()
+        .patch(`/api/v1/chats/${created.id}`)
+        .send({ title: 'Updated Lifecycle Chat' })
+        .expect(200);
+      expect(patchRes.body.id).toBe(created.id);
+      expect(patchRes.body.title).toBe('Updated Lifecycle Chat');
+      expect(patchRes.body.agentId).toBe(agent.id);
+      expect(patchRes.body.createdAt).toBe(created.createdAt);
+      expect(new Date(patchRes.body.updatedAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(created.updatedAt).getTime(),
+      );
+
+      // 4. Retrieve by ID after update
+      const updatedGetRes = await testApp
+        .request()
+        .get(`/api/v1/chats/${created.id}`)
+        .expect(200);
+      expect(updatedGetRes.body).toEqual(patchRes.body);
+
+      // 5. Delete chat
+      await testApp
+        .request()
+        .delete(`/api/v1/chats/${created.id}`)
+        .expect(204);
+
+      // 6. Confirm removal via GET and List
+      await testApp
+        .request()
+        .get(`/api/v1/chats/${created.id}`)
+        .expect(404);
+
+      const emptyListRes = await testApp
+        .request()
+        .get(`/api/v1/chats?agentId=${agent.id}`)
+        .expect(200);
+      expect(emptyListRes.body.total).toBe(0);
+      expect(emptyListRes.body.items).toEqual([]);
+    });
+
     it('creates an agent-owned chat and sets Location header', async () => {
       const agent = createAgent();
       const response = await testApp
@@ -117,6 +201,15 @@ describe('Chats endpoints (e2e)', () => {
 
       const rows = testApp.db.all('SELECT * FROM chats');
       expect(rows).toHaveLength(0);
+
+      // Explicit nulls for both owners must also reject with 400 and write no row
+      const nullResponse = await testApp
+        .request()
+        .post('/api/v1/chats')
+        .send({ agentId: null, teamId: null, title: 'Explicit Nulls' })
+        .expect(400);
+      expect(JSON.stringify(nullResponse.body)).toContain(NEITHER_OWNER_ERROR_MESSAGE);
+      expect(testApp.db.all('SELECT * FROM chats')).toHaveLength(0);
     });
 
     it('rejects create with non-existent agentId, teamId, or projectId naming the field', async () => {
@@ -164,6 +257,35 @@ describe('Chats endpoints (e2e)', () => {
         .expect(400);
       expect(JSON.stringify(res2.body)).toContain(
         CONTEXT_SUMMARY_READONLY_ERROR_MESSAGE,
+      );
+    });
+
+    it('returns context_summary in responses when populated in database', async () => {
+      const agent = createAgent();
+      const chat = await createChat({ agentId: agent.id, title: 'Chat With Summary' });
+
+      // Simulate compaction written by background process
+      testApp.db.run(
+        'UPDATE chats SET context_summary = ? WHERE id = ?',
+        ['Compacted conversation summary of previous 20 turns', chat.id],
+      );
+
+      // Assert GET by ID returns contextSummary
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/chats/${chat.id}`)
+        .expect(200);
+      expect(getRes.body.contextSummary).toBe(
+        'Compacted conversation summary of previous 20 turns',
+      );
+
+      // Assert GET collection returns contextSummary
+      const listRes = await testApp
+        .request()
+        .get(`/api/v1/chats?agentId=${agent.id}`)
+        .expect(200);
+      expect(listRes.body.items[0].contextSummary).toBe(
+        'Compacted conversation summary of previous 20 turns',
       );
     });
   });
@@ -331,7 +453,7 @@ describe('Chats endpoints (e2e)', () => {
   });
 
   describe('Deletion and Cascades', () => {
-    it('deletes chat, destroys message history (CASCADE), and clears chatId on artifacts (SET NULL)', async () => {
+    it('deletes chat, destroys message history (CASCADE), and clears chatId on artifacts and usage_events (SET NULL)', async () => {
       const agent = createAgent();
       const chat = await createChat({ agentId: agent.id, title: 'To Delete' });
 
@@ -343,6 +465,12 @@ describe('Chats endpoints (e2e)', () => {
       const artifact = testApp.fixtures.createArtifact({
         chat_id: chat.id,
         title: 'Important Report',
+      });
+
+      // Create usage event linked to this chat
+      const usageEvent = testApp.fixtures.createUsageEvent({
+        chat_id: chat.id,
+        agent_id: agent.id,
       });
 
       // Verify they exist prior to deletion
@@ -370,16 +498,83 @@ describe('Chats endpoints (e2e)', () => {
       );
       expect(survivingArtifact).toBeDefined();
       expect(survivingArtifact?.chat_id).toBeNull();
+
+      // Verify usage event survived with chat_id set to null
+      const survivingUsageEvent = testApp.db.get<{ chat_id: string | null }>(
+        'SELECT chat_id FROM usage_events WHERE id = ?',
+        [usageEvent.id],
+      );
+      expect(survivingUsageEvent).toBeDefined();
+      expect(survivingUsageEvent?.chat_id).toBeNull();
+    });
+  });
+
+  describe('Owner constraint versus cascade tension (CHECK vs ON DELETE SET NULL)', () => {
+    it('demonstrates that deleting an owner fails SQLite CHECK constraint when a chat exists', async () => {
+      const agent = createAgent('Owner Agent');
+      const chat = await createChat({ agentId: agent.id, title: 'Dependent Chat' });
+
+      // Direct SQL attempt to delete the owning agent when foreign keys are enforced.
+      // Foreign key ON DELETE SET NULL attempts to update chats SET agent_id = NULL.
+      // But chats has CHECK ((agent_id IS NOT NULL AND team_id IS NULL) OR (agent_id IS NULL AND team_id IS NOT NULL)).
+      // SQLite evaluates CHECK on the updated row and rejects the deletion with a constraint violation.
+      expect(() => {
+        testApp.db.run('DELETE FROM agents WHERE id = ?', [agent.id]);
+      }).toThrow(/CHECK constraint failed/);
+
+      // Verify the agent and chat both remain intact in the database
+      expect(testApp.db.get('SELECT id FROM agents WHERE id = ?', [agent.id])).toBeDefined();
+      expect(testApp.db.get('SELECT id FROM chats WHERE id = ?', [chat.id])).toBeDefined();
+    });
+
+    it('demonstrates that deleting an owning team also fails SQLite CHECK constraint when a chat exists', async () => {
+      const team = createTeam('Owner Team');
+      const chat = await createChat({ teamId: team.id, title: 'Team Dependent Chat' });
+
+      expect(() => {
+        testApp.db.run('DELETE FROM teams WHERE id = ?', [team.id]);
+      }).toThrow(/CHECK constraint failed/);
+
+      expect(testApp.db.get('SELECT id FROM teams WHERE id = ?', [team.id])).toBeDefined();
+      expect(testApp.db.get('SELECT id FROM chats WHERE id = ?', [chat.id])).toBeDefined();
+    });
+
+    it('defensively handles orphaned chats (both agent_id and team_id null) on list and get without crashing', async () => {
+      const agent = createAgent('Temporary Agent');
+      const chat = await createChat({ agentId: agent.id, title: 'Orphaned Chat' });
+
+      // Simulate an orphaned row by temporarily disabling check constraints in SQLite
+      testApp.db.exec('PRAGMA ignore_check_constraints = ON');
+      testApp.db.run('UPDATE chats SET agent_id = NULL WHERE id = ?', [chat.id]);
+      testApp.db.exec('PRAGMA ignore_check_constraints = OFF');
+
+      // 1. GET /api/v1/chats/:chatId must return 200 with null owners rather than crashing
+      const getRes = await testApp
+        .request()
+        .get(`/api/v1/chats/${chat.id}`)
+        .expect(200);
+
+      expect(getRes.body).toMatchObject({
+        id: chat.id,
+        title: 'Orphaned Chat',
+        agentId: null,
+        teamId: null,
+      });
+
+      // 2. GET /api/v1/chats must include the orphaned chat without crashing
+      const listRes = await testApp
+        .request()
+        .get('/api/v1/chats')
+        .expect(200);
+
+      const found = listRes.body.items.find((c: any) => c.id === chat.id);
+      expect(found).toBeDefined();
+      expect(found.agentId).toBeNull();
+      expect(found.teamId).toBeNull();
     });
   });
 
   describe('Bulk deletion (DELETE /api/v1/chats)', () => {
-    it('asserts foreign-key enforcement is enabled (PRAGMA foreign_keys = ON)', () => {
-      const row = testApp.db.get<{ foreign_keys: number }>(
-        'PRAGMA foreign_keys',
-      );
-      expect(row?.foreign_keys).toBe(1);
-    });
 
     it('rejects bulk deletion when confirm parameter is omitted and deletes nothing', async () => {
       const agent = createAgent();
