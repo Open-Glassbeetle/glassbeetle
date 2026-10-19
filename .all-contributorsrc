@@ -69,6 +69,15 @@
       "contributions": [
         "doc"
       ]
+    },
+    {
+      "login": "nova-loop",
+      "name": "nova-loop",
+      "avatar_url": "https://avatars.githubusercontent.com/u/332996007?v=4",
+      "profile": "https://github.com/nova-loop",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "commitType": "docs",
