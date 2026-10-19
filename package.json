@@ -21,7 +21,7 @@
     "clean": "rm -rf apps/api/dist apps/web/dist apps/desktop/src-tauri/target"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.6",
     "wait-on": "^9.0.1"
   },
   "engines": {
