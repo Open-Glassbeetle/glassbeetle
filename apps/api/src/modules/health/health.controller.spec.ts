@@ -26,7 +26,7 @@ describe('HealthController', () => {
     healthService = module.get<HealthService>(HealthService);
   });
 
-  it('returns health payload without altering status code when healthy', () => {
+  it('returns health payload without altering status code when healthy', async () => {
     const healthyPayload = {
       status: 'ok' as const,
       service: 'glassbeetle-api',
@@ -34,22 +34,23 @@ describe('HealthController', () => {
       timestamp: new Date().toISOString(),
       checks: {
         database: { status: 'up' as const },
+        storage: { status: 'up' as const },
       },
     };
 
-    vi.spyOn(healthService, 'getHealth').mockReturnValue(healthyPayload);
+    vi.spyOn(healthService, 'getHealth').mockResolvedValue(healthyPayload);
 
     const mockRes = {
       status: vi.fn(),
     } as unknown as Response;
 
-    const result = controller.getHealth(mockRes);
+    const result = await controller.getHealth(mockRes);
 
     expect(result).toBe(healthyPayload);
     expect(mockRes.status).not.toHaveBeenCalled();
   });
 
-  it('sets status to 503 when service is degraded', () => {
+  it('sets status to 503 when service is degraded', async () => {
     const degradedPayload = {
       status: 'degraded' as const,
       service: 'glassbeetle-api',
@@ -57,16 +58,17 @@ describe('HealthController', () => {
       timestamp: new Date().toISOString(),
       checks: {
         database: { status: 'down' as const, error: 'DB down' },
+        storage: { status: 'up' as const },
       },
     };
 
-    vi.spyOn(healthService, 'getHealth').mockReturnValue(degradedPayload);
+    vi.spyOn(healthService, 'getHealth').mockResolvedValue(degradedPayload);
 
     const mockRes = {
       status: vi.fn(),
     } as unknown as Response;
 
-    const result = controller.getHealth(mockRes);
+    const result = await controller.getHealth(mockRes);
 
     expect(result).toBe(degradedPayload);
     expect(mockRes.status).toHaveBeenCalledWith(503);
