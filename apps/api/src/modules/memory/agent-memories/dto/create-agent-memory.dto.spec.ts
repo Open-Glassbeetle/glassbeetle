@@ -125,4 +125,53 @@ describe('CreateAgentMemoryDto', () => {
     expect(properties).toContain('createdAt');
     expect(properties).toContain('updatedAt');
   });
+
+  describe('tag size limits', () => {
+    const withTags = (tags: unknown[]) =>
+      validateDto({ content: 'Valid content', tags });
+    const tagsError = (errors: Awaited<ReturnType<typeof validateDto>>) =>
+      errors.find((e) => e.property === 'tags');
+
+    it('accepts exactly 50 tags', async () => {
+      const tags = Array.from({ length: 50 }, (_, i) => `tag-${i}`);
+      expect(await withTags(tags)).toHaveLength(0);
+    });
+
+    it('accepts 49 tags', async () => {
+      const tags = Array.from({ length: 49 }, (_, i) => `tag-${i}`);
+      expect(await withTags(tags)).toHaveLength(0);
+    });
+
+    it('rejects 51 tags', async () => {
+      const tags = Array.from({ length: 51 }, (_, i) => `tag-${i}`);
+      const error = tagsError(await withTags(tags));
+      expect(error?.constraints).toEqual({
+        arrayMaxSize: 'tags must not contain more than 50 items',
+      });
+    });
+
+    it('accepts a tag of exactly 50 characters', async () => {
+      expect(await withTags(['a'.repeat(50)])).toHaveLength(0);
+    });
+
+    it('accepts a tag of 49 characters', async () => {
+      expect(await withTags(['a'.repeat(49)])).toHaveLength(0);
+    });
+
+    it('rejects a tag of 51 characters', async () => {
+      const error = tagsError(await withTags(['ok', 'a'.repeat(51)]));
+      expect(error?.constraints).toEqual({
+        maxLength: 'each tag must not exceed 50 characters',
+      });
+    });
+
+    it('counts characters, not bytes, for non-ASCII tags', async () => {
+      // 50 characters, 150 bytes in UTF-8; 50 emoji are 100 UTF-16 code units.
+      expect(await withTags(['記'.repeat(50)])).toHaveLength(0);
+      expect(await withTags(['🧠'.repeat(50)])).toHaveLength(0);
+      expect(
+        tagsError(await withTags(['記'.repeat(51)]))?.constraints,
+      ).toHaveProperty('maxLength');
+    });
+  });
 });
