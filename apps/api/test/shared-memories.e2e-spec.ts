@@ -498,6 +498,44 @@ describe('Shared Memories Endpoints (e2e)', () => {
         'tags cannot contain empty strings',
       );
     });
+
+    it('rejects more than 50 tags with 400', async () => {
+      const tags = Array.from({ length: 51 }, (_, i) => `tag-${i}`);
+      const res = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Valid content', tags })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'tags must not contain more than 50 items',
+      );
+    });
+
+    it('rejects a tag longer than 50 characters with 400', async () => {
+      const res = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Valid content', tags: ['a'.repeat(51)] })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        'each tag must not exceed 50 characters',
+      );
+    });
+
+    it('accepts a non-ASCII tag of exactly 50 characters and stores it whole', async () => {
+      const tag = '記'.repeat(50);
+      const res = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Valid content', tags: [tag] })
+        .expect(201);
+
+      expect(res.body.tags).toEqual([tag]);
+    });
   });
 
   describe('Isolation between shared and agent memories', () => {
@@ -635,6 +673,30 @@ describe('Shared Memories Endpoints (e2e)', () => {
 
       expect(res.body.content).toBe('Content stays intact');
       expect(res.body.tags).toEqual(['new-tag-1', 'new-tag-2']);
+    });
+
+    it('rejects more than 50 tags with 400 and leaves stored tags intact', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'Content stays intact', tags: ['old-tag'] })
+        .expect(201);
+
+      const tags = Array.from({ length: 51 }, (_, i) => `tag-${i}`);
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ tags })
+        .expect(400);
+
+      expect(JSON.stringify(res.body.details)).toContain(
+        'tags must not contain more than 50 items',
+      );
+      const after = await testApp
+        .request()
+        .get(`/api/v1/memories/${createRes.body.id}`)
+        .expect(200);
+      expect(after.body.tags).toEqual(['old-tag']);
     });
 
     it('clears tags when setting tags to empty array (normalised to SQL NULL in DB)', async () => {

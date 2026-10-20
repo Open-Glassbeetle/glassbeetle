@@ -28,6 +28,19 @@ When tags are created or updated, they pass through a shared normalisation pipel
 5. **Length and count bounds**:
    - Maximum length per tag: 50 characters.
    - Maximum tags per memory: 50 tags.
+
+   Both limits are enforced twice. The create and update DTOs (agent and
+   shared memories alike) reject a request whose `tags` has more than 50
+   items, or any tag longer than 50 characters, with `400` and the standard
+   error envelope (`tags must not contain more than 50 items`,
+   `each tag must not exceed 50 characters`). That check runs on the **raw
+   input, before normalisation**: surrounding whitespace and duplicates count
+   towards the limits, which keeps the rule simple to state and means a
+   request is never silently cut down. Lengths are counted in characters, not
+   bytes, so a 50-character tag in Japanese or Cyrillic is accepted just like
+   an ASCII one. Normalisation keeps its own truncation (`MAX_TAG_LENGTH`,
+   `MAX_TAGS_PER_MEMORY` in `tags/tag-helpers.ts`) as a backstop for writes
+   that do not go through the DTOs.
 6. **Deduplication**: Duplicate tags are removed (e.g. `['work', 'Work']` collapses to `['work']`).
 7. **Canonical sorting**: Tags are sorted in ascending lexicographical order (`['beta', 'alpha']` -> `'["alpha","beta"]'`). This guarantees deterministic storage and diffing.
 
