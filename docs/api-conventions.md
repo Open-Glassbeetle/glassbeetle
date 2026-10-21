@@ -324,6 +324,12 @@ provider responses; the real error is logged server-side and the client is told
 only that something failed. Do not defeat this by catching an internal error and
 rethrowing its message to the client.
 
+A JSON body larger than `JSON_BODY_LIMIT_BYTES` (512 KiB, set in
+`apps/api/src/bootstrap.ts`) is rejected before it reaches a route with `413`
+and `code: "PAYLOAD_TOO_LARGE"`. The limit is sized so every character limit in
+the DTOs is reachable in any script; a DTO limit is still enforced by its own
+`400`.
+
 Unmatched routes also return this envelope — see `registerNotFoundFallback`.
 It must be registered *after* `app.init()`, or it shadows the routes it exists
 to fall back from.
