@@ -93,21 +93,149 @@
     </header>
 
     <!-- ── Conversation ─────────────────────────────────────────────── -->
-    <gb-panel icon="forum" title="Conversation">
-      <!-- Deliberately not a transcript with a disabled composer: there is no
-           messages endpoint and no completions endpoint, so a message box here
-           would be a control that cannot send anything. The chat itself is
-           real and is kept; what is missing is named. -->
-      <div class="blank blank--compact">
-        <mat-icon class="blank__icon">pending</mat-icon>
-        <p class="blank__title">No messages yet</p>
-        <p class="blank__text">
-          This chat exists and holds its place in the workspace, but the API does not serve
-          conversation turns yet — <span class="mono">GET /chats/:chatId/messages</span> and the
-          completion endpoints are still unimplemented. The transcript and the composer belong here
-          once they are.
+    <gb-panel
+      icon="forum"
+      title="Conversation"
+      [subtitle]="
+        messageTotal()
+          ? messageTotal() + (messageTotal() === 1 ? ' message' : ' messages')
+          : 'Nothing has been said yet'
+      "
+      flush
+    >
+      @if (messagesLoading()) {
+        <div class="transcript transcript--loading">
+          @for (row of [1, 2, 3]; track row) {
+            <div class="turn" [class.turn--own]="row === 2">
+              <gb-skeleton width="1.5rem" height="1.5rem" radius="50%" />
+              <div class="turn__skeleton">
+                <gb-skeleton width="5rem" height="0.6875rem" />
+                <gb-skeleton [width]="row === 2 ? '60%' : '85%'" height="0.8125rem" />
+              </div>
+            </div>
+          }
+        </div>
+      } @else if (messagesError(); as failure) {
+        <div class="blank blank--compact">
+          <mat-icon class="blank__icon">cloud_off</mat-icon>
+          <p class="blank__title">Could not load the conversation</p>
+          <p class="blank__text">{{ describe(failure) }}</p>
+          <button matButton="filled" (click)="load(chatId())">
+            <mat-icon>refresh</mat-icon>
+            Try again
+          </button>
+        </div>
+      } @else if (!turns().length) {
+        <div class="blank blank--compact">
+          <mat-icon class="blank__icon">forum</mat-icon>
+          <p class="blank__title">No messages yet</p>
+          <p class="blank__text">
+            Nothing has been said in this chat. Turns appear here as they are stored.
+          </p>
+        </div>
+      } @else {
+        <div class="transcript" #scroller>
+          @if (hasOlder()) {
+            <div class="earlier">
+              <button matButton [disabled]="loadingOlder()" (click)="loadOlder()">
+                @if (loadingOlder()) {
+                  Loading…
+                } @else {
+                  <ng-container>
+                    <mat-icon>expand_less</mat-icon>
+                    {{ messageTotal() - messages().length }} earlier
+                    {{ messageTotal() - messages().length === 1 ? 'message' : 'messages' }}
+                  </ng-container>
+                }
+              </button>
+            </div>
+          }
+
+          @for (turn of turns(); track turn.message.id) {
+            @if (turn.spoken) {
+              <article class="turn" [class.turn--own]="turn.own">
+                @if (turn.own) {
+                  <gb-avatar
+                    class="turn__avatar"
+                    [name]="turn.author"
+                    [imageUrl]="user.pictureUrl()"
+                    size="small"
+                  />
+                } @else if (turn.agent) {
+                  <app-agent-avatar
+                    class="turn__avatar"
+                    [name]="turn.agent.name"
+                    [hasPicture]="turn.agent.hasPicture"
+                    size="small"
+                  />
+                } @else {
+                  <gb-avatar class="turn__avatar" [name]="turn.author" size="small" />
+                }
+
+                <div class="turn__body">
+                  <p class="turn__meta">
+                    @if (turn.agent) {
+                      <a class="turn__author" [routerLink]="['/agents', turn.agent.id]">
+                        {{ turn.author }}
+                      </a>
+                    } @else {
+                      <span class="turn__author">{{ turn.author }}</span>
+                    }
+
+                    <time
+                      class="turn__time"
+                      [attr.datetime]="turn.message.createdAt"
+                      [title]="turn.message.createdAt"
+                    >
+                      {{ turn.message.createdAt | relativeTime }}
+                    </time>
+
+                    @if (turn.message.status !== 'complete') {
+                      <span class="pill pill--{{ statusTone(turn.message.status) }}">
+                        {{ turn.message.status }}
+                      </span>
+                    }
+
+                    @if (turn.message.tokenCount !== null) {
+                      <span class="turn__tokens mono" matTooltip="Tokens counted for this message">
+                        {{ turn.message.tokenCount }}t
+                      </span>
+                    }
+                  </p>
+
+                  <div class="bubble">{{ turn.message.content }}</div>
+                </div>
+              </article>
+            } @else {
+              <!-- `system` and `tool` turns are machinery, not speech: they are
+                   part of the record and are shown, but they do not get a face
+                   or a side of the conversation. -->
+              <div class="note">
+                <span class="note__role mono">{{ turn.message.role }}</span>
+                <span class="note__content">{{ turn.message.content }}</span>
+                <time
+                  class="note__time"
+                  [attr.datetime]="turn.message.createdAt"
+                  [title]="turn.message.createdAt"
+                >
+                  {{ turn.message.createdAt | relativeTime }}
+                </time>
+              </div>
+            }
+          }
+        </div>
+      }
+
+      <!-- Where the composer goes. It is not one yet: POST /messages would
+           store what was typed, but no endpoint generates a reply, and an
+           input that produces a monologue would be the half-truth this
+           codebase avoids. -->
+      <footer class="composer">
+        <mat-icon class="composer__icon">lock</mat-icon>
+        <p class="composer__text">
+          Sending is waiting on the completion endpoints — nothing would answer yet.
         </p>
-      </div>
+      </footer>
     </gb-panel>
 
     <!-- ── Summary ──────────────────────────────────────────────────── -->

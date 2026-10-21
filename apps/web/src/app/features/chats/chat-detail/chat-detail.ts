@@ -1,4 +1,15 @@
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -14,9 +25,20 @@ import { Subject, catchError, firstValueFrom, map, of, switchMap } from 'rxjs';
 import { describeApiError, toApiError, type ApiError } from '../../../core/api/api-error';
 import { MAX_CHAT_TITLE_LENGTH, ownerOf, titleOf, type Chat } from '../../../core/api/chats.models';
 import { ChatsService } from '../../../core/api/chats.service';
+import {
+  MESSAGE_PAGE_SIZE,
+  type Message,
+  type MessageRole,
+  type MessageStatus,
+} from '../../../core/api/messages.models';
+import { MessagesService } from '../../../core/api/messages.service';
+import type { PaginatedResponse } from '../../../core/api/pagination';
 import { TeamsService } from '../../../core/api/teams.service';
 import { NotificationService } from '../../../core/notifications/notification.service';
 import { AgentRosterService } from '../../../core/workspace/agent-roster.service';
+import { UserProfileService } from '../../../core/workspace/user-profile.service';
+import { AgentAvatar } from '../../agents/agent-avatar/agent-avatar';
+import { Avatar } from '../../../shared/ui/avatar';
 import { confirm } from '../../../shared/confirm-dialog/confirm-dialog';
 import { RelativeTimePipe } from '../../../shared/relative-time/relative-time.pipe';
 import { Panel } from '../../../shared/ui/panel';
@@ -27,18 +49,30 @@ interface LoadResult {
   readonly error: ApiError | null;
 }
 
+interface TranscriptResult {
+  readonly page: PaginatedResponse<Message> | null;
+  readonly error: ApiError | null;
+}
+
 /**
- * One chat: what it is called, who it belongs to, and what has been summarised
- * from it.
+ * One conversation: what was said, by whom, and what the chat itself is.
  *
- * There is no transcript on this page because there is no endpoint for one —
- * `/chats/:chatId/messages` and the completion endpoints are empty
- * controllers. The page says so where the transcript will go rather than
- * showing an input that could not send anything.
+ * The transcript is read from `GET /chats/:chatId/messages` backwards from the
+ * end — `order: 'desc'` for the newest page, then the `before` cursor for the
+ * ones above it. Cursors rather than offsets because a conversation grows at
+ * the end: an offset window shifts under the reader the moment a message is
+ * appended, while a sequence cursor addresses the same turns either way.
+ *
+ * There is still no composer. `POST /messages` exists and would store what was
+ * typed, but the completion endpoints do not, so nothing would ever answer it;
+ * an input that produces a monologue is the kind of half-truth this codebase
+ * avoids. The bar below the transcript says that in as many words.
  */
 @Component({
   selector: 'app-chat-detail',
   imports: [
+    AgentAvatar,
+    Avatar,
     MatButtonModule,
     MatFormFieldModule,
     MatIconModule,
@@ -56,23 +90,41 @@ interface LoadResult {
 })
 export class ChatDetail {
   private readonly chats = inject(ChatsService);
+  private readonly messagesApi = inject(MessagesService);
   private readonly teams = inject(TeamsService);
+  private readonly injector = inject(Injector);
   private readonly dialog = inject(MatDialog);
   private readonly notify = inject(NotificationService);
   private readonly router = inject(Router);
   private readonly formBuilder = inject(FormBuilder);
   private readonly roster = inject(AgentRosterService);
+  protected readonly user = inject(UserProfileService);
 
   /** Bound from the route (`withComponentInputBinding`). */
   readonly chatId = input.required<string>();
 
   private readonly loads = new Subject<string>();
   private readonly ownerLookups = new Subject<string | null>();
+  private readonly transcriptLoads = new Subject<string>();
+
+  /** The scrolling element of the transcript, so it can be kept at the end. */
+  private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
   protected readonly chat = signal<Chat | null>(null);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
   protected readonly error = signal<ApiError | null>(null);
+
+  /** The loaded tail of the conversation, oldest first. */
+  protected readonly messages = signal<readonly Message[]>([]);
+  /** How many messages the chat has in total, which the envelope reports. */
+  protected readonly messageTotal = signal(0);
+  protected readonly messagesLoading = signal(true);
+  protected readonly messagesError = signal<ApiError | null>(null);
+  protected readonly loadingOlder = signal(false);
+
+  /** True while part of the conversation is still above what was read. */
+  protected readonly hasOlder = computed(() => this.messages().length < this.messageTotal());
 
   /** The owning team's name, once it has been read. */
   private readonly teamName = signal<string | null>(null);
@@ -145,6 +197,36 @@ export class ChatDetail {
     return (trimmed === '' ? null : trimmed) !== (chat.title ?? null);
   });
 
+  /**
+   * The transcript, with every turn resolved to who said it.
+   *
+   * An assistant turn carries the agent that produced it; in a chat owned by a
+   * single agent the column is redundant, so the chat's own owner stands in
+   * when it is empty. A turn whose agent has since been deleted keeps its
+   * place and is drawn without a name rather than being hidden — it is part of
+   * what was said.
+   */
+  protected readonly turns = computed(() => {
+    const agents = this.roster.agents();
+    const ownerAgentId = this.chat()?.agentId ?? null;
+
+    return this.messages().map((message) => {
+      const agentId = message.agentId ?? (message.role === 'assistant' ? ownerAgentId : null);
+      const agent = agentId ? (agents.find((entry) => entry.id === agentId) ?? null) : null;
+
+      return {
+        message,
+        agent,
+        agentId,
+        author: this.authorName(message.role, agent?.name ?? null),
+        own: message.role === 'user',
+        // The two roles a person reads as speech; `system` and `tool` are
+        // machinery and are drawn as the quieter lines they are.
+        spoken: message.role === 'user' || message.role === 'assistant',
+      };
+    });
+  });
+
   constructor() {
     // `switchMap` rather than a subscribe per id: navigating from one chat to
     // the next must not leave a slow first response overwriting the second.
@@ -184,6 +266,34 @@ export class ChatDetail {
       )
       .subscribe((name) => this.teamName.set(name));
 
+    // The transcript is its own request: the chat's metadata and its turns
+    // arrive independently, and a slow conversation should not hold back the
+    // header that says which conversation it is.
+    this.transcriptLoads
+      .pipe(
+        switchMap((chatId) =>
+          this.messagesApi.list(chatId, { limit: MESSAGE_PAGE_SIZE, order: 'desc' }).pipe(
+            map((page): TranscriptResult => ({ page, error: null })),
+            catchError((error: unknown) =>
+              of<TranscriptResult>({ page: null, error: toApiError(error) }),
+            ),
+          ),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe(({ page, error }) => {
+        this.messagesLoading.set(false);
+        this.messagesError.set(error);
+        // Read newest-first so the tail is one request; shown oldest-first,
+        // which is the order a conversation is read in.
+        this.messages.set(page ? [...page.items].reverse() : []);
+        this.messageTotal.set(page?.total ?? 0);
+
+        if (page) {
+          this.scrollToLatest();
+        }
+      });
+
     effect(() => this.load(this.chatId()));
 
     effect(() => this.ownerLookups.next(this.chat()?.teamId ?? null));
@@ -193,6 +303,90 @@ export class ChatDetail {
     this.loading.set(true);
     this.error.set(null);
     this.loads.next(chatId);
+
+    this.messagesLoading.set(true);
+    this.messagesError.set(null);
+    this.messages.set([]);
+    this.messageTotal.set(0);
+    this.transcriptLoads.next(chatId);
+  }
+
+  /**
+   * Reads the page of turns above the oldest one on screen.
+   *
+   * `before` addresses that turn's sequence, so appending a message while this
+   * is in flight cannot shift the window — which is exactly what an offset
+   * would do.
+   */
+  protected async loadOlder(): Promise<void> {
+    const oldest = this.messages()[0];
+
+    if (!oldest || this.loadingOlder()) {
+      return;
+    }
+
+    this.loadingOlder.set(true);
+    const element = this.scroller()?.nativeElement;
+    const heightBefore = element?.scrollHeight ?? 0;
+
+    try {
+      const page = await firstValueFrom(
+        this.messagesApi.list(this.chatId(), {
+          limit: MESSAGE_PAGE_SIZE,
+          order: 'desc',
+          before: oldest.sequence,
+        }),
+      );
+
+      this.messages.update((current) => [...[...page.items].reverse(), ...current]);
+      this.messageTotal.set(page.total);
+
+      // Prepending moves everything down; without this the reader is thrown
+      // back to a part of the conversation they were not looking at.
+      if (element) {
+        afterNextRender(
+          () => {
+            element.scrollTop += element.scrollHeight - heightBefore;
+          },
+          { injector: this.injector },
+        );
+      }
+    } catch (error) {
+      this.notify.error(error, 'Could not load earlier messages.');
+    } finally {
+      this.loadingOlder.set(false);
+    }
+  }
+
+  /** Puts the newest turn in view, which is where a conversation is read. */
+  private scrollToLatest(): void {
+    afterNextRender(
+      () => {
+        const element = this.scroller()?.nativeElement;
+
+        if (element) {
+          element.scrollTop = element.scrollHeight;
+        }
+      },
+      { injector: this.injector },
+    );
+  }
+
+  /** What to call the author of a turn. */
+  private authorName(role: MessageRole, agentName: string | null): string {
+    switch (role) {
+      case 'user':
+        return this.user.displayName();
+      case 'assistant':
+        // A team chat can carry a turn whose agent was never recorded, and an
+        // agent can be deleted out from under one. Neither is a nameless
+        // message; both are simply the assistant side of the conversation.
+        return agentName ?? 'Assistant';
+      case 'system':
+        return 'System';
+      case 'tool':
+        return agentName ?? 'Tool';
+    }
   }
 
   /** Puts the form back to what the API last returned. */
@@ -293,6 +487,21 @@ export class ChatDetail {
 
   protected describe(error: ApiError): string {
     return describeApiError(error);
+  }
+
+  /**
+   * Which pill a message status is drawn as.
+   *
+   * Nothing writes anything but `complete` today — these are the states a
+   * generation run will move through, and the transcript is ready to show
+   * them rather than having to learn to that day.
+   */
+  protected statusTone(status: MessageStatus): 'warn' | 'error' | 'idle' {
+    if (status === 'error') {
+      return 'error';
+    }
+
+    return status === 'complete' ? 'idle' : 'warn';
   }
 
   /**
