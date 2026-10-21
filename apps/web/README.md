@@ -12,12 +12,11 @@ npm run build -w @glassbeetle/web
 
 ## What the UI covers
 
-The UI shows only what the API implements. Projects, providers, artifacts,
-analytics and backups exist as NestJS modules with empty controllers, so their
-routes 404 and they have no screens. Chats are half-served: the chat itself has
-CRUD endpoints, while `/chats/:chatId/messages` and the completion endpoints are
-still empty — so there is a chat surface, and it manages conversations without
-showing one.
+The UI shows only what the API implements. Projects, artifacts, analytics and
+backups exist as NestJS modules with empty controllers, so their routes 404 and
+they have no screens. Chats are served except for generation: the chat, its
+messages and the owner rules are all there, while `completions.controller.ts`
+has no routes — so a conversation can be read, and nothing answers.
 
 | Surface | Endpoints |
 | --- | --- |
@@ -30,7 +29,7 @@ showing one.
 | Teams · directory | `/teams` |
 | Teams · roster | `/teams/:teamId`, `/teams/:teamId/members` |
 | Chats · directory | `/chats` |
-| Chats · conversation | `/chats/:chatId` |
+| Chats · conversation | `/chats/:chatId`, `/chats/:chatId/messages` |
 | Shared memory | `/memories` |
 | System prompts | `/system-prompts` |
 
@@ -58,12 +57,12 @@ zero. The screen says so in as many words instead of presenting a full budget
 as a measurement, and the deck's meter draws no value ring until there is a
 limit to measure against.
 
-**A chat has no transcript and no composer.** `GET /chats/:chatId/messages`
-and the completion endpoints are empty controllers, so there are no turns to
-show and nothing to send one to. The chat page says that where the transcript
-will go, and keeps what the API does serve: the title, the owner, the project
-and the compacted summary. A message box disabled with a tooltip would be the
-same information in the shape of a control that does not work.
+**A chat has a transcript but no composer.** The turns are read from
+`GET /chats/:chatId/messages` and shown as the conversation they are.
+`POST /messages` exists too, so a message box could technically send — but
+`completions.controller.ts` has no routes, so nothing would ever answer, and an
+input that produces a monologue is the same half-truth as a fabricated reply.
+The bar below the transcript says what has to land before it becomes one.
 
 **The agent's Context tab is not a rendered prompt.** No endpoint composes one.
 The tab shows the configured layers — system prompt, personality, instructions,

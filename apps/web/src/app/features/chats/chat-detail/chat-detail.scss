@@ -2,6 +2,7 @@
 
 @include view.view;
 @include view.blank-state;
+@include view.pill;
 
 .masthead {
   display: flex;
@@ -150,4 +151,165 @@
   gap: 0.5rem;
   flex-wrap: wrap;
   justify-content: center;
+}
+
+/* ── The conversation ──────────────────────────────────────────────────
+   A transcript is read at its end, so the panel scrolls internally and
+   starts at the bottom. Letting the page scroll instead would put the
+   newest turn below the fold on every chat that has more than a screenful. */
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  max-height: min(60vh, 34rem);
+  overflow-y: auto;
+  padding: 0.875rem;
+  overscroll-behavior: contain;
+}
+
+.transcript--loading {
+  overflow: hidden;
+}
+
+.earlier {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 0.25rem;
+}
+
+.turn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  max-width: 48rem;
+}
+
+/* The person's own turns are set against the other side, which is how a
+   conversation reads as two sides rather than as a log. */
+.turn--own {
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
+
+.turn__avatar {
+  flex: none;
+  margin-top: 0.125rem;
+}
+
+.turn__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.turn--own .turn__body {
+  align-items: flex-end;
+}
+
+.turn__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+}
+
+.turn__author {
+  color: inherit;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+a.turn__author:hover {
+  color: var(--mat-sys-primary);
+}
+
+.turn__tokens {
+  opacity: 0.75;
+}
+
+.bubble {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 10px;
+  border-top-left-radius: 3px;
+  background: var(--mat-sys-surface-container);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  /* The stored content keeps its own line breaks: a model's answer is
+     written in paragraphs, and reflowing it into one would lose them. */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.turn--own .bubble {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 3px;
+  border-color: color-mix(in srgb, var(--mat-sys-primary) 35%, transparent);
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.turn__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  flex: 1;
+}
+
+/* A system or tool turn: part of the record, not part of the dialogue. */
+.note {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.625rem;
+  border-left: 2px solid var(--mat-sys-outline-variant);
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+}
+
+.note__role {
+  flex: none;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.note__content {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.note__time {
+  flex: none;
+  font-size: 0.6875rem;
+  opacity: 0.8;
+}
+
+/* The composer's place, held by what has to be true before it can be one. */
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container);
+}
+
+.composer__icon {
+  flex: none;
+  font-size: 0.9375rem;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.composer__text {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
 }

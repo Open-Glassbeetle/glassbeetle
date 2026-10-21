@@ -8,6 +8,8 @@ export * from './chats.service';
 export * from './health.service';
 export * from './memories.models';
 export * from './memories.service';
+export * from './messages.models';
+export * from './messages.service';
 export * from './pagination';
 export * from './system-prompts.models';
 export * from './system-prompts.service';

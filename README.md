@@ -107,11 +107,10 @@ Where the schema promises more than the API serves, the UI says so rather than
 mocking it: agents show configuration *readiness* rather than an invented run
 state, the feed is labelled as configuration history, the spending screen
 states that nothing writes `usage_events` yet rather than presenting an
-untouched budget as a measurement, the chat surface manages conversations and
-says where the transcript will go rather than drawing a composer that has no
-endpoint to send to, and model assignment is disabled with its reason stated
-because `agents.model_id` references a `models` table that has no endpoint to
-populate it.
+untouched budget as a measurement, a chat shows the turns the API serves but no
+composer because nothing generates a reply yet, and model assignment is
+disabled with its reason stated because `agents.model_id` references a `models`
+table that has no endpoint to populate it.
 
 Structure, conventions and the capability probe that drives that last point are
 documented in [`apps/web/README.md`](apps/web/README.md). Read it before adding
