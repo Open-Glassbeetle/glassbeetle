@@ -154,6 +154,34 @@ describe('HttpExceptionFilter', () => {
     );
   });
 
+  it("maps body-parser's oversized-body error to a 413 logged as a warning", () => {
+    const { host, captured } = createHost();
+    const error = vi.spyOn(filter['logger'], 'error');
+    const warn = vi.spyOn(filter['logger'], 'warn');
+    // The shape body-parser throws: an `http-errors` error, not a Nest one.
+    const tooLarge = Object.assign(new Error('request entity too large'), {
+      status: 413,
+      statusCode: 413,
+      type: 'entity.too.large',
+      expose: true,
+      length: 600_000,
+      limit: 524_288,
+    });
+
+    filter.catch(tooLarge, host);
+
+    expect(captured.status).toBe(HttpStatus.PAYLOAD_TOO_LARGE);
+    expect(captured.body).toMatchObject({
+      statusCode: 413,
+      error: 'Payload Too Large',
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'Request body is too large',
+      path: '/api/v1/agents/abc',
+    });
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['a thrown string', 'something went wrong'],
     ['a thrown object', { unexpected: true }],

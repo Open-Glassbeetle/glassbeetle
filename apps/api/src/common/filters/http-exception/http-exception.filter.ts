@@ -31,6 +31,11 @@ const INTERNAL_ERROR_MESSAGE = 'Internal server error';
 const VALIDATION_ERROR_MESSAGE = 'Request validation failed';
 
 /**
+ * Message returned when the request body exceeds the configured size limit.
+ */
+const PAYLOAD_TOO_LARGE_MESSAGE = 'Request body is too large';
+
+/**
  * Global fallback exception filter.
  *
  * `@Catch()` with no argument catches everything, which is what a last-resort
@@ -69,7 +74,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const cid = getCorrelationId();
     const cidPrefix = cid ? `[${cid}] ` : '';
 
-    if (body.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    if (body.statusCode === HttpStatus.PAYLOAD_TOO_LARGE) {
+      // The client sent more than the body limit allows. That is worth seeing
+      // in the log, but it is not a fault in the server.
+      this.logger.warn(
+        `${cidPrefix}${request?.method ?? 'UNKNOWN'} ${body.path} rejected: ${describe(exception)}`,
+      );
+    } else if (body.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
         `${cidPrefix}${request?.method ?? 'UNKNOWN'} ${body.path} failed: ${describe(exception)}`,
         toStack(exception),
@@ -93,6 +104,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
   private buildBody(exception: unknown, path: string): ApiErrorResponse {
     const timestamp = nowIso();
+
+    // body-parser rejects an oversized body before any route runs, with a
+    // plain `http-errors` error rather than a Nest `HttpException`. Left to
+    // the fallback below it would be reported as a 500.
+    if (isPayloadTooLargeError(exception)) {
+      return {
+        statusCode: HttpStatus.PAYLOAD_TOO_LARGE,
+        error: titleForStatus(HttpStatus.PAYLOAD_TOO_LARGE),
+        code: codeForStatus(HttpStatus.PAYLOAD_TOO_LARGE),
+        message: PAYLOAD_TOO_LARGE_MESSAGE,
+        path,
+        timestamp,
+      };
+    }
 
     if (!(exception instanceof HttpException)) {
       return {
@@ -150,6 +175,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
       timestamp,
     };
   }
+}
+
+/**
+ * Recognises body-parser's error for a body over the size limit.
+ *
+ * Matched on its documented `type`, since `PayloadTooLargeError` is not
+ * exported by body-parser.
+ */
+function isPayloadTooLargeError(exception: unknown): boolean {
+  return (
+    typeof exception === 'object' &&
+    exception !== null &&
+    (exception as { type?: unknown }).type === 'entity.too.large'
+  );
 }
 
 /**

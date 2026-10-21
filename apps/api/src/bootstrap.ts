@@ -3,6 +3,7 @@ import {
   VersioningType,
   type INestApplication,
 } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 import { HttpExceptionFilter } from './common/filters/http-exception/http-exception.filter.js';
 import type { ApiErrorResponse } from './common/http/api-error.js';
@@ -20,6 +21,26 @@ export const GLOBAL_PREFIX = 'api';
 export const DEFAULT_API_VERSION = '1';
 
 /**
+ * Largest JSON request body the API accepts.
+ *
+ * Without an explicit value body-parser falls back to 100 kB, which is smaller
+ * than the 100 000-character memory content the DTOs allow as soon as the text
+ * is not plain ASCII: UTF-8 needs two bytes for `ä` and three or four for CJK
+ * and emoji, so the documented limit was unreachable in most languages.
+ *
+ * The ceiling is sized from the largest body a valid request can produce:
+ * 100 000 characters of content at up to 4 bytes each is 400 kB, and the
+ * 50 tags of up to 50 characters add at most another 10 kB. 512 KiB covers
+ * both with room for the JSON envelope, so the character limits in the DTOs
+ * stay the limits clients actually meet.
+ *
+ * It is still a limit on purpose. The API has no authentication, so this is
+ * one of the boundaries against a hostile local client or page — raise it
+ * deliberately if a larger payload is ever needed, do not remove it.
+ */
+export const JSON_BODY_LIMIT_BYTES = 512 * 1024;
+
+/**
  * Applies the global HTTP configuration shared by every route.
  *
  * Extracted from `main.ts` so integration tests boot an application configured
@@ -29,6 +50,12 @@ export const DEFAULT_API_VERSION = '1';
  */
 export function configureApp(app: INestApplication): INestApplication {
   const config = app.get(AppConfigService);
+
+  // Registered before `app.init()`, so Nest sees a JSON parser is already in
+  // place and does not add its own with the 100 kB default.
+  (app as NestExpressApplication).useBodyParser('json', {
+    limit: JSON_BODY_LIMIT_BYTES,
+  });
 
   app.setGlobalPrefix(GLOBAL_PREFIX);
 
