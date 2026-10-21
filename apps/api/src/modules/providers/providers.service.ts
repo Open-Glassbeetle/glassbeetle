@@ -40,11 +40,7 @@ const SORT_COLUMNS: Record<string, string> = {
 
 @Injectable()
 export class ProvidersService {
-  constructor(private readonly db: DatabaseService) {}
-
-  // ---------------------------------------------------------------------------
-  // List
-  // ---------------------------------------------------------------------------
+  constructor(private readonly db: DatabaseService) { }
 
   /**
    * Returns a paginated, filterable list of providers.
@@ -102,10 +98,6 @@ export class ProvidersService {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Create
-  // ---------------------------------------------------------------------------
-
   /**
    * Creates a new provider.
    *
@@ -142,10 +134,6 @@ export class ProvidersService {
     return this.findOneOrFail(id);
   }
 
-  // ---------------------------------------------------------------------------
-  // Retrieve
-  // ---------------------------------------------------------------------------
-
   /**
    * Returns a single provider by ID.
    *
@@ -154,10 +142,6 @@ export class ProvidersService {
   findOne(id: string): ProviderDto {
     return this.findOneOrFail(id);
   }
-
-  // ---------------------------------------------------------------------------
-  // Update
-  // ---------------------------------------------------------------------------
 
   /**
    * Partially updates a provider.
@@ -198,10 +182,6 @@ export class ProvidersService {
     return this.findOneOrFail(id);
   }
 
-  // ---------------------------------------------------------------------------
-  // Delete
-  // ---------------------------------------------------------------------------
-
   /**
    * Deletes a provider by ID.
    *
@@ -232,10 +212,6 @@ export class ProvidersService {
     this.db.run('DELETE FROM providers WHERE id = ?', [id]);
   }
 
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
-
   private findOneOrFail(id: string): ProviderDto {
     const row = this.db.get<ProviderRow>(
       'SELECT * FROM providers WHERE id = ?',
@@ -264,10 +240,6 @@ export class ProvidersService {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Mapping helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Converts a raw SQLite row into the public {@link ProviderDto} shape.

@@ -16,10 +16,7 @@ describe('Providers endpoints (e2e)', () => {
     testApp.reset();
   });
 
-  // -------------------------------------------------------------------------
   // Database safety
-  // -------------------------------------------------------------------------
-
   describe('Database safety', () => {
     it('has foreign-key enforcement active', () => {
       const result = testApp.db.get<{ foreign_keys: number }>('PRAGMA foreign_keys');
@@ -27,10 +24,7 @@ describe('Providers endpoints (e2e)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // GET /api/v1/providers — list
-  // -------------------------------------------------------------------------
-
   describe('GET /api/v1/providers', () => {
     it('returns 200 with an empty collection when there are no providers', async () => {
       const res = await testApp.request().get('/api/v1/providers').expect(200);
@@ -146,10 +140,7 @@ describe('Providers endpoints (e2e)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // POST /api/v1/providers — create
-  // -------------------------------------------------------------------------
-
   describe('POST /api/v1/providers', () => {
     it('creates an anthropic provider and returns 201', async () => {
       const res = await testApp
@@ -345,10 +336,7 @@ describe('Providers endpoints (e2e)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // GET /api/v1/providers/:providerId — retrieve
-  // -------------------------------------------------------------------------
-
   describe('GET /api/v1/providers/:providerId', () => {
     it('returns 200 with the provider', async () => {
       const provider = testApp.fixtures.createProvider({ name: 'Existing' });
@@ -393,10 +381,7 @@ describe('Providers endpoints (e2e)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // PATCH /api/v1/providers/:providerId — update
-  // -------------------------------------------------------------------------
-
   describe('PATCH /api/v1/providers/:providerId', () => {
     it('updates only the name, leaving other fields unchanged', async () => {
       const provider = testApp.fixtures.createProvider({
@@ -511,10 +496,7 @@ describe('Providers endpoints (e2e)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // DELETE /api/v1/providers/:providerId — delete
-  // -------------------------------------------------------------------------
-
   describe('DELETE /api/v1/providers/:providerId', () => {
     it('deletes an existing provider and returns 204', async () => {
       const provider = testApp.fixtures.createProvider();
@@ -537,10 +519,7 @@ describe('Providers endpoints (e2e)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Integration: cascade chain
-  // -------------------------------------------------------------------------
-
   describe('DELETE cascade chain (integration)', () => {
     it('deleting a provider cascades to its models and credential; agents survive with modelId=null', async () => {
       // 1. Create provider, model, and credential
@@ -606,10 +585,7 @@ describe('Providers endpoints (e2e)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // All six kinds — base_url enforcement
-  // -------------------------------------------------------------------------
-
   describe('All six provider kinds and baseUrl rule', () => {
     const localKinds = ['ollama', 'lmstudio', 'openai_compatible'] as const;
     const remoteKinds = ['anthropic', 'openai', 'google'] as const;

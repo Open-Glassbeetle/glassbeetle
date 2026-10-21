@@ -5,10 +5,7 @@ import { ProvidersService } from './providers.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import type { CreateProviderDto, ProviderRow, UpdateProviderDto } from './dto/provider.dto.js';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
-
 function makeRow(overrides: Partial<ProviderRow> = {}): ProviderRow {
   return {
     id: 'test-id',
@@ -35,10 +32,7 @@ function makeMockDb(overrides: Partial<typeof mockDb> = {}) {
 let mockDb: ReturnType<typeof makeMockDb>;
 let service: ProvidersService;
 
-// ---------------------------------------------------------------------------
 // Setup
-// ---------------------------------------------------------------------------
-
 beforeEach(async () => {
   mockDb = makeMockDb();
 
@@ -52,10 +46,7 @@ beforeEach(async () => {
   service = module.get<ProvidersService>(ProvidersService);
 });
 
-// ---------------------------------------------------------------------------
 // findAll
-// ---------------------------------------------------------------------------
-
 describe('ProvidersService.findAll', () => {
   it('returns an empty paginated response when there are no providers', () => {
     mockDb.get.mockReturnValue({ total: 0 });
@@ -146,10 +137,7 @@ describe('ProvidersService.findAll', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // create
-// ---------------------------------------------------------------------------
-
 describe('ProvidersService.create', () => {
   it('creates an anthropic provider without baseUrl', () => {
     const row = makeRow({ kind: 'anthropic' });
@@ -286,10 +274,7 @@ describe('ProvidersService.create', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // findOne
-// ---------------------------------------------------------------------------
-
 describe('ProvidersService.findOne', () => {
   it('returns the provider when it exists', () => {
     const row = makeRow({ id: 'abc-123' });
@@ -307,10 +292,7 @@ describe('ProvidersService.findOne', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // update
-// ---------------------------------------------------------------------------
-
 describe('ProvidersService.update', () => {
   it('updates only the supplied fields', () => {
     const existing = makeRow({ name: 'Old Name', kind: 'openai', enabled: 1 });
@@ -376,10 +358,7 @@ describe('ProvidersService.update', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // remove
-// ---------------------------------------------------------------------------
-
 describe('ProvidersService.remove', () => {
   it('deletes an existing provider', () => {
     const row = makeRow();
@@ -396,10 +375,7 @@ describe('ProvidersService.remove', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Boolean round-trip
-// ---------------------------------------------------------------------------
-
 describe('Boolean round-tripping', () => {
   it('maps is_local=0 from DB to isLocal=false in DTO', () => {
     mockDb.get.mockReturnValue(makeRow({ is_local: 0 }));
