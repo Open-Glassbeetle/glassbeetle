@@ -5,10 +5,7 @@ import { ProvidersController } from './providers.controller.js';
 import { ProvidersService } from './providers.service.js';
 import type { ProviderDto } from './dto/provider.dto.js';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
-
 function makeDto(overrides: Partial<ProviderDto> = {}): ProviderDto {
   return {
     id: 'test-id',
@@ -33,10 +30,7 @@ const mockService = {
 
 let controller: ProvidersController;
 
-// ---------------------------------------------------------------------------
 // Setup
-// ---------------------------------------------------------------------------
-
 beforeEach(async () => {
   vi.clearAllMocks();
 
@@ -48,10 +42,7 @@ beforeEach(async () => {
   controller = module.get<ProvidersController>(ProvidersController);
 });
 
-// ---------------------------------------------------------------------------
 // findAll
-// ---------------------------------------------------------------------------
-
 describe('ProvidersController.findAll', () => {
   it('delegates to service.findAll and returns the result', () => {
     const response = { items: [makeDto()], total: 1, limit: 50, offset: 0 };
@@ -73,10 +64,7 @@ describe('ProvidersController.findAll', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // create
-// ---------------------------------------------------------------------------
-
 describe('ProvidersController.create', () => {
   it('delegates to service.create and returns the created provider', () => {
     const dto = makeDto({ kind: 'anthropic' });
@@ -99,10 +87,7 @@ describe('ProvidersController.create', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // findOne
-// ---------------------------------------------------------------------------
-
 describe('ProvidersController.findOne', () => {
   it('delegates to service.findOne with the route param', () => {
     const dto = makeDto({ id: 'abc-123' });
@@ -123,10 +108,7 @@ describe('ProvidersController.findOne', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // update
-// ---------------------------------------------------------------------------
-
 describe('ProvidersController.update', () => {
   it('delegates to service.update with id and body', () => {
     const dto = makeDto({ name: 'Updated' });
@@ -157,10 +139,7 @@ describe('ProvidersController.update', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // remove
-// ---------------------------------------------------------------------------
-
 describe('ProvidersController.remove', () => {
   it('delegates to service.remove with the route param', () => {
     mockService.remove.mockReturnValue(undefined);
