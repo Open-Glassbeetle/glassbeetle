@@ -25,7 +25,7 @@ the `question` label.
 ## Contributors ✨
 
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-7-orange.svg?style=flat-square)](#contributors-)
+[![All Contributors](https://img.shields.io/badge/all_contributors-8-orange.svg?style=flat-square)](#contributors-)
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 Maintained by the [all-contributors](https://allcontributors.org) bot. Emoji
@@ -45,6 +45,9 @@ each one means.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/KeuqS"><img src="https://avatars.githubusercontent.com/u/50778230?v=4?s=100" width="100px;" alt="Aykut Güney"/><br /><sub><b>Aykut Güney</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=KeuqS" title="Documentation">📖</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://ayodeleayoola.com"><img src="https://avatars.githubusercontent.com/u/76216787?v=4?s=100" width="100px;" alt="Ayodele Ayoola"/><br /><sub><b>Ayodele Ayoola</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=CreedTech" title="Documentation">📖</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/nova-loop"><img src="https://avatars.githubusercontent.com/u/332996007?v=4?s=100" width="100px;" alt="nova-loop"/><br /><sub><b>nova-loop</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=nova-loop" title="Code">💻</a></td>
+    </tr>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/dbdefault"><img src="https://avatars.githubusercontent.com/u/246079841?v=4?s=100" width="100px;" alt="dbdefault"/><br /><sub><b>dbdefault</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=dbdefault" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
