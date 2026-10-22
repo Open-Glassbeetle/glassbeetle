@@ -23,6 +23,14 @@ import { SystemPromptsModule } from './modules/system-prompts/system-prompts.mod
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { ApplicationModule } from './modules/application/application.module.js';
 
+/**
+ * Root module: composes the infrastructure modules and every feature module.
+ *
+ * Import order mirrors the dependency direction — configuration, persistence,
+ * crypto, file storage and model adapters first, then the feature modules that
+ * build on them. Implements `NestModule` only to bind the request logging
+ * middleware, which has to apply to every route rather than to one controller.
+ */
 @Module({
   imports: [
     AppConfigModule,
@@ -50,6 +58,12 @@ import { ApplicationModule } from './modules/application/application.module.js';
   providers: [AppService, RequestLoggingMiddleware],
 })
 export class AppModule implements NestModule {
+  /**
+   * Applies `RequestLoggingMiddleware` to all routes.
+   *
+   * Registered globally rather than per module so that every request — including
+   * ones that match no controller — gets a request id and an access log line.
+   */
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestLoggingMiddleware).forRoutes('*');
   }

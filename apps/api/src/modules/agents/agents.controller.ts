@@ -42,11 +42,27 @@ import { PaginatedAgentsResponseDto } from './dto/paginated-agents-response.dto.
 import { UpdateAgentDto } from './dto/update-agent.dto.js';
 import { UploadAgentPictureDto } from './dto/upload-agent-picture.dto.js';
 
+/**
+ * Routes for `/agents`: the agent collection, single agents, and their
+ * profile pictures.
+ *
+ * Holds no logic beyond HTTP concerns. Validation happens in the global
+ * `ValidationPipe` against the DTOs, and every query, cascade and file
+ * operation is {@link AgentsService}'s. The `@Api*` decorators are what makes
+ * the endpoint appear at `/api/docs`, and `agents.openapi.spec.ts` asserts
+ * that document, so the annotations are tested rather than decorative.
+ */
 @ApiTags('agents')
 @Controller('agents')
 export class AgentsController {
   constructor(private readonly agentsService: AgentsService) {}
 
+  /**
+   * `GET /agents` — paginated, filterable list.
+   *
+   * Filters, sort whitelist and the `"null"` convention for unassigned
+   * references are all applied in the service; the DTO only validates shape.
+   */
   @Get()
   @ApiOperation({
     summary: 'List agents',
@@ -126,6 +142,12 @@ export class AgentsController {
     return this.agentsService.findAll(query);
   }
 
+  /**
+   * `GET /agents/:agentId` — one agent.
+   *
+   * Delegates to the throwing lookup, so a missing agent becomes a 404 rather
+   * than a `null` body.
+   */
   @Get(':agentId')
   @ApiOperation({
     summary: 'Retrieve an agent',
@@ -148,6 +170,13 @@ export class AgentsController {
     return this.agentsService.findOne(agentId);
   }
 
+  /**
+   * `POST /agents` — create an agent.
+   *
+   * Sets the `Location` header to the new resource, which is why it takes the
+   * response object. `passthrough: true` keeps Nest in charge of serialising
+   * the body, so only the header is handled here.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -187,6 +216,12 @@ export class AgentsController {
     return created;
   }
 
+  /**
+   * `PATCH /agents/:agentId` — partial update.
+   *
+   * Absent fields are left untouched and an explicit `null` clears a nullable
+   * column; {@link UpdateAgentDto} is what distinguishes the two.
+   */
   @Patch(':agentId')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -224,6 +259,12 @@ export class AgentsController {
     return this.agentsService.update(agentId, dto);
   }
 
+  /**
+   * `DELETE /agents/:agentId` — permanent deletion.
+   *
+   * Answers 204 with no body. The cascade consequences are part of the API
+   * contract and are spelled out in the operation description above.
+   */
   @Delete(':agentId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
@@ -254,6 +295,17 @@ Cascade behavior across referencing tables:
     await this.agentsService.delete(agentId);
   }
 
+  /**
+   * `PUT /agents/:agentId/picture` — replace the profile picture.
+   *
+   * `PUT` rather than `POST` because the picture is a single sub-resource that
+   * is replaced, not a collection that grows.
+   *
+   * The empty-file check here is deliberate duplication of the service's own:
+   * the interceptor leaves `file` undefined when the multipart body carries no
+   * file part, and rejecting that at the edge keeps the 400 next to the
+   * `@ApiBadRequestResponse` that documents it.
+   */
   @Put(':agentId/picture')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(PictureUploadInterceptor)
@@ -304,6 +356,12 @@ Cascade behavior across referencing tables:
     return this.agentsService.uploadPicture(agentId, file);
   }
 
+  /**
+   * `DELETE /agents/:agentId/picture` — remove the profile picture.
+   *
+   * Idempotent: 204 whether or not the agent had one. A missing agent is still
+   * a 404, since the path then names nothing.
+   */
   @Delete(':agentId/picture')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({

@@ -17,11 +17,24 @@ import { BudgetService } from './budget.service.js';
 import { BudgetResponseDto } from './dto/budget-response.dto.js';
 import { UpdateBudgetDto } from './dto/update-budget.dto.js';
 
+/**
+ * Routes for `/budget`: the spending limit and the spend against it.
+ *
+ * A singleton like `/user`, for the same reason — one installation, one
+ * budget — so there is no id in the path and no list endpoint.
+ *
+ * @see `docs/spend-budget.md`
+ */
 @ApiTags('budget')
 @Controller('budget')
 export class BudgetController {
   constructor(private readonly budgetService: BudgetService) {}
 
+  /**
+   * `GET /budget` — the budget and the current period's spend.
+   *
+   * Cannot 404: the row is provisioned on read, with no limit set.
+   */
   @Get()
   @ApiOperation({
     summary: 'Retrieve the spending budget and the spend against it',
@@ -39,6 +52,13 @@ The period is anchored to local midnight in the time zone on the user profile, s
     return this.budgetService.find();
   }
 
+  /**
+   * `PATCH /budget` — change the limit or the period.
+   *
+   * Returns the budget with the spend recomputed for the period that now
+   * applies, so changing from monthly to daily reports the day's spend
+   * immediately rather than the month's.
+   */
   @Patch()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

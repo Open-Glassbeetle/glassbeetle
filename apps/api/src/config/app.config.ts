@@ -16,6 +16,12 @@ export const APP_CONFIG_NAMESPACE = 'app';
  */
 export type NodeEnv = 'development' | 'production' | 'test';
 
+/**
+ * Operational log verbosity, in increasing order of severity.
+ *
+ * Mirrors Nest's own logger levels so the configured value can be handed to
+ * the logger without translation.
+ */
 export type LogLevelType = 'debug' | 'log' | 'info' | 'warn' | 'error';
 
 /**

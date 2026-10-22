@@ -31,12 +31,26 @@ import {
 /**
  * Controller for managing chat messages collection.
  * Mounted at `/api/v1/chats/:chatId/messages`.
+ *
+ * Read and append only; a transcript that could be edited would not be one.
+ * `:chatId` is a filter rather than decoration — ids are globally unique, so
+ * every query in `MessagesService` is scoped by it.
+ *
+ * Tagged `chats` rather than `messages`, so the documentation page groups a
+ * chat and its conversation together.
  */
 @ApiTags('chats')
 @Controller('chats/:chatId/messages')
 export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
 
+  /**
+   * `GET /chats/:chatId/messages` — the conversation, oldest first.
+   *
+   * Offset and cursor pagination are both available: `before` and `after` take
+   * a sequence number, which is what a conversation view loading earlier turns
+   * actually has to hand.
+   */
   @Get()
   @ApiOperation({
     summary: 'List chat messages',
@@ -70,6 +84,13 @@ export class MessagesController {
     return this.messagesService.findAll(chatId, query);
   }
 
+  /**
+   * `POST /chats/:chatId/messages` — append a message.
+   *
+   * The sequence number is assigned by the service, not by the client. Status
+   * is always `complete` and `tokenCount` is left unset, since both belong to
+   * model inference, which is not implemented yet.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({

@@ -14,10 +14,18 @@ export const KNOWN_STORAGE_BUCKETS = [
   'backups',
 ] as const;
 
+/**
+ * One of the four buckets the application itself writes to.
+ */
 export type KnownStorageBucket = (typeof KNOWN_STORAGE_BUCKETS)[number];
 
 /**
- * Storage bucket identifier. Allows predefined buckets as well as custom namespaces.
+ * Storage bucket identifier: a {@link KnownStorageBucket} or any other name.
+ *
+ * `string & {}` keeps editor completion for the known buckets while still
+ * accepting an arbitrary namespace, which keeps the service usable by a future
+ * feature without a change here. A bucket is one directory below the storage
+ * root and is created on first write.
  */
 export type StorageBucket = KnownStorageBucket | (string & {});
 

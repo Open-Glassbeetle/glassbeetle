@@ -5,6 +5,19 @@ import { InvalidPathError } from './file-storage.errors.js';
 /**
  * Validates that a reference is a safe, non-empty, relative string without null bytes
  * or path-traversal escapes.
+ *
+ * References reach this code from the database and from request parameters, and
+ * the checks are ordered so that each one cannot be bypassed by the trick the
+ * next one catches: null bytes first, since they truncate paths in native
+ * calls; then one round of percent-decoding, so `%2e%2e%2f` is judged as the
+ * `../` it becomes; then absolute forms, including Windows drive letters and
+ * UNC prefixes, which `path.resolve` would otherwise honour over the storage
+ * root.
+ *
+ * @returns The percent-decoded reference, which is what callers must resolve —
+ * resolving the raw string instead would undo the decoding step.
+ * @throws InvalidPathError (400) when the reference is empty, not a string,
+ * carries a null byte, is malformed percent-encoding, or is absolute.
  */
 export function assertSafeReference(reference: unknown): string {
   if (typeof reference !== 'string' || reference.trim().length === 0) {
@@ -53,6 +66,25 @@ export function assertSafeReference(reference: unknown): string {
  *
  * Prevents directory traversal sequences (`../`, `..\`), sibling directory prefix attacks
  * (`/storage-evil` vs `/storage`), and root escapes.
+ *
+ * Containment is asserted twice over, because neither check is sufficient on
+ * its own: the relative path from the root must not start with `..`, and the
+ * resolved path must begin with the root *plus a separator*. Without the
+ * separator, a root of `/storage` would accept `/storage-evil/x`.
+ *
+ * Comparison is case-insensitive on Windows, where two spellings of a path name
+ * the same file.
+ *
+ * This is a purely syntactic check; it does not look at the filesystem, so a
+ * symlink inside the root can still point outside it. Use
+ * {@link verifyStoragePathContainment} where that matters.
+ *
+ * @param options - `allowRoot` permits the reference to resolve to the storage
+ * root itself, which directory-level operations need and file operations must
+ * not allow.
+ * @returns The absolute path, guaranteed to be inside the root.
+ * @throws InvalidPathError (400) when the reference is unsafe or escapes the
+ * root.
  */
 export function resolveStoragePath(
   storageRoot: string,
@@ -122,6 +154,23 @@ export function resolveStoragePath(
 /**
  * Resolves a reference against the storage root and verifies real filesystem containment,
  * asserting that no symlinks in the path point outside the storage root.
+ *
+ * {@link resolveStoragePath} can only reason about the text of a path. A
+ * symlink placed inside the storage root — by another program, or by the user —
+ * makes a syntactically contained path reach anywhere on the disk, which for a
+ * read endpoint means serving arbitrary files and for a write means
+ * overwriting them.
+ *
+ * Each existing path segment from the target up to the root is `lstat`ed, and
+ * any symlink among them must resolve to a location still inside the root's own
+ * real path. Segments that do not exist yet are skipped, so this can be called
+ * before a write as well as before a read.
+ *
+ * @returns The absolute path, verified against the filesystem as it is now.
+ * Nothing stops a symlink from appearing between this check and the operation
+ * that follows it.
+ * @throws InvalidPathError (400) when the reference is unsafe, escapes the
+ * root, or passes through a symlink that leaves it.
  */
 export async function verifyStoragePathContainment(
   storageRoot: string,

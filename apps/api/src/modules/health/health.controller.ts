@@ -8,11 +8,28 @@ import {
 import type { Response } from 'express';
 import { HealthService, type HealthStatus } from './health.service.js';
 
+/**
+ * Routes for `/health`: the readiness probe the desktop shell waits on.
+ *
+ * The one unauthenticated endpoint whose status code carries meaning beyond
+ * success or failure, which is why it is also the endpoint `npm run dev`
+ * polls before launching the Tauri window.
+ */
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
+  /**
+   * `GET /health` — current health and dependency readiness.
+   *
+   * Always returns the full report as the body; only the status code differs,
+   * 200 when every check is `up` and 503 otherwise. A probe can therefore read
+   * the code alone, while a human gets the reason without a second request.
+   *
+   * Overriding the status is why this handler takes the response object;
+   * `passthrough: true` leaves Nest to serialise the body.
+   */
   @Get()
   @ApiOperation({
     summary: 'Service health',

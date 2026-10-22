@@ -35,6 +35,17 @@ export const ALLOWED_TEAM_SORT_COLUMNS: Readonly<Record<string, string>> = {
   id: 't.id',
 };
 
+/**
+ * Owns the `teams` table and the roster size reported with each team.
+ *
+ * Every read goes through a `LEFT JOIN` on `team_members`, because the size
+ * of a team is part of what a client asks for when it asks for a team, and
+ * the alternative is a query per row.
+ *
+ * {@link touch} and {@link assertExists} are public for `TeamMembersService`:
+ * a roster change has to update its team's `updated_at`, and both resources
+ * must reject an unknown team with the same `TEAM_NOT_FOUND`.
+ */
 @Injectable()
 export class TeamsService {
   constructor(private readonly db: DatabaseService) {}
@@ -185,6 +196,15 @@ export class TeamsService {
     return row;
   }
 
+  /**
+   * Reads one team with its roster size, or throws.
+   *
+   * `GROUP BY t.id` is required by the aggregate; without it SQLite would
+   * return a single row for an empty table and the missing-team check would
+   * never fire.
+   *
+   * @throws NotFoundException (404) with code `TEAM_NOT_FOUND`.
+   */
   private readRowWithCount(teamId: string): TeamRowWithCount {
     const row = this.db.get<TeamRowWithCount>(
       `SELECT t.*, COUNT(m.agent_id) AS member_count

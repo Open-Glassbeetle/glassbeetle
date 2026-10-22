@@ -86,12 +86,25 @@ export function applyUserProfileUpdates(
   const setClauses: string[] = [];
   const setParams: unknown[] = [];
 
+  /**
+   * Notes one column change in all three outputs at once, so the `SET` clause
+   * and its bound parameter cannot drift apart.
+   */
   function recordChange(column: keyof UserProfileRow, value: unknown): void {
     changedColumns[column] = value;
     setClauses.push(`${column} = ?`);
     setParams.push(value);
   }
 
+  /**
+   * Applies the omitted-versus-null contract to one text column.
+   *
+   * An absent field changes nothing; `null` clears the column; and a value
+   * equal to the stored one is not a change, so re-saving an unedited form
+   * leaves `updated_at` alone. Written once and applied to all five text
+   * columns, because getting this wrong per field is how a profile acquires a
+   * column that cannot be cleared.
+   */
   function recordText(
     column: 'display_name' | 'pronouns' | 'about' | 'locale' | 'timezone',
     incoming: string | null | undefined,

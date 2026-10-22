@@ -13,6 +13,19 @@ import {
 import type { UpdateBudgetDto } from './dto/update-budget.dto.js';
 import { periodWindow, type PeriodWindow } from './period-window.js';
 
+/**
+ * Owns the single `spend_budget` row and reports spend against it.
+ *
+ * Two responsibilities that cannot be separated: the limit is meaningless
+ * without the window it applies to, and the window depends on the user's
+ * time zone, which is why this service depends on {@link UserService}.
+ *
+ * Spend is read from `usage_events.cost_usd` and never written here. Nothing
+ * in the API writes that column yet — completions are not implemented — so a
+ * current installation reports a real budget and a spend of zero.
+ *
+ * @see `docs/spend-budget.md`
+ */
 @Injectable()
 export class BudgetService {
   constructor(
@@ -22,6 +35,10 @@ export class BudgetService {
 
   /**
    * The budget and what has been spent against it this period.
+   *
+   * @param now - The instant the period is computed from. Injectable so the
+   * tests can place a request on either side of a rollover without waiting for
+   * one.
    */
   async find(now: Date = new Date()): Promise<BudgetResponseDto> {
     const row = this.readRow();
@@ -61,7 +78,8 @@ export class BudgetService {
    *
    * Anchored to the user's own midnight, which is the whole reason the profile
    * carries a time zone: a daily budget that renewed at UTC midnight would
-   * reset in the middle of a Swiss afternoon.
+   * reset in the middle of a Swiss afternoon. A profile with no time zone falls
+   * back to UTC in `periodWindow` rather than failing.
    */
   private windowFor(row: SpendBudgetRow, now: Date): PeriodWindow {
     return periodWindow(row.period, now, this.users.timezone());

@@ -57,10 +57,32 @@ export { ALLOWED_PICTURE_MIME_TYPES };
  */
 export { escapeLikePattern };
 
+/**
+ * Owns the `agents` table: queries, foreign-key validation and picture files.
+ *
+ * An agent is the central configuration object of the domain — a name, a
+ * personality, instructions, and optionally the model and system prompt it
+ * runs with — so most other resources reference one.
+ *
+ * Two dependencies are `@Optional()` because not every caller needs them:
+ * unit tests of the read paths construct the service with only a database,
+ * and the picture endpoints are the only methods that require
+ * `FileStorageService`. They fail with a plain `Error` if it is absent, which
+ * is a wiring mistake rather than a client error.
+ *
+ * Deleting an agent is partly constrained by the schema rather than by this
+ * code; {@link delete} documents which cascades apply.
+ */
 @Injectable()
 export class AgentsService {
   private readonly logger = new Logger(AgentsService.name);
 
+  /**
+   * @param db - The shared SQLite connection.
+   * @param fileStorage - Required by the picture endpoints only.
+   * @param appConfigService - Supplies the upload size limit; a compiled-in
+   * default is used when it is absent.
+   */
   constructor(
     private readonly db: DatabaseService,
     @Optional() private readonly fileStorage?: FileStorageService,

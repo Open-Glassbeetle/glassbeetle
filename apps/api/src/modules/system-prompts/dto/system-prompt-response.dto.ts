@@ -21,4 +21,8 @@ export class SystemPromptResponseDto {
   readonly updatedAt!: string;
 }
 
+/**
+ * Readonly view of {@link SystemPromptResponseDto} for callers that only
+ * consume one.
+ */
 export type SystemPromptResponse = Readonly<SystemPromptResponseDto>;

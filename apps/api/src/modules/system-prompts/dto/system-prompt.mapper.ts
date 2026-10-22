@@ -32,8 +32,11 @@ export function mapSystemPromptRowToResponse(
  * Result of computing partial updates against an existing system prompt row.
  */
 export interface ApplySystemPromptUpdatesResult {
+  /** Whether any column is actually being changed. */
   readonly hasChanges: boolean;
+  /** SQL `SET` clauses, e.g. `["content = ?", "updated_at = ?"]`. */
   readonly setClauses: readonly string[];
+  /** Bound values for `setClauses`, in the same order. */
   readonly setParams: readonly unknown[];
 }
 

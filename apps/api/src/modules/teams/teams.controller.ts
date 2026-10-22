@@ -34,11 +34,23 @@ import {
 } from './dto/index.js';
 import { TeamsService } from './teams.service.js';
 
+/**
+ * Routes for `/teams`: the team collection and single teams.
+ *
+ * A team groups agents so that a chat can be owned by several of them at
+ * once. Each response carries the size of the roster, which is why the
+ * service joins rather than letting a client count.
+ *
+ * The roster itself lives under `TeamMembersController`.
+ */
 @ApiTags('teams')
 @Controller('teams')
 export class TeamsController {
   constructor(private readonly teamsService: TeamsService) {}
 
+  /**
+   * `GET /teams` — paginated list with roster sizes, filterable by name.
+   */
   @Get()
   @ApiOperation({
     summary: 'List teams',
@@ -102,6 +114,9 @@ export class TeamsController {
     return this.teamsService.findAll(query);
   }
 
+  /**
+   * `GET /teams/:teamId` — one team with its roster size.
+   */
   @Get(':teamId')
   @ApiOperation({
     summary: 'Retrieve a team',
@@ -120,6 +135,12 @@ export class TeamsController {
     return this.teamsService.findOne(teamId);
   }
 
+  /**
+   * `POST /teams` — create a team with an empty roster.
+   *
+   * Sets the `Location` header, which is why it takes the response object.
+   * Members are added through the roster endpoints afterwards.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -155,6 +176,11 @@ The roster starts empty; agents are put on it with \`POST /teams/:teamId/members
     return created;
   }
 
+  /**
+   * `PATCH /teams/:teamId` — change the name or description.
+   *
+   * The roster is not updated here; it has its own endpoints.
+   */
   @Patch(':teamId')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -182,6 +208,12 @@ The roster starts empty; agents are put on it with \`POST /teams/:teamId/members
     return this.teamsService.update(teamId, dto);
   }
 
+  /**
+   * `DELETE /teams/:teamId` — delete a team.
+   *
+   * The roster cascades away with it. The agents themselves survive, because
+   * membership is a relationship and not ownership.
+   */
   @Delete(':teamId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({

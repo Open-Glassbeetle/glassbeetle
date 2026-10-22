@@ -54,6 +54,14 @@ const API_TAGS: ReadonlyArray<{ name: string; description: string }> = [
 
 /**
  * Builds the OpenAPI document for a configured application.
+ *
+ * The application must already be initialised, since the document is generated
+ * from the routes and DTO metadata Nest has registered. The declared server is
+ * the versioned base path, so a request issued from the documentation page goes
+ * to `/api/v1/...` rather than to the bare controller path.
+ *
+ * Used both by {@link setupOpenApi} and by the `openapi:export` script, so the
+ * served document and the exported file cannot differ.
  */
 export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
   const builder = new DocumentBuilder()

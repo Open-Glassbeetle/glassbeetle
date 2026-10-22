@@ -97,7 +97,5 @@ export class BudgetResponseDto {
   readonly updatedAt!: string;
 }
 
-/**
- * Interface representation of the budget.
- */
+/** Readonly view of {@link BudgetResponseDto} for callers that only consume one. */
 export type BudgetResponse = Readonly<BudgetResponseDto>;

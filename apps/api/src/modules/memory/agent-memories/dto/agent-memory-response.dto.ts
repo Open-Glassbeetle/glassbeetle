@@ -2,6 +2,10 @@ import { ApiProperty } from '@nestjs/swagger';
 
 /**
  * Raw row shape for the `agent_memories` SQLite table.
+ *
+ * `tags` is JSON text here, or `NULL` for an untagged memory; the response
+ * always exposes an array. `agent_id` is `NOT NULL` with
+ * `ON DELETE CASCADE`, so a private memory cannot outlive its agent.
  */
 export interface AgentMemoryRow {
   readonly id: string;
@@ -60,4 +64,8 @@ export class AgentMemoryResponseDto {
   readonly updatedAt!: string;
 }
 
+/**
+ * Readonly view of {@link AgentMemoryResponseDto} for callers that only
+ * consume one.
+ */
 export type AgentMemoryResponse = Readonly<AgentMemoryResponseDto>;

@@ -30,6 +30,10 @@ import { verifyStoragePathContainment } from './path-safety.js';
 
 /**
  * Injection token for overriding the file storage root directory in tests or custom setups.
+ *
+ * Takes precedence over configuration and the environment, so an integration
+ * test can point storage at a temporary directory and leave the user's own
+ * files untouched.
  */
 export const FILE_STORAGE_ROOT_OVERRIDE = 'FILE_STORAGE_ROOT_OVERRIDE';
 
@@ -57,6 +61,16 @@ export class FileStorageService implements OnModuleInit {
   private readonly logger = new Logger(FileStorageService.name);
   private readonly configuredRoot: string;
 
+  /**
+   * Resolves the storage root, in order of precedence.
+   *
+   * An injected {@link FILE_STORAGE_ROOT_OVERRIDE}, then
+   * `GLASSBEETLE_STORAGE_ROOT`, then a `storage` directory below the configured
+   * data directory, then the same below the per-user default. The result is
+   * always absolute, since every containment check resolves against it.
+   *
+   * No directory is created here; see {@link onModuleInit}.
+   */
   constructor(
     @Optional() private readonly appConfigService?: AppConfigService,
     @Optional()
@@ -88,6 +102,9 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Lifecycle hook to initialize storage root and predefined bucket directories on startup.
+   *
+   * Created eagerly so that a first upload does not also have to be the thing
+   * that discovers the data directory is not writable.
    */
   async onModuleInit(): Promise<void> {
     await this.ensureDirectories();
@@ -95,6 +112,11 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Ensures that the storage root directory and all known bucket directories exist on disk.
+   *
+   * Idempotent, since every `mkdir` is recursive.
+   *
+   * @param buckets - Bucket directories to create; defaults to
+   * {@link KNOWN_STORAGE_BUCKETS}.
    */
   async ensureDirectories(
     buckets: readonly string[] = KNOWN_STORAGE_BUCKETS,
@@ -109,6 +131,15 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Validates a bucket name to prevent directory traversal or separator injection.
+   *
+   * A bucket is one path segment, so any separator, `..`, or null byte is
+   * rejected outright rather than normalised. {@link StorageBucket} permits an
+   * arbitrary name, and this is what keeps that from becoming a way to write
+   * outside the storage root.
+   *
+   * @returns The trimmed bucket name.
+   * @throws InvalidPathError (400) when the name is empty or not a single safe
+   * segment.
    */
   private assertValidBucket(bucket: string): string {
     if (typeof bucket !== 'string' || bucket.trim().length === 0) {
@@ -135,6 +166,24 @@ export class FileStorageService implements OnModuleInit {
    * from detected content bytes. Client-supplied filenames are never used for disk paths.
    *
    * Writes are atomic: content is written to a temporary file in the same directory and renamed.
+   *
+   * Generating the name rather than reusing the client's removes a whole class
+   * of problem at once — traversal in a filename, a collision overwriting
+   * someone else's file, a case-insensitive filesystem merging two names, and a
+   * misleading extension. The rename is within one directory, so it is atomic
+   * on every supported platform: a reader sees either no file or the complete
+   * one, never a partial write.
+   *
+   * @param bucket - Target bucket; created if absent.
+   * @param options - Size ceiling and allowed MIME types, both checked against
+   * the actual bytes.
+   * @returns The relative reference to store in the database, the size written,
+   * and the detected content type.
+   * @throws InvalidPathError (400) when the bucket name is unsafe.
+   * @throws FilePayloadTooLargeError (413) when the content exceeds
+   * `options.maxBytes`.
+   * @throws UnsupportedMediaTypeError (415) when the detected type is not
+   * allowed. No file is left behind in either case.
    */
   async write(
     bucket: StorageBucket,
@@ -194,6 +243,19 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Internal implementation for writing streaming input with size and MIME validation.
+   *
+   * A stream cannot be inspected before it is consumed, so this writes to the
+   * temporary file while it checks: the running total is compared against
+   * `maxBytes` on every chunk and the stream is destroyed the moment it is
+   * exceeded, which is what keeps an oversized upload from being buffered or
+   * fully written. The first 4 KiB are kept aside for content-type detection,
+   * which is all the signatures need.
+   *
+   * Backpressure is honoured by pausing the source until the write stream
+   * drains, so a large file does not accumulate in memory.
+   *
+   * The temporary file is removed on every failure path, and the rename into
+   * place happens only once size and type have both passed.
    */
   private async writeStreamInternal(
     bucket: string,
@@ -309,6 +371,14 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Reads an entire stored file into memory as a Buffer.
+   *
+   * For files of known, modest size. Use {@link createReadStream} for artifacts
+   * and backup archives.
+   *
+   * @throws InvalidPathError (400) when the reference is unsafe or escapes the
+   * storage root.
+   * @throws FileNotFoundError (404) when nothing is stored there, or the
+   * reference names a directory.
    */
   async read(reference: string): Promise<Buffer> {
     const resolvedPath = await this.resolveAndVerify(reference);
@@ -331,6 +401,9 @@ export class FileStorageService implements OnModuleInit {
    * Streams a stored file from disk as a Readable stream.
    *
    * Recommended for large files (artifacts, backup archives) to avoid loading whole files into memory.
+   *
+   * @see createReadStream, which this delegates to; the two differ only in
+   * their declared return type.
    */
   async stream(reference: string): Promise<Readable> {
     return this.createReadStream(reference);
@@ -338,6 +411,15 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Creates a filesystem read stream for a stored file.
+   *
+   * Existence is checked before the stream is created, so a missing file
+   * produces a 404 the exception filter can turn into the usual envelope rather
+   * than an error event on a response that has already started streaming.
+   *
+   * @throws InvalidPathError (400) when the reference is unsafe or escapes the
+   * storage root.
+   * @throws FileNotFoundError (404) when nothing is stored there, or the
+   * reference names a directory.
    */
   async createReadStream(
     reference: string,
@@ -361,6 +443,19 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Returns metadata for a stored file: size, detected content type, and timestamps.
+   *
+   * The content type is detected from the file's first 4 KiB rather than from
+   * its extension, so it describes what the file is even if it was renamed on
+   * disk. A failure to read the header is not fatal: detection then falls back
+   * to `application/octet-stream`.
+   *
+   * `createdAt` comes from `birthtime`, which not every filesystem records; it
+   * can equal the modification time.
+   *
+   * @throws InvalidPathError (400) when the reference is unsafe or escapes the
+   * storage root.
+   * @throws FileNotFoundError (404) when nothing is stored there, or the
+   * reference names a directory.
    */
   async stat(reference: string): Promise<FileStat> {
     const resolvedPath = await this.resolveAndVerify(reference);
@@ -408,6 +503,13 @@ export class FileStorageService implements OnModuleInit {
    *
    * Deleting an already-missing file is treated as a success and returns silently.
    * Path containment is still enforced; traversal attempts will be rejected.
+   *
+   * Tolerating a missing file matters because deletion is a cleanup step after
+   * the database row is gone: failing here would report an error for a request
+   * that has already succeeded, and callers log rather than propagate.
+   *
+   * @throws InvalidPathError (400) when the reference is unsafe, escapes the
+   * storage root, or names a directory.
    */
   async delete(reference: string): Promise<void> {
     const resolvedPath = await this.resolveAndVerify(reference);
@@ -430,6 +532,11 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Checks whether a stored file exists.
+   *
+   * @returns `true` only for a regular file; a directory at that reference
+   * reports `false`.
+   * @throws InvalidPathError (400) when the reference is unsafe or escapes the
+   * storage root.
    */
   async exists(reference: string): Promise<boolean> {
     const resolvedPath = await this.resolveAndVerify(reference);
@@ -447,6 +554,11 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Validates a byte buffer against caller-specified size and MIME constraints.
+   *
+   * Exposed so a caller that validates without writing — rejecting an upload
+   * before any other work — does not have to import the helper itself.
+   *
+   * @see validateFile for the exceptions this raises.
    */
   validate(
     data: Buffer | Uint8Array,
@@ -464,6 +576,13 @@ export class FileStorageService implements OnModuleInit {
 
   /**
    * Resolves a relative reference to an absolute path and verifies containment.
+   *
+   * Every read, write, stat and delete goes through this, which is the single
+   * point at which a reference out of the database or a request is checked
+   * against the storage root.
+   *
+   * @throws InvalidPathError (400) when the reference is unsafe, escapes the
+   * root, or passes through a symlink that leaves it.
    */
   async resolveAndVerify(reference: string): Promise<string> {
     return verifyStoragePathContainment(this.configuredRoot, reference);
@@ -472,6 +591,12 @@ export class FileStorageService implements OnModuleInit {
 
 /**
  * Checks if a value is a readable stream.
+ *
+ * Duck-typed on `pipe` or async iteration rather than on `instanceof Readable`,
+ * so a stream from another realm or a plain async iterable is recognised too.
+ * Buffers and typed arrays are excluded explicitly, so that a future change to
+ * either predicate cannot start routing in-memory content down the streaming
+ * path.
  */
 function isReadableStream(value: unknown): value is NodeJS.ReadableStream {
   return (

@@ -71,7 +71,5 @@ export class ChatResponseDto {
   readonly updatedAt!: string;
 }
 
-/**
- * Interface representation of a chat resource.
- */
+/** Readonly view of {@link ChatResponseDto} for callers that only consume one. */
 export type ChatResponse = Readonly<ChatResponseDto>;

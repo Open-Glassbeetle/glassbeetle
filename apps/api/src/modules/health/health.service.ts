@@ -3,32 +3,82 @@ import { Injectable, Optional } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
 
+/**
+ * Overall verdict: `ok` only when every component check is `up`.
+ */
 export type HealthState = 'ok' | 'degraded';
+/**
+ * State of one dependency.
+ *
+ * `not_configured` is distinct from `down` on purpose: it means the provider
+ * was not injected at all, which happens in tests and in a partial boot, and
+ * it must not be read as a failure of a dependency that is present.
+ */
 export type ComponentStatus = 'up' | 'down' | 'not_configured';
 
+/**
+ * Result of the SQLite connectivity check.
+ */
 export interface DatabaseHealth {
   status: ComponentStatus;
   error?: string;
 }
 
+/**
+ * Result of the storage-root check.
+ */
 export interface StorageHealth {
   status: ComponentStatus;
   error?: string;
 }
 
+/**
+ * Per-dependency results behind the overall {@link HealthStatus.status}.
+ */
 export interface HealthChecks {
   database: DatabaseHealth;
   storage: StorageHealth;
 }
 
+/**
+ * The health report returned by `GET /health`.
+ *
+ * Shaped by hand rather than as a DTO class, and described inline in the
+ * controller's `@ApiOkResponse`, because nothing validates it as input.
+ */
 export interface HealthStatus {
+  /**
+   * `ok` when every check passed, `degraded` otherwise. Mirrored by the HTTP
+   * status code (200 or 503).
+   */
   status: HealthState;
+  /**
+   * Fixed service identifier, so a probe pointed at the wrong port can tell.
+   */
   service: string;
+  /**
+   * Whole seconds since this service instance was constructed — not process
+   * uptime, which a restarted Nest application would not reset.
+   */
   uptimeSeconds: number;
+  /**
+   * ISO-8601 UTC instant the report was produced.
+   */
   timestamp: string;
   checks: HealthChecks;
 }
 
+/**
+ * Reports whether the API's two local dependencies are usable.
+ *
+ * "Healthy" here means the database answers and the storage root is a
+ * writable directory — the two things every write endpoint needs. Checks run
+ * on every request rather than on a timer, since a cached verdict is exactly
+ * what a readiness probe must not return.
+ *
+ * Both dependencies are `@Optional()` so the endpoint still answers when one
+ * was not wired, reporting `not_configured` instead of failing.
+ */
 @Injectable()
 export class HealthService {
   private readonly startedAt = Date.now();
@@ -38,6 +88,12 @@ export class HealthService {
     @Optional() private readonly fileStorageService?: FileStorageService,
   ) {}
 
+  /**
+   * Runs every check and assembles the report.
+   *
+   * Does not throw: a failing dependency is data in the response, not an
+   * exception, so the caller always receives a readable verdict.
+   */
   async getHealth(): Promise<HealthStatus> {
     const dbHealth = this.checkDatabase();
     const storageHealth = await this.checkStorage();
@@ -55,6 +111,16 @@ export class HealthService {
     };
   }
 
+  /**
+   * Probes the database with `SELECT 1`.
+   *
+   * A trivial query rather than a pragma or a table read, so the check proves
+   * the connection is open and answering without depending on the schema.
+   *
+   * The error message is passed through, since a SQLite error names the file at
+   * most and the alternative — reporting `down` with no reason — is what makes
+   * a health endpoint useless when it matters.
+   */
   private checkDatabase(): DatabaseHealth {
     if (
       !this.databaseService ||

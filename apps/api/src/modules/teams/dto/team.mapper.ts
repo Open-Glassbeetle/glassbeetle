@@ -38,7 +38,12 @@ export function mapTeamRowToResponse(row: TeamRowWithCount): TeamResponseDto {
   };
 }
 
-/** Options when mapping a `CreateTeamDto` to a new row. */
+/**
+ * Options when mapping a `CreateTeamDto` to a new row.
+ *
+ * Both exist so a test can pin the generated id and timestamp and assert on an
+ * exact row.
+ */
 export interface CreateTeamRowOptions {
   readonly id?: string;
   readonly now?: string;
@@ -66,9 +71,13 @@ export function mapCreateTeamDtoToRow(
  * Result of evaluating an `UpdateTeamDto` against an existing row.
  */
 export interface TeamUpdateResult {
+  /** The row as it will be after the update; equal to the existing row when nothing changed. */
   readonly updatedRow: TeamRow;
+  /** Whether any column is actually being changed. */
   readonly hasChanges: boolean;
+  /** SQL `SET` clauses, e.g. `["name = ?", "updated_at = ?"]`. */
   readonly setClauses: readonly string[];
+  /** Bound values for `setClauses`, in the same order. */
   readonly setParams: readonly unknown[];
 }
 
@@ -89,6 +98,10 @@ export function applyTeamUpdates(
   const setClauses: string[] = [];
   const setParams: unknown[] = [];
 
+  /**
+   * Notes one column change in all three outputs at once, so the `SET` clause
+   * and its bound parameter cannot drift apart.
+   */
   function recordChange(column: keyof TeamRow, value: unknown): void {
     changedColumns[column] = value;
     setClauses.push(`${column} = ?`);

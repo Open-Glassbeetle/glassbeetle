@@ -43,10 +43,27 @@ export interface StoredProfilePicture {
   readonly open: () => Promise<Readable>;
 }
 
+/**
+ * Owns the single `user_profile` row and its picture file.
+ *
+ * The table has a `singleton` column with a uniqueness constraint, so SQLite
+ * itself refuses a second profile; this service never has to decide which
+ * row is the right one. Reads provision the row on first access, which is
+ * why no endpoint under `/user` can answer 404 for the profile itself.
+ *
+ * @see `docs/user-profile.md` for the seeding rules and the reasoning behind
+ * the singleton shape.
+ */
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
 
+  /**
+   * @param db - The shared SQLite connection.
+   * @param fileStorage - Required by the picture endpoints only.
+   * @param appConfigService - Supplies the upload size limit and the seed
+   * display name.
+   */
   constructor(
     private readonly db: DatabaseService,
     @Optional() private readonly fileStorage?: FileStorageService,
@@ -82,6 +99,10 @@ export class UserService {
    * An empty body is an idempotent no-op: the response is the unchanged profile
    * and `updated_at` is left alone, so a client that saves a form it did not
    * edit does not make the profile look freshly touched.
+   *
+   * Which fields changed, and the normalisation of blank strings to `null`, are
+   * decided by `applyUserProfileUpdates`; this method only runs the statement
+   * it produced.
    */
   async update(dto: UpdateUserProfileDto): Promise<UserProfileResponseDto> {
     const existing = this.readRow();
@@ -101,6 +122,18 @@ export class UserService {
 
   /**
    * Stores a new profile picture, replacing and deleting any previous one.
+   *
+   * The new file is written before the row is updated and the old file is
+   * deleted only afterwards, so a failure part-way through leaves an orphaned
+   * file rather than a profile pointing at a file that is gone.
+   *
+   * `picture_updated_at` is refreshed as well as `updated_at`, because it is
+   * what the download endpoint's `ETag` is built from.
+   *
+   * @throws BadRequestException (400) when no file was sent, it is empty, or
+   * its bytes are not a permitted image format.
+   * @throws PayloadTooLargeException (413) when it exceeds the configured
+   * maximum size.
    */
   async uploadPicture(
     file: Express.Multer.File | undefined,
@@ -276,6 +309,14 @@ export class UserService {
     }
   }
 
+  /**
+   * The 404 used both for "no picture stored" and for a recorded file that is
+   * missing from storage.
+   *
+   * One exception for both cases on purpose: from a client's point of view
+   * there is no picture to fetch either way, and distinguishing them would
+   * describe the server's filesystem state in a response.
+   */
   private pictureNotFound(): NotFoundException {
     return new NotFoundException({
       code: 'PICTURE_NOT_FOUND',

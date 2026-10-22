@@ -5,6 +5,10 @@ import { ApiProperty } from '@nestjs/swagger';
  */
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+/**
+ * Runtime list of {@link MessageRole}, for `@IsIn()` and for the OpenAPI
+ * enum. Kept in step with the `CHECK` constraint on `messages.role`.
+ */
 export const MESSAGE_ROLES: readonly MessageRole[] = [
   'user',
   'assistant',
@@ -14,9 +18,17 @@ export const MESSAGE_ROLES: readonly MessageRole[] = [
 
 /**
  * Lifecycle states of message generation according to `messages` schema.
+ *
+ * A message posted through the API is always `complete`. The other three
+ * describe a message produced by inference — queued, being streamed, or
+ * abandoned after a provider error — and nothing writes them yet.
  */
 export type MessageStatus = 'pending' | 'streaming' | 'complete' | 'error';
 
+/**
+ * Runtime list of {@link MessageStatus}, for `@IsIn()` and for the OpenAPI
+ * enum. Kept in step with the `CHECK` constraint on `messages.status`.
+ */
 export const MESSAGE_STATUSES: readonly MessageStatus[] = [
   'pending',
   'streaming',
@@ -92,5 +104,5 @@ export class MessageResponseDto {
   readonly createdAt!: string;
 }
 
-/** Interface representation of a chat message response. */
+/** Readonly view of {@link MessageResponseDto} for callers that only consume one. */
 export type MessageResponse = Readonly<MessageResponseDto>;

@@ -4,6 +4,10 @@ import { TeamResponseDto } from './team-response.dto.js';
 
 /**
  * Paginated collection envelope for team resources.
+ *
+ * Restates the four envelope fields instead of extending
+ * `PaginatedResponseDto`, because the generic `items` array needs a concrete
+ * type for `@nestjs/swagger` to emit an item schema.
  */
 export class PaginatedTeamsResponseDto implements PaginatedResponse<TeamResponseDto> {
   @ApiProperty({

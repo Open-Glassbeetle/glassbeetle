@@ -4,6 +4,10 @@ import { MessageResponseDto } from './message-response.dto.js';
 
 /**
  * Paginated collection envelope for chat message resources.
+ *
+ * Restates the four envelope fields instead of extending
+ * `PaginatedResponseDto`, because the generic `items` array needs a concrete
+ * type for `@nestjs/swagger` to emit an item schema.
  */
 export class PaginatedMessagesResponseDto
   implements PaginatedResponse<MessageResponseDto>

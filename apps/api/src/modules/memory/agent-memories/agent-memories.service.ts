@@ -42,6 +42,9 @@ function escapeLikePattern(value: string): string {
 
 /**
  * Options when creating an agent memory row.
+ *
+ * Both exist so a test can pin the generated id and timestamp and assert on an
+ * exact row.
  */
 export interface CreateAgentMemoryOptions {
   readonly id?: string;
@@ -53,6 +56,15 @@ export interface CreateAgentMemoryOptions {
  *
  * Agent memory is a private store of facts, preferences, and context belonging
  * to a single agent. It cascades on agent deletion (`ON DELETE CASCADE`).
+ *
+ * "Private" is enforced by scoping, not by a permission check: every statement
+ * filters on `agent_id` as well as on the memory's own id. Identifiers are
+ * globally unique, so `WHERE id = ?` alone would hand one agent's private
+ * memory to a URL naming another agent — the mistake this project treats as a
+ * security bug.
+ *
+ * @see `docs/memory-tags.md` for the tag format and filtering semantics.
+ * @see `docs/rfc-semantic-memory.md` for where this is heading.
  */
 @Injectable()
 export class AgentMemoriesService {
@@ -62,7 +74,12 @@ export class AgentMemoriesService {
 
   /**
    * Asserts that an agent exists in SQLite.
-   * Throws 404 NotFoundException with AGENT_NOT_FOUND if the agent does not exist.
+   *
+   * Every endpoint under `/agents/:agentId/memories` starts here, so a URL
+   * naming an agent that does not exist is a 404 about the agent rather than an
+   * empty list that looks like an agent with no memories.
+   *
+   * @throws NotFoundException (404) with code `AGENT_NOT_FOUND`.
    */
   public assertAgentExists(agentId: string): void {
     const row = this.db.get<{ id: string }>(

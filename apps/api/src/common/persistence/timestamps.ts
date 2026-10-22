@@ -21,6 +21,10 @@ export function nowIso(): string {
 
 /**
  * Formats a date for storage. Always UTC, always millisecond precision.
+ *
+ * @throws TypeError when the date is invalid. Writing `'Invalid Date'` into a
+ * timestamp column would break every later comparison on it, so this fails at
+ * the point the mistake was made.
  */
 export function toIso(date: Date): string {
   if (Number.isNaN(date.getTime())) {

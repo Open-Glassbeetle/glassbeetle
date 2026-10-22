@@ -105,6 +105,6 @@ export class AgentResponseDto {
 }
 
 /**
- * Interface representation of an agent resource.
+ * Readonly view of {@link AgentResponseDto} for callers that only consume one.
  */
 export type AgentResponse = Readonly<AgentResponseDto>;

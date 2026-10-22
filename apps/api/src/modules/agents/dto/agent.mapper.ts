@@ -10,6 +10,12 @@ import type { UpdateAgentDto } from './update-agent.dto.js';
 
 /**
  * Raw row shape for the `agents` SQLite table.
+ *
+ * Mirrors the DDL in `data/agents/agents.sql` exactly, `snake_case` column
+ * names included, so the storage shape and the API shape stay distinguishable
+ * in the type system. `model_params` is JSON text and `picture_path` is a
+ * filesystem reference that must never reach a response — see
+ * {@link mapAgentRowToResponse}.
  */
 export interface AgentRow {
   readonly id: string;
@@ -28,6 +34,10 @@ export interface AgentRow {
 
 /**
  * Options when mapping a CreateAgentDto to a new database row.
+ *
+ * Both exist so a test can pin the generated values and assert on an exact
+ * row; production callers pass the id and timestamp they already generated for
+ * the surrounding transaction.
  */
 export interface CreateAgentRowOptions {
   /** Optional ID override (defaults to generating a new UUIDv7). */
@@ -67,6 +77,12 @@ export function mapAgentRowToResponse(row: AgentRow): AgentResponseDto {
 
 /**
  * Maps a `CreateAgentDto` to a fresh `AgentRow` ready for database insertion.
+ *
+ * Absent optional fields become `null` rather than `undefined`, since
+ * `better-sqlite3` rejects `undefined` as a bound parameter. `created_at` and
+ * `updated_at` are set to the same instant, so a never-updated row is
+ * recognisable. `picture_path` is always `null`: a picture is uploaded through
+ * its own endpoint, never as part of creation.
  */
 export function mapCreateAgentDtoToRow(
   dto: CreateAgentDto,
@@ -114,6 +130,19 @@ export interface AgentUpdateResult {
  * - Explicit `null`: Nullable column is set to `null`.
  * - Value: Column is set to the provided value.
  * - If no fields were modified (`{}`), returns `hasChanges: false` without altering `updated_at`.
+ *
+ * A supplied value equal to the stored one counts as no change, which is what
+ * keeps a client re-submitting an unchanged form from bumping `updated_at`.
+ * `modelParams` is compared in its serialised form, because two objects that
+ * are equal as values are never equal as references.
+ *
+ * Builds the SQL rather than running it, so the caller decides when and in
+ * which transaction the update happens, and the unit tests can assert on the
+ * statement without a database.
+ *
+ * @returns The prospective row, whether anything changed, and the `SET`
+ * clauses and parameters to apply. `updated_at` is appended to the clauses
+ * only when there is another change to carry it.
  */
 export function applyAgentUpdates(
   existingRow: AgentRow,
@@ -124,6 +153,12 @@ export function applyAgentUpdates(
   const setClauses: string[] = [];
   const setParams: unknown[] = [];
 
+  /**
+   * Notes one column change in all three outputs at once.
+   *
+   * Keeping the `SET` clause and its parameter in step is the whole point:
+   * building them separately is how a mismatched parameter list gets written.
+   */
   function recordChange(
     columnName: keyof AgentRow,
     sqlColumn: string,

@@ -26,14 +26,26 @@ export class AppConfigService {
     this.config = configService.get<AppConfig>(APP_CONFIG_NAMESPACE)!;
   }
 
+  /**
+   * Run mode, from `NODE_ENV`. Defaults to `development`.
+   */
   get nodeEnv(): NodeEnv {
     return this.config.nodeEnv;
   }
 
+  /**
+   * Whether the application runs in production mode.
+   *
+   * Convenience over comparing {@link nodeEnv} at each call site; `test` and
+   * `development` both report `false`.
+   */
   get isProduction(): boolean {
     return this.config.nodeEnv === 'production';
   }
 
+  /**
+   * TCP port the HTTP server listens on, bound to loopback only.
+   */
   get port(): number {
     return this.config.port;
   }

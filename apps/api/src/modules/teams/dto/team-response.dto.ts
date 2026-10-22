@@ -53,5 +53,5 @@ export class TeamResponseDto {
   readonly updatedAt!: string;
 }
 
-/** Interface representation of a team. */
+/** Readonly view of {@link TeamResponseDto} for callers that only consume one. */
 export type TeamResponse = Readonly<TeamResponseDto>;

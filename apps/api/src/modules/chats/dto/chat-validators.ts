@@ -30,6 +30,17 @@ export const CONTEXT_SUMMARY_READONLY_ERROR_MESSAGE =
 
 /**
  * Validates that an object has exactly one owner: either `agentId` or `teamId`.
+ *
+ * A class-level rule expressed as a property decorator, which is why it reads
+ * both fields off `args.object` rather than looking at the value it is attached
+ * to. Declaring it on the DTO means the rejection comes from the global
+ * `ValidationPipe` with the field named, before any service runs; `ChatsService`
+ * checks the same rule again for the paths that do not go through the pipe.
+ *
+ * The message distinguishes the four ways the rule can be broken — both owners,
+ * neither, a non-string, and a blank string — since "specify either agentId or
+ * teamId" is not useful feedback for a request that supplied one of them as an
+ * empty string.
  */
 export function ExactlyOneOwner(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string) {
@@ -96,6 +107,15 @@ export function ExactlyOneOwner(validationOptions?: ValidationOptions) {
 
 /**
  * Disallows a property entirely from being set in request payloads.
+ *
+ * Declaring a server-managed field on the DTO and then rejecting it is what
+ * turns it into a 400 that names the field. Leaving it off the DTO would make
+ * the global pipe's `forbidNonWhitelisted` report an unknown property instead,
+ * which tells a client nothing about why the field it can see in responses
+ * cannot be sent back.
+ *
+ * @param errorMessage - The message returned when the property is present; it
+ * should say what manages the field instead.
  */
 export function DisallowField(
   errorMessage: string,

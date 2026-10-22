@@ -19,7 +19,16 @@ export interface SpendBudgetRow {
  * What was actually spent in a period.
  */
 export interface PeriodSpend {
+  /**
+   * Sum of `usage_events.cost_usd` inside the window, in US dollars.
+   */
   readonly spentUsd: number;
+  /**
+   * Number of usage events inside the window that carry a cost.
+   *
+   * Counted on `cost_usd` rather than on rows, because `usage_events` is an
+   * activity log and most of its rows are not chargeable.
+   */
   readonly callCount: number;
 }
 
@@ -73,9 +82,13 @@ export function mapBudgetToResponse(
  * Result of evaluating an `UpdateBudgetDto` against an existing row.
  */
 export interface BudgetUpdateResult {
+  /** The row as it will be after the update; equal to the existing row when nothing changed. */
   readonly updatedRow: SpendBudgetRow;
+  /** Whether any column is actually being changed. */
   readonly hasChanges: boolean;
+  /** SQL `SET` clauses, e.g. `["name = ?", "updated_at = ?"]`. */
   readonly setClauses: readonly string[];
+  /** Bound values for `setClauses`, in the same order. */
   readonly setParams: readonly unknown[];
 }
 
@@ -96,6 +109,10 @@ export function applyBudgetUpdates(
   const setClauses: string[] = [];
   const setParams: unknown[] = [];
 
+  /**
+   * Notes one column change in all three outputs at once, so the `SET` clause
+   * and its bound parameter cannot drift apart.
+   */
   function recordChange(column: keyof SpendBudgetRow, value: unknown): void {
     changedColumns[column] = value;
     setClauses.push(`${column} = ?`);

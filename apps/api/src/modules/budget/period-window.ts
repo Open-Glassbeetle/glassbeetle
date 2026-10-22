@@ -3,6 +3,10 @@
  */
 export const BUDGET_PERIODS = ['daily', 'weekly', 'monthly'] as const;
 
+/**
+ * The period a budget runs on, matching the `CHECK` constraint on
+ * `spend_budget.period`.
+ */
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 
 /**
@@ -13,7 +17,13 @@ export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
  * belongs to the new period, and belongs to exactly one of them.
  */
 export interface PeriodWindow {
+  /**
+   * First instant inside the window, inclusive.
+   */
   readonly start: string;
+  /**
+   * First instant after the window, exclusive.
+   */
   readonly end: string;
 }
 
@@ -105,6 +115,12 @@ function addDays(date: CivilDate, days: number): CivilDate {
   };
 }
 
+/**
+ * A civil date read as midnight UTC.
+ *
+ * Not an instant anyone experiences — a vehicle for the platform's calendar
+ * arithmetic, which is why no zone appears in it.
+ */
 function utcDate(date: CivilDate): Date {
   return new Date(Date.UTC(date.year, date.month - 1, date.day));
 }
@@ -160,12 +176,21 @@ function zoneOffsetMs(instant: Date, timeZone: string): number {
   return asIfUtc - Math.floor(instant.getTime() / 1000) * 1000;
 }
 
+/**
+ * A wall-clock reading in a zone: the civil date plus the time of day.
+ */
 interface ZonedParts extends CivilDate {
   readonly hour: number;
   readonly minute: number;
   readonly second: number;
 }
 
+/**
+ * Cache of one formatter per time zone.
+ *
+ * Unbounded, but the keys are the zones the single user's profile has held,
+ * so it holds one entry in practice.
+ */
 const PART_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 
 /**

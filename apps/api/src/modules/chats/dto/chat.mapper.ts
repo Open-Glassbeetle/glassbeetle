@@ -6,6 +6,14 @@ import type { UpdateChatDto } from './update-chat.dto.js';
 
 /**
  * Raw row shape for the `chats` SQLite table.
+ *
+ * Both owner columns are nullable here even though a chat must have exactly
+ * one owner: the `CHECK` constraint holds on insert, but `ON DELETE SET NULL`
+ * can leave an existing chat with neither. The mapper copes with that rather
+ * than asserting the invariant on read.
+ *
+ * `context_summary` is written by context compaction, which is not implemented,
+ * and clients may not set it.
  */
 export interface ChatRow {
   readonly id: string;
@@ -44,6 +52,9 @@ export function mapChatRowToResponse(row: ChatRow): ChatResponseDto {
 
 /**
  * Options when mapping a `CreateChatDto` to a new row.
+ *
+ * Both exist so a test can pin the generated id and timestamp and assert on an
+ * exact row.
  */
 export interface CreateChatRowOptions {
   readonly id?: string;
@@ -75,9 +86,13 @@ export function mapCreateChatDtoToRow(
  * Result of evaluating an `UpdateChatDto` against an existing row.
  */
 export interface ChatUpdateResult {
+  /** The row as it will be after the update; equal to the existing row when nothing changed. */
   readonly updatedRow: ChatRow;
+  /** Whether any column is actually being changed. */
   readonly hasChanges: boolean;
+  /** SQL `SET` clauses, e.g. `["name = ?", "updated_at = ?"]`. */
   readonly setClauses: readonly string[];
+  /** Bound values for `setClauses`, in the same order. */
   readonly setParams: readonly unknown[];
 }
 
@@ -98,6 +113,10 @@ export function applyChatUpdates(
   const setClauses: string[] = [];
   const setParams: unknown[] = [];
 
+  /**
+   * Notes one column change in all three outputs at once, so the `SET` clause
+   * and its bound parameter cannot drift apart.
+   */
   function recordChange(column: keyof ChatRow, value: unknown): void {
     changedColumns[column] = value;
     setClauses.push(`${column} = ?`);

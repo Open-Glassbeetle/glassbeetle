@@ -55,11 +55,31 @@ export function matchesEtag(header: string | undefined, etag: string): boolean {
   return header.split(',').some((candidate) => strip(candidate) === etag);
 }
 
+/**
+ * Routes for `/user`: the profile of the person this installation belongs to.
+ *
+ * A singleton, not a collection: there is no id in the path and no list
+ * endpoint, because the application is single-user and a path that could name
+ * a second person is the first step towards an owner column on every table.
+ *
+ * The picture download is the one endpoint in the API that writes response
+ * headers itself — `ETag`, `Cache-Control` and `nosniff` — since the picture
+ * URL is stable across replacements and would otherwise be either
+ * permanently cached or never cached.
+ *
+ * @see `docs/user-profile.md`
+ */
 @ApiTags('user')
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  /**
+   * `GET /user` — the profile, seeded on first read.
+   *
+   * Cannot 404: there is no sign-up, so the service creates the row if it does
+   * not exist yet.
+   */
   @Get()
   @ApiOperation({
     summary: 'Retrieve the user profile',
@@ -75,6 +95,13 @@ Always succeeds. There is no sign-up and no account, so there is no state in whi
     return this.userService.find();
   }
 
+  /**
+   * `PATCH /user` — partial update.
+   *
+   * Locale and time zone are validated against the platform's own Intl data,
+   * so an unresolvable value is a 400 rather than a stored string no client can
+   * format with.
+   */
   @Patch()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -98,6 +125,20 @@ An empty body is an idempotent no-op and leaves \`updatedAt\` untouched.`,
     return this.userService.update(dto);
   }
 
+  /**
+   * `GET /user/picture` — the stored picture, with revalidation.
+   *
+   * Sets the validators before deciding what to send, so a 304 carries the same
+   * `ETag` as the 200 would. `nosniff` is set because the body is user-supplied
+   * bytes rendered inside the desktop webview.
+   *
+   * Returns `undefined` for a conditional hit, which is how a Nest handler
+   * produces a bodyless 304; the `StreamableFile` otherwise streams the file
+   * rather than buffering it.
+   *
+   * @throws NotFoundException (404) when no picture is stored, or the recorded
+   * file is missing from the storage root.
+   */
   @Get('picture')
   @ApiOperation({
     summary: 'Download the user profile picture',
@@ -143,6 +184,12 @@ The content type is detected from the file's own bytes rather than from anything
     });
   }
 
+  /**
+   * `PUT /user/picture` — replace the picture.
+   *
+   * Passes the file straight through; the service rejects a missing, oversized
+   * or non-image upload and deletes the file it replaced.
+   */
   @Put('picture')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(PictureUploadInterceptor)
@@ -176,6 +223,12 @@ The content type is detected from the file's own bytes rather than from anything
     return this.userService.uploadPicture(file);
   }
 
+  /**
+   * `DELETE /user/picture` — remove the picture.
+   *
+   * Idempotent, and always 204: with no id in the path there is nothing that
+   * could be absent.
+   */
   @Delete('picture')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({

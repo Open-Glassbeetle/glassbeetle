@@ -47,6 +47,12 @@ import { SharedMemoriesService } from './shared-memories.service.js';
 export class SharedMemoriesController {
   constructor(private readonly sharedMemoriesService: SharedMemoriesService) {}
 
+  /**
+   * `GET /memories` — the shared memories every agent can see.
+   *
+   * Filterable by tag and by content; see `docs/memory-tags.md` for the `all`
+   * and `any` tag modes.
+   */
   @Get()
   async findAll(
     @Query() query: ListSharedMemoriesQueryDto,
@@ -54,6 +60,12 @@ export class SharedMemoriesController {
     return this.sharedMemoriesService.findAll(query);
   }
 
+  /**
+   * `POST /memories` — remember something for every agent.
+   *
+   * Sets the `Location` header, which is why it takes the response object.
+   * Tags are lowercased, de-duplicated and sorted on write.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -65,6 +77,14 @@ export class SharedMemoriesController {
     return created;
   }
 
+  /**
+   * `DELETE /memories?confirm=true` — forget everything shared.
+   *
+   * The query DTO is bound but unused: its only job is to make the global
+   * `ValidationPipe` reject a request without `confirm=true`. Answers 200 with
+   * the count rather than 204, since how much was destroyed is the only record
+   * left.
+   */
   @Delete()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -94,6 +114,9 @@ export class SharedMemoriesController {
     return this.sharedMemoriesService.removeAll();
   }
 
+  /**
+   * `GET /memories/:memoryId` — one shared memory.
+   */
   @Get(':memoryId')
   async findOne(
     @Param('memoryId') memoryId: string,
@@ -101,6 +124,9 @@ export class SharedMemoriesController {
     return this.sharedMemoriesService.findOne(memoryId);
   }
 
+  /**
+   * `PATCH /memories/:memoryId` — revise a shared memory.
+   */
   @Patch(':memoryId')
   async update(
     @Param('memoryId') memoryId: string,
@@ -109,6 +135,9 @@ export class SharedMemoriesController {
     return this.sharedMemoriesService.update(memoryId, dto);
   }
 
+  /**
+   * `DELETE /memories/:memoryId` — forget one shared memory.
+   */
   @Delete(':memoryId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('memoryId') memoryId: string): Promise<void> {

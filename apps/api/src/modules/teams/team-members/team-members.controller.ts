@@ -50,6 +50,9 @@ import { TeamMembersService } from './team-members.service.js';
 export class TeamMembersController {
   constructor(private readonly teamMembersService: TeamMembersService) {}
 
+  /**
+   * `GET /teams/:teamId/members` — the roster in turn order.
+   */
   @Get()
   @ApiOperation({
     summary: 'List a team roster',
@@ -92,6 +95,11 @@ export class TeamMembersController {
     return this.teamMembersService.findAll(teamId, query);
   }
 
+  /**
+   * `GET /teams/:teamId/members/:agentId` — one membership.
+   *
+   * Both ids are in the path because the membership has no id of its own.
+   */
   @Get(':agentId')
   @ApiOperation({
     summary: 'Retrieve one membership',
@@ -114,6 +122,9 @@ export class TeamMembersController {
     return this.teamMembersService.findOne(teamId, agentId);
   }
 
+  /**
+   * `POST /teams/:teamId/members` — add an agent at the end of the roster.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -165,6 +176,13 @@ export class TeamMembersController {
     return created;
   }
 
+  /**
+   * `PUT /teams/:teamId/members/order` — rewrite the turn order.
+   *
+   * `PUT` on a sub-path rather than a `PATCH` on the collection: the payload
+   * replaces the whole ordering and must name exactly the current members, so
+   * it is a replacement, not a partial change.
+   */
   @Put('order')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -198,6 +216,11 @@ The body names every agent currently on the team, in the order they should take 
     return this.teamMembersService.reorder(teamId, dto);
   }
 
+  /**
+   * `PATCH /teams/:teamId/members/:agentId` — change an agent's role.
+   *
+   * Position is not editable here; the reorder endpoint owns it.
+   */
   @Patch(':agentId')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -229,6 +252,12 @@ Position is not accepted here: it is kept as a dense sequence, so one row changi
     return this.teamMembersService.update(teamId, agentId, dto);
   }
 
+  /**
+   * `DELETE /teams/:teamId/members/:agentId` — take an agent off the team.
+   *
+   * The remaining positions are closed up, so the sequence stays dense. The
+   * agent itself is untouched.
+   */
   @Delete(':agentId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({

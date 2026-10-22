@@ -1,3 +1,9 @@
+/**
+ * Placeholder written in place of a redacted value.
+ *
+ * A fixed marker rather than an empty string or a partial value, so a log
+ * reader can tell a redacted field from a missing or genuinely blank one.
+ */
 export const REDACTED_TEXT = '[REDACTED]';
 
 /**

@@ -2,6 +2,10 @@ import type { TeamMemberResponseDto } from './team-member-response.dto.js';
 
 /**
  * Raw row shape for the `team_members` SQLite table.
+ *
+ * `(team_id, agent_id)` is the primary key, so there is no `id` column, and the
+ * table carries `created_at` without `updated_at` — which is why a membership
+ * response has no `updatedAt` either.
  */
 export interface TeamMemberRow {
   readonly team_id: string;

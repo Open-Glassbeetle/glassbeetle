@@ -7,6 +7,10 @@ import type {
   AgentMemoryRow,
 } from './agent-memory-response.dto.js';
 
+/**
+ * Re-exported so this mapper names the tag handling its rows depend on, while
+ * the implementation stays shared with the other memory scope.
+ */
 export { normalizeTagsOnWrite, parseTagsOnRead };
 
 /**
@@ -34,8 +38,11 @@ export function mapAgentMemoryRowToResponse(
  * Result of computing partial updates against an existing agent memory row.
  */
 export interface ApplyAgentMemoryUpdatesResult {
+  /** Whether any column is actually being changed. */
   readonly hasChanges: boolean;
+  /** SQL `SET` clauses, e.g. `["content = ?", "updated_at = ?"]`. */
   readonly setClauses: readonly string[];
+  /** Bound values for `setClauses`, in the same order. */
   readonly setParams: readonly unknown[];
 }
 
@@ -46,6 +53,8 @@ export interface ApplyAgentMemoryUpdatesResult {
  * - Only fields explicitly defined in the DTO are updated.
  * - If provided value equals existing value, no update is scheduled for that column.
  * - `updated_at` is updated only when one or more mutable columns change.
+ * - Tags are compared in their normalised, serialised form, so re-sending the
+ *   same tags in a different order or case is correctly seen as no change.
  * - `created_at`, `agent_id`, and `id` are never modified.
  */
 export function applyAgentMemoryUpdates(

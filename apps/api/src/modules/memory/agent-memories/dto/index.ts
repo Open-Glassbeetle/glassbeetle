@@ -1,3 +1,7 @@
+/**
+ * Request, response and mapper types of the agent-private memory
+ * sub-resource.
+ */
 export * from './agent-memory-response.dto.js';
 export * from './create-agent-memory.dto.js';
 export * from './update-agent-memory.dto.js';

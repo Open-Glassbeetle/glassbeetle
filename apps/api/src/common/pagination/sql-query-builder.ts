@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import type { PaginationQueryDto, SortOrder } from './pagination-query.dto.js';
 
+/**
+ * Inputs to {@link buildPaginationSqlFragment}.
+ */
 export interface SqlPaginationOptions {
   /**
    * The validated pagination query parameters from the request.
@@ -30,6 +33,14 @@ export interface SqlPaginationOptions {
   tiebreakerColumn?: string | null;
 }
 
+/**
+ * SQL fragments and bound parameters produced by
+ * {@link buildPaginationSqlFragment}.
+ *
+ * The fragments contain no interpolated client input: column names come from
+ * the caller's whitelist and the direction is one of two literals, while
+ * `limit` and `offset` are passed as bound parameters.
+ */
 export interface SqlPaginationResult {
   /**
    * Safe combined SQL clause, e.g. "ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
@@ -53,8 +64,28 @@ export interface SqlPaginationResult {
 }
 
 /**
- * Builds safe, whitelisted SQL fragments for sorting and pagination with bound parameters.
- * Throws a 400 BadRequestException if an un-whitelisted sort field is supplied.
+ * Builds safe `ORDER BY` and `LIMIT`/`OFFSET` fragments for a list endpoint.
+ *
+ * Column names cannot be bound as SQL parameters, so a sort key coming from the
+ * query string would otherwise have to be interpolated into the statement. The
+ * whitelist is what makes that safe: only a key the endpoint declared is
+ * accepted, and the SQL carries the mapped column name rather than the client's
+ * string.
+ *
+ * A tiebreaker column is appended unless it is already the sort column. Without
+ * it, rows sharing a sort value have no defined order between them and the same
+ * row can appear on two pages or on none. `id` is the default because
+ * identifiers are UUIDv7 and therefore sort in creation order.
+ *
+ * `limit` and `offset` are clamped again here even though the DTO validated
+ * them, since this function is also called with hand-built query objects.
+ *
+ * @returns The fragments plus the `[limit, offset]` parameters to append to the
+ * statement's bindings.
+ * @throws BadRequestException (400) when `query.sort` names a key that is not
+ * in `allowedSortColumns`; the message lists the keys that are.
+ * @throws Error when `defaultSortKey` is not in `allowedSortColumns`. That is a
+ * programming mistake in the calling endpoint, not bad input.
  */
 export function buildPaginationSqlFragment(
   options: SqlPaginationOptions,

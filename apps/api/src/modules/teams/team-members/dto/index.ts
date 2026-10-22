@@ -1,3 +1,6 @@
+/**
+ * Request, response and mapper types of the team roster sub-resource.
+ */
 export * from './add-team-member.dto.js';
 export * from './list-team-members-query.dto.js';
 export * from './paginated-team-members-response.dto.js';

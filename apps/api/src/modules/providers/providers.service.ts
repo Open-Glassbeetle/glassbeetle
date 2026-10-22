@@ -28,7 +28,10 @@ import {
 } from './dto/provider.dto.js';
 
 /**
- * Allowed columns for list sorting.
+ * Allowed columns for list sorting, mapped to safe column names.
+ *
+ * The whitelist is what lets a client-supplied sort key be interpolated into
+ * the statement at all; see `buildPaginationSqlFragment`.
  */
 const SORT_COLUMNS: Record<string, string> = {
   id: 'id',
@@ -38,6 +41,22 @@ const SORT_COLUMNS: Record<string, string> = {
   updatedAt: 'updated_at',
 };
 
+/**
+ * Owns the `providers` table: where models come from and how to reach them.
+ *
+ * A provider is configuration, not a connection. Nothing here contacts a
+ * provider — no credential check, no model discovery, no reachability probe
+ * — so a stored provider says only that the user described one.
+ *
+ * Two rules shape the writes, both derived from `kind`: {@link assertBaseUrl}
+ * requires an address for the kinds that have no canonical one, and
+ * `deriveIsLocal` forces `is_local` for the kinds that can only be local.
+ * Deriving rather than trusting the client matters because adapter code will
+ * route on that flag.
+ *
+ * Methods here are synchronous, unlike the other services': the underlying
+ * driver is, and this module touches nothing but the database.
+ */
 @Injectable()
 export class ProvidersService {
   constructor(private readonly db: DatabaseService) { }
@@ -212,6 +231,11 @@ export class ProvidersService {
     this.db.run('DELETE FROM providers WHERE id = ?', [id]);
   }
 
+  /**
+   * Reads one provider, or throws.
+   *
+   * @throws NotFoundException (404) when no provider has that id.
+   */
   private findOneOrFail(id: string): ProviderDto {
     const row = this.db.get<ProviderRow>(
       'SELECT * FROM providers WHERE id = ?',

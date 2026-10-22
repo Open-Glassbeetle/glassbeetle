@@ -4,6 +4,11 @@ import { AgentResponseDto } from './agent-response.dto.js';
 
 /**
  * Paginated collection envelope for agent resources.
+ *
+ * Restates the four envelope fields instead of extending
+ * `PaginatedResponseDto`, because the generic `items` array needs a concrete
+ * type for `@nestjs/swagger` to emit an item schema. `createPaginatedResponse`
+ * builds the value; this class only describes it.
  */
 export class PaginatedAgentsResponseDto implements PaginatedResponse<AgentResponseDto> {
   @ApiProperty({

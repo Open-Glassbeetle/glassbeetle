@@ -88,6 +88,23 @@ export class EncryptionService {
   private masterKey: Buffer | null = null;
   private readonly keyPath: string;
 
+  /**
+   * Resolves where the master key will come from, without reading it yet.
+   *
+   * An explicit `options.masterKey` is normalised immediately, so an invalid
+   * one fails at construction. Otherwise only the key file path is settled —
+   * from `options.keyPath`, then `AppConfigService`, then the environment, then
+   * the per-user default — and the key itself is loaded lazily by
+   * {@link getMasterKey}. Deferring that read matters because it can create the
+   * file, and an application that never touches a credential should not
+   * generate a key.
+   *
+   * Both dependencies are `@Optional()` so unit tests can construct the
+   * service with a fixed key and no Nest container.
+   *
+   * @throws KeyManagementError when `options.masterKey` is not a valid 32-byte
+   * key.
+   */
   constructor(
     @Optional() private readonly appConfig?: AppConfigService,
     @Optional() options?: EncryptionServiceOptions,
@@ -252,7 +269,9 @@ export class EncryptionService {
   }
 
   /**
-   * Static helper for masking credentials without instantiating the service.
+   * Static form of {@link maskKey}, for callers that have no injected service.
+   *
+   * Used by mappers, which are plain functions and cannot receive one.
    */
   public static maskKey(
     key: string | null | undefined,
@@ -285,7 +304,18 @@ export class EncryptionService {
   }
 
   /**
-   * Resolves or generates the master key file.
+   * Reads the master key file, generating it on first run.
+   *
+   * A new key is written with the `wx` flag so two processes starting at once
+   * cannot both create it; the loser of that race reads the winner's file
+   * instead of overwriting it, which would have left every existing credential
+   * undecryptable. Permissions are `0600` on the file and `0700` on the
+   * directory, applied at creation and again through an explicit `chmod` that
+   * is ignored on platforms without POSIX permissions.
+   *
+   * @throws KeyManagementError if the file cannot be read or created, or holds
+   * something that is not a 32-byte key. The message names the path, never the
+   * key material.
    */
   private loadOrCreateKeyFile(filePath: string): Buffer {
     try {
@@ -335,6 +365,8 @@ export class EncryptionService {
 
   /**
    * Normalizes and validates an arbitrary input key into a 32-byte Buffer.
+   *
+   * @throws KeyManagementError if the value is not a valid 32-byte key.
    */
   private normalizeKey(rawKey: Buffer | string): Buffer {
     if (Buffer.isBuffer(rawKey)) {
@@ -350,6 +382,16 @@ export class EncryptionService {
 
   /**
    * Parses raw buffer content into a 32-byte key, supporting raw binary, hex, or base64.
+   *
+   * Accepting all three means the key file this service writes and a key pasted
+   * into `GLASSBEETLE_MASTER_KEY` can both be used as they are. The encodings
+   * are told apart by length and character set, so no flag has to declare
+   * which was meant.
+   *
+   * @param sourceName - Where the material came from; used only to point the
+   * error message at the right setting.
+   * @throws KeyManagementError if the content does not decode to exactly 32
+   * bytes. The message reports the length, never the content.
    */
   private parseAndValidateKey(content: Buffer, sourceName: string): Buffer {
     if (content.length === 32) {

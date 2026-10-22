@@ -101,7 +101,5 @@ export class UserProfileResponseDto {
   readonly updatedAt!: string;
 }
 
-/**
- * Interface representation of the user profile.
- */
+/** Readonly view of {@link UserProfileResponseDto} for callers that only consume one. */
 export type UserProfileResponse = Readonly<UserProfileResponseDto>;

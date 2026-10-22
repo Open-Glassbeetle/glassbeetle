@@ -31,8 +31,27 @@ export const ALLOWED_MESSAGE_SORT_COLUMNS: Readonly<Record<string, string>> = {
   sequence: 'sequence',
 };
 
+/**
+ * Owns the `messages` table: the conversation history below a chat.
+ *
+ * Messages are append-only. There is no update and no delete endpoint — a
+ * transcript that could be edited is not a transcript — so the interesting
+ * problems here are scoping and sequence assignment rather than mutation.
+ *
+ * Every query is scoped by `chat_id` as well as by the message's own id.
+ * Identifiers are globally unique, so `WHERE id = ?` alone would return
+ * another chat's message through a URL naming the wrong chat; the project
+ * treats that class of mistake as a security bug.
+ *
+ * @see `docs/api-conventions.md`
+ */
 @Injectable()
 export class MessagesService {
+  /**
+   * @param db - The shared SQLite connection.
+   * @param chats - Used only to assert the parent chat exists, so both
+   * resources answer with the same `CHAT_NOT_FOUND` code.
+   */
   constructor(
     private readonly db: DatabaseService,
     private readonly chats: ChatsService,
@@ -147,6 +166,14 @@ export class MessagesService {
    * 6. Status and token count:
    *    - Status is fixed to `'complete'` for directly posted messages.
    *    - `token_count` is explicitly left `null` (token counting belongs to model inference).
+   *
+   * @param options - Fixed `id` and timestamp, for tests that assert on an
+   * exact row. Honoured on the first attempt only, so a retry cannot reuse an
+   * id the failed attempt may already have written.
+   * @throws NotFoundException (404) when the chat does not exist, or when
+   * `agentId` names an agent that does not.
+   * @throws ConflictException (409) with code `MESSAGE_SEQUENCE_CONFLICT` when
+   * the sequence could not be assigned within the retry budget.
    */
   async create(
     chatId: string,

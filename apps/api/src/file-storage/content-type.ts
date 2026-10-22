@@ -52,6 +52,14 @@ export const MIME_TO_EXTENSION: Record<string, string> = {
 
 /**
  * Normalizes MIME type aliases to their canonical representation.
+ *
+ * Clients, operating systems and older code all name the same formats
+ * differently (`image/jpg`, `application/x-gzip`). Comparing a detected type
+ * against an allowlist is only meaningful once both sides are normalised, so
+ * {@link validateFile} normalises both.
+ *
+ * An unrecognised type is returned lowercased and trimmed but otherwise
+ * unchanged.
  */
 export function normalizeMimeType(mime: string): string {
   const lower = mime.trim().toLowerCase();
@@ -94,7 +102,18 @@ export function getExtensionForMime(mime: string): string {
 /**
  * Sniffs the content type of a file based solely on its actual byte content.
  *
- * Never relies on client-supplied headers or filename extensions.
+ * Never relies on client-supplied headers or filename extensions. A client can
+ * send any `Content-Type` and any `originalname`, so neither can decide whether
+ * a file is allowed to be stored — an `image/png` header on an HTML document
+ * would be exactly how a stored-XSS payload gets into the Tauri webview.
+ *
+ * Magic-byte signatures are checked first, from longest and most specific
+ * downwards. Only if none matches is the head of the buffer examined as text,
+ * which is how SVG, HTML, XML, JSON and plain text are told apart.
+ *
+ * @returns The detected MIME type and its canonical extension. Unrecognised
+ * content, and an empty buffer, are reported as `application/octet-stream` —
+ * detection never throws, so the caller decides what is acceptable.
  */
 export function detectContentType(
   data: Buffer | Uint8Array,
@@ -337,6 +356,11 @@ export function detectContentType(
 /**
  * Checks if the buffer starts with valid UTF-8 text and extracts a sample string,
  * or returns null if binary / control characters are found.
+ *
+ * Only the first 4 KiB are examined, which is enough to reach the root element
+ * of a document while keeping the cost independent of file size. A NUL byte
+ * rules the content out immediately; a couple of other control characters are
+ * tolerated, since real text files do contain stray ones.
  */
 function extractTextSample(buf: Buffer): string | null {
   // Check up to the first 4096 bytes
@@ -379,6 +403,18 @@ function extractTextSample(buf: Buffer): string | null {
 
 /**
  * Validates a file's byte content against size and MIME constraints.
+ *
+ * Size is checked before detection, so an oversized payload is rejected without
+ * being inspected. `allowedMimeTypes` accepts exact types, a wildcard subtype
+ * such as `image/*`, and the catch-all `*` wildcard pair; omitting it allows
+ * any detected type.
+ *
+ * @returns The detected content type, so the caller can store it without
+ * sniffing a second time.
+ * @throws FilePayloadTooLargeError (413) when the payload exceeds
+ * `options.maxBytes`.
+ * @throws UnsupportedMediaTypeError (415) when the detected type matches
+ * nothing in `options.allowedMimeTypes`.
  */
 export function validateFile(
   data: Buffer | Uint8Array,

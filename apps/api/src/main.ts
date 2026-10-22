@@ -19,6 +19,19 @@ import { OPENAPI_UI_PATH, setupOpenApi } from './openapi/openapi.js';
  */
 const BIND_ADDRESS = '127.0.0.1';
 
+/**
+ * Starts the API process.
+ *
+ * Creates the Nest application, applies the shared HTTP configuration from
+ * `bootstrap.ts`, mounts the OpenAPI document and UI, then listens on the
+ * configured port. The startup banner names the versioned base URL, the
+ * documentation URL and the resolved data directory, because all three are
+ * derived from configuration and are the first things to check when a desktop
+ * build talks to the wrong instance.
+ *
+ * Shutdown hooks are enabled so `DatabaseService` and the other lifecycle
+ * providers close cleanly when the Tauri shell terminates the process.
+ */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 

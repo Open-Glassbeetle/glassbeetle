@@ -1,3 +1,6 @@
+/**
+ * Request, response, validator and mapper types of the chats module.
+ */
 export * from './chat-response.dto.js';
 export * from './chat-validators.js';
 export * from './chat.mapper.js';

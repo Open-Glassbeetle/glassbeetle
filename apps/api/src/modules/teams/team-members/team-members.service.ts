@@ -31,8 +31,31 @@ export const ALLOWED_TEAM_MEMBER_SORT_COLUMNS: Readonly<
   position: 'position',
 };
 
+/**
+ * Owns `team_members`: who is on a team, in what role, and in what order.
+ *
+ * The table has no surrogate key — `(team_id, agent_id)` is the primary key
+ * — so a membership is addressed by both ids and has a `created_at` but no
+ * `updated_at`. Responses follow the table rather than papering over that;
+ * the API conventions call it out explicitly.
+ *
+ * `position` is kept dense, `0..n-1`, because it is the turn order in a team
+ * chat: a client rendering "3rd of 4" reads it directly, and a reorder is
+ * computed from it. Every mutation therefore either appends at the end,
+ * renumbers, or rewrites the whole sequence.
+ *
+ * Each change touches the team's `updated_at` through {@link TeamsService},
+ * since the roster is part of what a team is.
+ *
+ * @see `docs/api-conventions.md`
+ */
 @Injectable()
 export class TeamMembersService {
+  /**
+   * @param db - The shared SQLite connection.
+   * @param teams - Used to assert the parent team exists and to touch its
+   * `updated_at` after a roster change.
+   */
   constructor(
     private readonly db: DatabaseService,
     private readonly teams: TeamsService,
@@ -87,6 +110,15 @@ export class TeamMembersService {
 
   /**
    * Puts an agent at the end of the roster.
+   *
+   * The new position is `MAX(position) + 1` computed inside the transaction, so
+   * two agents added at once cannot land on the same number. Team membership
+   * does not require anything of the agent beyond existing.
+   *
+   * @throws NotFoundException (404) when the team does not exist.
+   * @throws UnprocessableEntityException (422) when `agentId` names an agent
+   * that does not exist — the URL is valid, the body is not.
+   * @throws ConflictException (409) with code `AGENT_ALREADY_ON_TEAM`.
    */
   async add(
     teamId: string,
@@ -221,6 +253,14 @@ export class TeamMembersService {
    * naming someone who has since left would reorder around a member that is
    * not there — both of which a client with a stale view would do without
    * noticing.
+   *
+   * Positions are rewritten to the payload's index order, which keeps the
+   * sequence dense by construction.
+   *
+   * @returns The reordered roster, so a client does not have to re-read it.
+   * @throws NotFoundException (404) when the team does not exist.
+   * @throws ConflictException (409) with code `ROSTER_MISMATCH` when the
+   * payload repeats an agent, or does not name exactly the current members.
    */
   async reorder(
     teamId: string,
@@ -292,6 +332,12 @@ export class TeamMembersService {
     });
   }
 
+  /**
+   * Reads one membership, or throws.
+   *
+   * @throws NotFoundException (404) with `TEAM_NOT_FOUND` when the team does
+   * not exist, or `MEMBER_NOT_FOUND` when the agent is not on it.
+   */
   private readRow(teamId: string, agentId: string): TeamMemberRow {
     this.teams.assertExists(teamId);
 

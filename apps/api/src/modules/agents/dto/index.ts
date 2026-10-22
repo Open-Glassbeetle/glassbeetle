@@ -1,3 +1,6 @@
+/**
+ * Request, response and mapper types of the agents module.
+ */
 export * from './agent-response.dto.js';
 export * from './paginated-agents-response.dto.js';
 export * from './upload-agent-picture.dto.js';

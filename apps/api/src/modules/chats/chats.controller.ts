@@ -37,11 +37,27 @@ import {
   UpdateChatDto,
 } from './dto/index.js';
 
+/**
+ * Routes for `/chats`: the chat collection and single chats.
+ *
+ * A chat is owned by exactly one agent or one team — the schema enforces it
+ * with a `CHECK` constraint and {@link ChatsService} rejects violations
+ * before SQLite has to — and optionally belongs to a project.
+ *
+ * Messages live under `MessagesController`, and the bulk delete here is the
+ * one endpoint in the API that requires an explicit confirmation parameter.
+ */
 @ApiTags('chats')
 @Controller('chats')
 export class ChatsController {
   constructor(private readonly chatsService: ChatsService) {}
 
+  /**
+   * `GET /chats` — paginated list, filterable by project, agent or team.
+   *
+   * Each filter also accepts the string `"null"`, which selects the rows where
+   * that reference is unset.
+   */
   @Get()
   @ApiOperation({
     summary: 'List chats',
@@ -113,6 +129,9 @@ export class ChatsController {
     return this.chatsService.findAll(query);
   }
 
+  /**
+   * `GET /chats/:chatId` — one chat.
+   */
   @Get(':chatId')
   @ApiOperation({
     summary: 'Retrieve a chat',
@@ -132,6 +151,13 @@ export class ChatsController {
     return this.chatsService.findOne(chatId);
   }
 
+  /**
+   * `POST /chats` — create a chat.
+   *
+   * Sets the `Location` header, which is why it takes the response object.
+   * Exactly one of `agentId` and `teamId` must be supplied; both or neither is
+   * a 400.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -174,6 +200,12 @@ Owner rule:
     return created;
   }
 
+  /**
+   * `PATCH /chats/:chatId` — change the title or the project.
+   *
+   * The owner is immutable and `contextSummary` is server-managed; supplying
+   * either is a 400 rather than a silently ignored field.
+   */
   @Patch(':chatId')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -211,6 +243,19 @@ Owner rule:
     return this.chatsService.update(chatId, dto);
   }
 
+  /**
+   * `DELETE /chats?confirm=true` — delete every chat.
+   *
+   * The query DTO is bound but unused: its only job is to make the global
+   * `ValidationPipe` reject a request without `confirm=true`, so the guard is
+   * declarative and appears in the OpenAPI document. The parameter is a
+   * deliberate speed bump — the API has no authentication, so a stray link or
+   * a page in the webview must not be able to destroy the whole history with
+   * one request.
+   *
+   * Answers 200 with the counts rather than 204, because how much was deleted
+   * is the only record left afterwards.
+   */
   @Delete()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -249,6 +294,9 @@ Cascade behaviour:
     return this.chatsService.removeAll();
   }
 
+  /**
+   * `DELETE /chats/:chatId` — delete one chat and its messages.
+   */
   @Delete(':chatId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({

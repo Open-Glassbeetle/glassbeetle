@@ -2,6 +2,10 @@ import { ApiProperty } from '@nestjs/swagger';
 
 /**
  * Raw row shape for the `shared_memories` SQLite table.
+ *
+ * `tags` is JSON text here, or `NULL` for an untagged memory; the response
+ * always exposes an array. There is no owning column, so a shared memory
+ * outlives every agent.
  */
 export interface SharedMemoryRow {
   readonly id: string;
@@ -55,4 +59,8 @@ export class SharedMemoryResponseDto {
   readonly updatedAt!: string;
 }
 
+/**
+ * Readonly view of {@link SharedMemoryResponseDto} for callers that only
+ * consume one.
+ */
 export type SharedMemoryResponse = Readonly<SharedMemoryResponseDto>;

@@ -37,6 +37,9 @@ import { SystemPromptsService } from './system-prompts.service.js';
 export class SystemPromptsController {
   constructor(private readonly systemPromptsService: SystemPromptsService) {}
 
+  /**
+   * `GET /system-prompts` — paginated list, filterable by name.
+   */
   @Get()
   async findAll(
     @Query() query: ListSystemPromptsQueryDto,
@@ -44,6 +47,9 @@ export class SystemPromptsController {
     return this.systemPromptsService.findAll(query);
   }
 
+  /**
+   * `GET /system-prompts/:promptId` — one prompt with its content.
+   */
   @Get(':promptId')
   async findOne(
     @Param('promptId') promptId: string,
@@ -51,6 +57,11 @@ export class SystemPromptsController {
     return this.systemPromptsService.findOne(promptId);
   }
 
+  /**
+   * `POST /system-prompts` — create a prompt template.
+   *
+   * Sets the `Location` header, which is why it takes the response object.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -62,6 +73,12 @@ export class SystemPromptsController {
     return created;
   }
 
+  /**
+   * `PATCH /system-prompts/:promptId` — change the name or the content.
+   *
+   * Agents referencing the prompt see the new content immediately; a template
+   * is shared by reference, not copied into the agents that use it.
+   */
   @Patch(':promptId')
   @HttpCode(HttpStatus.OK)
   async update(
@@ -71,6 +88,14 @@ export class SystemPromptsController {
     return this.systemPromptsService.update(promptId, dto);
   }
 
+  /**
+   * `DELETE /system-prompts/:promptId` — delete a prompt template.
+   *
+   * Referencing agents survive with `systemPromptId` cleared to `null`, since
+   * the schema declares `ON DELETE SET NULL`. Deleting a prompt therefore
+   * changes how those agents are configured without telling the client which
+   * ones were affected.
+   */
   @Delete(':promptId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('promptId') promptId: string): Promise<void> {

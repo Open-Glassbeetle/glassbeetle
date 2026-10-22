@@ -2,6 +2,11 @@ import { Transform } from 'class-transformer';
 
 /**
  * Parses a query string parameter ('true' / 'false' / '1' / '0') into a boolean.
+ *
+ * Returns `undefined` for an absent, empty or unrecognised value rather than
+ * guessing, so `@IsOptional()` treats the parameter as not supplied and an
+ * `@IsBoolean()` check rejects a typo such as `?pinned=yes` with a 400 instead
+ * of silently reading it as `true`.
  */
 export function parseBooleanQueryParam(value: unknown): boolean | undefined {
   if (value === undefined || value === null || value === '') {

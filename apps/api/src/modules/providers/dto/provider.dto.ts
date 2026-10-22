@@ -26,6 +26,10 @@ export const PROVIDER_KINDS = [
   'openai_compatible',
 ] as const;
 
+/**
+ * One of the six supported provider kinds, matching the `CHECK` constraint on
+ * `providers.kind`.
+ */
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 /**
@@ -228,6 +232,10 @@ export class ListProvidersQueryDto extends PaginationQueryDto {
 
 /**
  * Raw row shape returned by SQLite for the providers table.
+ *
+ * `is_local` and `enabled` are `INTEGER` 0/1, and `kind` is `string` rather
+ * than {@link ProviderKind}: SQLite guarantees only its own `CHECK`
+ * constraint, so the narrowing happens where a row is mapped.
  */
 export interface ProviderRow {
   id: string;

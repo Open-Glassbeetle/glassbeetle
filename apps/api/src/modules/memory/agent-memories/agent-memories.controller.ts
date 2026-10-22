@@ -49,6 +49,15 @@ import {
 export class AgentMemoriesController {
   constructor(private readonly agentMemoriesService: AgentMemoriesService) {}
 
+  /**
+   * `GET /agents/:agentId/memories` — one agent's private memories.
+   *
+   * Filterable by tag and by content; see `docs/memory-tags.md` for the `all`
+   * and `any` tag modes.
+   *
+   * @throws NotFoundException (404) when the agent does not exist, rather than
+   * returning an empty list for an agent that is not there.
+   */
   @Get()
   async findAll(
     @Param('agentId') agentId: string,
@@ -57,6 +66,12 @@ export class AgentMemoriesController {
     return this.agentMemoriesService.findAll(agentId, query);
   }
 
+  /**
+   * `POST /agents/:agentId/memories` — remember something for this agent.
+   *
+   * Sets the `Location` header, which is why it takes the response object.
+   * Tags are lowercased, de-duplicated and sorted on write.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -72,6 +87,15 @@ export class AgentMemoriesController {
     return created;
   }
 
+  /**
+   * `DELETE /agents/:agentId/memories?confirm=true` — forget everything.
+   *
+   * The query DTO is bound but unused: its only job is to make the global
+   * `ValidationPipe` reject a request without `confirm=true`, so the guard is
+   * declarative and appears in the OpenAPI document. Answers 200 with the
+   * count rather than 204, since how much was destroyed is the only record
+   * left.
+   */
   @Delete()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -111,6 +135,12 @@ export class AgentMemoriesController {
     return this.agentMemoriesService.removeAll(agentId);
   }
 
+  /**
+   * `GET /agents/:agentId/memories/:memoryId` — one memory.
+   *
+   * Both ids are used in the query; see {@link AgentMemoriesService} on why
+   * the parent scope is not optional.
+   */
   @Get(':memoryId')
   async findOne(
     @Param('agentId') agentId: string,
@@ -119,6 +149,9 @@ export class AgentMemoriesController {
     return this.agentMemoriesService.findOne(agentId, memoryId);
   }
 
+  /**
+   * `PATCH /agents/:agentId/memories/:memoryId` — revise a memory.
+   */
   @Patch(':memoryId')
   async update(
     @Param('agentId') agentId: string,
@@ -128,6 +161,9 @@ export class AgentMemoriesController {
     return this.agentMemoriesService.update(agentId, memoryId, dto);
   }
 
+  /**
+   * `DELETE /agents/:agentId/memories/:memoryId` — forget one memory.
+   */
   @Delete(':memoryId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(

@@ -1,6 +1,19 @@
 import type { MaskKeyOptions } from './encryption.types.js';
 
+/**
+ * Number of trailing characters {@link maskKey} reveals by default.
+ *
+ * Four is enough for a user to recognise which of their own keys a row holds
+ * and far too few to be useful to anyone else.
+ */
 export const DEFAULT_SUFFIX_LENGTH = 4;
+/**
+ * Character standing in for the hidden middle of a masked credential.
+ *
+ * A single code point rather than three dots, so the preview cannot be
+ * mistaken for a truncated value and its length says nothing about the
+ * secret's.
+ */
 export const MASK_ELLIPSIS = '…';
 
 /**

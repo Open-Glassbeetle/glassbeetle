@@ -19,6 +19,9 @@ import {
 
 /**
  * Mapping of allowed client-facing sort keys to their SQL column names.
+ *
+ * Both the camelCase and the snake_case spelling of each timestamp are
+ * accepted here, unlike the other collections, which take camelCase only.
  */
 export const ALLOWED_SYSTEM_PROMPT_SORT_COLUMNS: Record<string, string> = {
   createdAt: 'created_at',
@@ -31,6 +34,11 @@ export const ALLOWED_SYSTEM_PROMPT_SORT_COLUMNS: Record<string, string> = {
 
 /**
  * Escapes SQLite LIKE wildcard characters (`%`, `_`, and `\`).
+ *
+ * Without it, a `%` typed into a search box matches every row and `_` matches
+ * any character. Equivalent to `escapeLikePattern` in
+ * `common/pagination/sql-query-builder.ts`, which is the shared implementation
+ * the other name filters use.
  */
 function escapeLikePattern(value: string): string {
   return value.replace(/[%_\\]/g, '\\$&');
@@ -41,6 +49,13 @@ function escapeLikePattern(value: string): string {
  *
  * System prompts are reusable instruction templates referenced by agents via
  * `agents.system_prompt_id`.
+ *
+ * Shared by reference rather than copied: editing a prompt changes every agent
+ * that points at it, and deleting one clears those references instead of
+ * failing, because the schema declares `ON DELETE SET NULL`.
+ *
+ * An agent's own `instructions` field sits alongside the prompt it references;
+ * this service owns only the shared template.
  */
 @Injectable()
 export class SystemPromptsService {

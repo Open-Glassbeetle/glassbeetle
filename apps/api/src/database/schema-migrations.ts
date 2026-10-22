@@ -57,6 +57,18 @@ export const MIGRATION_FILE_SEQUENCE = [
   'analytics/index.sql',
 ];
 
+/**
+ * Bundled copy of each file in {@link MIGRATION_FILE_SEQUENCE}.
+ *
+ * A packaged desktop build ships the compiled API without the repository's
+ * `data/` directory, so {@link findDataDir} finds nothing and the schema has
+ * to come from somewhere. These strings are that somewhere.
+ *
+ * They must be kept in step with `data/`. The files are authoritative when
+ * present, so a change made only here is invisible to every developer running
+ * from a checkout, and a change made only in `data/` is invisible to the
+ * packaged application.
+ */
 const FALLBACK_SQL: Record<string, string> = {
   'system/global.sql': `PRAGMA foreign_keys = ON;`,
   'system/system_prompts.sql': `CREATE TABLE system_prompts (
@@ -268,6 +280,15 @@ CREATE INDEX idx_usage_events_model_id ON usage_events(model_id);`,
 
 /**
  * Resolves the location of the `data/` directory on disk.
+ *
+ * Tried relative to the working directory first, then to this module, because
+ * the API is started from the repository root, from `apps/api`, and from a test
+ * runner's own directory. A candidate counts only if it contains
+ * `system/system_prompts.sql`, so an unrelated `data/` folder is not mistaken
+ * for the schema.
+ *
+ * @returns The absolute path, or `null` in a packaged build that ships no
+ * `data/` directory — {@link loadSqlContent} then uses the bundled DDL.
  */
 export function findDataDir(): string | null {
   const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -293,6 +314,13 @@ export function findDataDir(): string | null {
 /**
  * Loads SQL content for a relative path from the data directory if available,
  * otherwise falling back to the bundled DDL content.
+ *
+ * @param relativePath - Entry from {@link MIGRATION_FILE_SEQUENCE}.
+ * @param dataDir - Result of {@link findDataDir}, or `null`.
+ * @returns The DDL, or an empty string when the path is in neither source. The
+ * caller skips empty content rather than failing, so an entry added to the
+ * sequence without its bundled fallback silently does nothing on a packaged
+ * build.
  */
 export function loadSqlContent(
   relativePath: string,
@@ -372,7 +400,10 @@ export const MIGRATIONS_AFTER_BOOTSTRAP: readonly IncrementalMigration[] = [
 ];
 
 /**
- * Whether a migration has already been recorded.
+ * Whether a migration has already been recorded in `schema_migrations`.
+ *
+ * The record is what makes migrations idempotent; the DDL itself is not
+ * re-examined.
  */
 function isApplied(db: Database.Database, name: string): boolean {
   return (
@@ -384,6 +415,14 @@ function isApplied(db: Database.Database, name: string): boolean {
 
 /**
  * Creates the whole schema from `MIGRATION_FILE_SEQUENCE` on an empty database.
+ *
+ * The entire sequence and its `schema_migrations` record share one transaction,
+ * so a database is either fully bootstrapped or untouched — never left holding
+ * the first few tables.
+ *
+ * Does nothing once {@link INITIAL_MIGRATION_NAME} is recorded, which is why a
+ * new table needs an entry in {@link MIGRATIONS_AFTER_BOOTSTRAP} as well as a
+ * file in the sequence.
  */
 function applyInitialBootstrap(db: Database.Database): void {
   if (isApplied(db, INITIAL_MIGRATION_NAME)) {
@@ -437,6 +476,14 @@ function applyIncrementalMigrations(db: Database.Database): void {
  * Runs in two phases: the bootstrap, which builds the whole schema on an empty
  * database, and the incremental migrations, which are the only thing an
  * already-bootstrapped database can still receive.
+ *
+ * Creates the `schema_migrations` ledger first, since both phases read it.
+ * Called by `DatabaseService.connect()` on every start and is idempotent, so an
+ * up-to-date database only pays for two lookups.
+ *
+ * @throws Error propagated from SQLite if a migration's DDL fails. Startup then
+ * fails, which is intended: serving requests against a half-migrated schema
+ * would be worse.
  */
 export function runMigrations(db: Database.Database): void {
   db.exec(`

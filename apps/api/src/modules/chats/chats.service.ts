@@ -40,6 +40,18 @@ export const ALLOWED_CHAT_SORT_COLUMNS: Readonly<Record<string, string>> = {
   id: 'id',
 };
 
+/**
+ * Owns the `chats` table: queries, the owner rule, and bulk deletion.
+ *
+ * The invariant that shapes this service is that a chat belongs to exactly
+ * one agent or one team. The schema says so with a `CHECK` constraint, but a
+ * constraint can only produce an opaque `SQLITE_CONSTRAINT_CHECK` failure, so
+ * every write path checks first and raises a 400 that names the rule.
+ *
+ * The same invariant is why the owner cannot be changed: the messages below a
+ * chat were produced by that agent or that team, and repointing the chat
+ * would silently reattribute the whole conversation.
+ */
 @Injectable()
 export class ChatsService {
   private readonly logger = new Logger(ChatsService.name);
@@ -121,8 +133,13 @@ export class ChatsService {
   }
 
   /**
-   * Asserts that a chat exists in SQLite.
-   * Throws 404 NotFoundException with CHAT_NOT_FOUND if the chat does not exist.
+   * Asserts that a chat exists in SQLite and returns its row.
+   *
+   * Public because `MessagesService` calls it: a message route is scoped to its
+   * chat, so "which chat is this" has to be answered the same way in both
+   * services, with the same 404 code.
+   *
+   * @throws NotFoundException (404) with code `CHAT_NOT_FOUND`.
    */
   assertExists(chatId: string): ChatRow {
     const row = this.db.get<ChatRow>('SELECT * FROM chats WHERE id = ?', [
@@ -372,6 +389,12 @@ export class ChatsService {
 
   /**
    * Enforces that exactly one of agentId or teamId is provided.
+   *
+   * Blank strings count as absent, so `{"agentId": "  "}` is rejected as
+   * "no owner" rather than reaching the foreign-key check as a lookup that
+   * cannot match.
+   *
+   * @throws BadRequestException (400) when both or neither is supplied.
    */
   private assertOwnerRule(dto: CreateChatDto): void {
     const hasAgent =
@@ -396,6 +419,11 @@ export class ChatsService {
 
   /**
    * Enforces that chat owner cannot be changed via update.
+   *
+   * Checked with `in` as well as against `undefined`, so an explicit
+   * `"agentId": null` — an attempt to clear the owner — is rejected too.
+   *
+   * @throws BadRequestException (400) when either owner field is present.
    */
   private assertNoOwnerChange(dto: UpdateChatDto): void {
     if (
@@ -411,6 +439,13 @@ export class ChatsService {
 
   /**
    * Enforces that context_summary cannot be set directly by clients.
+   *
+   * The column is written by context compaction, which is not implemented yet.
+   * Rejecting it now keeps clients from coming to depend on setting it. Both
+   * spellings are checked because the camelCase one is what a client would
+   * send, while the snake_case one could arrive through a hand-built request.
+   *
+   * @throws BadRequestException (400) when either spelling is present.
    */
   private assertNoContextSummary(
     dto: CreateChatDto | UpdateChatDto | Record<string, unknown>,

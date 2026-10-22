@@ -46,6 +46,18 @@ const PAYLOAD_TOO_LARGE_MESSAGE = 'Request body is too large';
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
+  /**
+   * Turns any thrown value into the standard error envelope.
+   *
+   * Non-HTTP contexts have no response to write to, so the exception is only
+   * logged. For HTTP requests the envelope is built, 5xx and 413 responses are
+   * logged with the correlation id, and the connection is destroyed instead of
+   * answered when the response has already started — appending JSON to a
+   * partially sent body would corrupt it.
+   *
+   * Never rethrows: an exception escaping the last-resort filter would leave the
+   * request unanswered until the client times out.
+   */
   catch(exception: unknown, host: ArgumentsHost): void {
     // Streaming completions and any future non-HTTP transport do not have a
     // response to write an envelope into.
@@ -102,6 +114,24 @@ export class HttpExceptionFilter implements ExceptionFilter {
     response.status(body.statusCode).json(body);
   }
 
+  /**
+   * Maps a thrown value onto the `ApiErrorResponse` fields.
+   *
+   * Four cases, in precedence order: body-parser's oversized-body error becomes
+   * 413; anything that is not an `HttpException` becomes a 500 whose message is
+   * deliberately generic, since the real one may carry SQLite messages or local
+   * paths; an `HttpException` with a string body uses that string as the
+   * message; and an `HttpException` with an object body keeps whatever `error`
+   * and `code` it set, so a service can raise a specific code such as
+   * `AGENT_NOT_FOUND` instead of the status-derived default.
+   *
+   * `ValidationPipe` reports an array of constraint messages, which is moved to
+   * `details` under a fixed summary message rather than being joined into one
+   * unreadable line.
+   *
+   * @param path - Request path reported in the envelope, taken from Express'
+   * `originalUrl` so it includes the global `api` prefix.
+   */
   private buildBody(exception: unknown, path: string): ApiErrorResponse {
     const timestamp = nowIso();
 

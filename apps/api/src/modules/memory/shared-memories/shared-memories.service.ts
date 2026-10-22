@@ -41,6 +41,9 @@ function escapeLikePattern(value: string): string {
 
 /**
  * Options when creating a shared memory row.
+ *
+ * Both exist so a test can pin the generated id and timestamp and assert on an
+ * exact row.
  */
 export interface CreateSharedMemoryOptions {
   readonly id?: string;
@@ -52,6 +55,12 @@ export interface CreateSharedMemoryOptions {
  *
  * Shared memory stores facts, conventions, and context that are available
  * globally rather than scoped to a specific agent.
+ *
+ * `shared_memories` has no owning foreign key, which is the whole difference
+ * from `AgentMemoriesService`: there is no parent to scope by and no cascade
+ * that can remove a row, so these memories outlive every agent.
+ *
+ * @see `docs/memory-tags.md` for the tag format and filtering semantics.
  */
 @Injectable()
 export class SharedMemoriesService {
