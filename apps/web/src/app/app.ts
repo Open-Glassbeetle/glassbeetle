@@ -235,6 +235,26 @@ export class App implements OnInit {
       .pipe(takeUntilDestroyed())
       .subscribe((action) => this.runAction(action));
 
+    // The reachability poll runs on its own. When it reports the API back
+    // after an outage, the workspace reads that failed while it was away are
+    // stale: re-read them once on the transition rather than polling all five
+    // continuously, which would be four times the traffic for data that changes
+    // when the user changes it. Coming back up from `checking` is startup, not
+    // a transition, because `ngOnInit` has already asked for all four.
+    let previousState = this.status.state();
+    effect(() => {
+      const state = this.status.state();
+
+      if (previousState === 'offline' && (state === 'online' || state === 'degraded')) {
+        this.capabilities.probe();
+        this.roster.refresh();
+        this.user.refresh();
+        this.spend.refresh();
+      }
+
+      previousState = state;
+    });
+
     // Reveals the window, which Rust creates hidden so the webview's first
     // paint is never visible as a white flash.
     afterNextRender(() => void this.desktop.signalReady());

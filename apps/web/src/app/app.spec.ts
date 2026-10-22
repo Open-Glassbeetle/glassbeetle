@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
@@ -7,6 +7,7 @@ import { EMPTY } from 'rxjs';
 import { environment } from '../environments/environment';
 import { App } from './app';
 import { DesktopService } from './core/desktop/desktop.service';
+import { ApiStatusService } from './features/api-status/api-status.service';
 
 // Derived from the environment so the version prefix cannot drift out of sync
 // with the API again.
@@ -256,6 +257,30 @@ describe('App shell', () => {
 
     // A 503 that carries a usable body is a report, not a failure.
     expect(stateClass(fixture)).toContain('trigger__state--degraded');
+  });
+
+  it('re-reads the workspace once the API is reachable again', () => {
+    const fixture = render();
+    const status = TestBed.inject(ApiStatusService);
+
+    // What a request failing against a dead API reports.
+    status.reportRequestFailure(new HttpErrorResponse({ status: 0 }));
+    fixture.detectChanges();
+
+    status.refresh();
+    httpMock.expectOne(HEALTH_URL).flush(HEALTHY);
+    fixture.detectChanges();
+
+    // The four startup reads that were stale while the API was down come back
+    // once, on the transition ??not on every poll.
+    answerProbe();
+    httpMock
+      .expectOne((request) => request.url === AGENTS_URL)
+      .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerProfile();
+    fixture.detectChanges();
+
+    expect(stateClass(fixture)).toContain('trigger__state--online');
   });
 
   it('draws no window controls in a browser tab', () => {
