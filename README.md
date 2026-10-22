@@ -84,7 +84,8 @@ crashed terminal or a detached run can leave the API or the dev server holding
 their port — and the next start then fails with `EADDRINUSE`. `npm run stop`
 clears that: it finds whatever is listening on 3000 and 4200, stops the
 watchers as well as the servers so nothing restarts itself, and leaves other
-projects alone. It is safe to run when nothing is up.
+projects alone. It works on Windows, macOS and Linux, and is safe to run when
+nothing is up.
 
 ```bash
 npm run stop -- --dry-run   # show what would be stopped, kill nothing

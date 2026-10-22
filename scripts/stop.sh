@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# POSIX implementation of `npm run stop`. The npm script runs
+# `node scripts/stop.mjs`, which delegates here on macOS/Linux and uses a
+# Windows-native path on win32 (see issue #151).
+#
 # Stops everything `npm run dev` starts: the NestJS API, the Angular dev server
 # and the Tauri window — including the watchers that would otherwise restart
 # them.
