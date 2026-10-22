@@ -7,8 +7,29 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
+
+/** Longest agent name the API accepts (matches teams and the user display name). */
+export const MAX_AGENT_NAME_LENGTH = 120;
+
+/**
+ * Longest agent personality the API accepts.
+ *
+ * Prompt-budget prose, same order of magnitude as the user profile `about`
+ * field: this text is composed into the agent's context.
+ */
+export const MAX_AGENT_PERSONALITY_LENGTH = 4000;
+
+/**
+ * Longest agent instructions the API accepts.
+ *
+ * Agent-specific instructions sit beside the system prompt in the context
+ * layers. Cap below the 100 000-character memory/system-prompt budget, but
+ * above a short bio so a detailed instruction block still fits.
+ */
+export const MAX_AGENT_INSTRUCTIONS_LENGTH = 10_000;
 
 /**
  * Request payload for creating a new agent.
@@ -21,19 +42,27 @@ export class CreateAgentDto {
   @ApiProperty({
     description: 'Display name of the agent',
     example: 'Research Assistant',
+    maxLength: MAX_AGENT_NAME_LENGTH,
   })
   @IsString({ message: 'name must be a string' })
   @IsNotEmpty({ message: 'name must not be empty' })
+  @MaxLength(MAX_AGENT_NAME_LENGTH, {
+    message: `name must not exceed ${MAX_AGENT_NAME_LENGTH} characters`,
+  })
   name!: string;
 
   @ApiPropertyOptional({
     type: String,
     description: 'Free-text character description and behavioral demeanor',
     example: 'Friendly, inquisitive, and methodical researcher.',
+    maxLength: MAX_AGENT_PERSONALITY_LENGTH,
     nullable: true,
   })
   @IsOptional()
   @IsString({ message: 'personality must be a string' })
+  @MaxLength(MAX_AGENT_PERSONALITY_LENGTH, {
+    message: `personality must not exceed ${MAX_AGENT_PERSONALITY_LENGTH} characters`,
+  })
   personality?: string | null;
 
   @ApiPropertyOptional({
@@ -41,10 +70,14 @@ export class CreateAgentDto {
     description:
       'Agent-specific instructions, appended to the base system prompt',
     example: 'Always provide citations and references in IEEE format.',
+    maxLength: MAX_AGENT_INSTRUCTIONS_LENGTH,
     nullable: true,
   })
   @IsOptional()
   @IsString({ message: 'instructions must be a string' })
+  @MaxLength(MAX_AGENT_INSTRUCTIONS_LENGTH, {
+    message: `instructions must not exceed ${MAX_AGENT_INSTRUCTIONS_LENGTH} characters`,
+  })
   instructions?: string | null;
 
   @ApiPropertyOptional({

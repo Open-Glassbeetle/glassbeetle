@@ -2,6 +2,10 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
+import {
+  MAX_SYSTEM_PROMPT_CONTENT_LENGTH,
+  MAX_SYSTEM_PROMPT_NAME_LENGTH,
+} from './create-system-prompt.dto.js';
 import { UpdateSystemPromptDto } from './update-system-prompt.dto.js';
 
 const VALIDATION_OPTIONS = {
@@ -84,5 +88,49 @@ describe('UpdateSystemPromptDto', () => {
     expect(properties).toContain('id');
     expect(properties).toContain('createdAt');
     expect(properties).toContain('updatedAt');
+  });
+
+  describe('text field length bounds in updates', () => {
+    it('accepts name and content at their limits and rejects just over', async () => {
+      expect(
+        await validateDto({ name: 'a'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH) }),
+      ).toHaveLength(0);
+      expect(
+        await validateDto({
+          content: 'a'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH),
+        }),
+      ).toHaveLength(0);
+
+      const overName = await validateDto({
+        name: 'a'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH + 1),
+      });
+      expect(overName.find((e) => e.property === 'name')?.constraints).toEqual({
+        maxLength: `name must not exceed ${MAX_SYSTEM_PROMPT_NAME_LENGTH} characters`,
+      });
+
+      const overContent = await validateDto({
+        content: 'a'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH + 1),
+      });
+      expect(
+        overContent.find((e) => e.property === 'content')?.constraints,
+      ).toEqual({
+        maxLength: `content must not exceed ${MAX_SYSTEM_PROMPT_CONTENT_LENGTH} characters`,
+      });
+    });
+
+    it('counts characters, not bytes, for a non-ASCII name at the limit', async () => {
+      expect(
+        await validateDto({
+          name: '記'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH),
+        }),
+      ).toHaveLength(0);
+      expect(
+        (
+          await validateDto({
+            name: '記'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH + 1),
+          })
+        ).find((e) => e.property === 'name')?.constraints,
+      ).toHaveProperty('maxLength');
+    });
   });
 });

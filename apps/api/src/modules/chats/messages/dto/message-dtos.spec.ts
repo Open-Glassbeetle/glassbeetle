@@ -6,6 +6,7 @@ import {
   CreateMessageDto,
   ListMessagesQueryDto,
   mapMessageRowToResponse,
+  MAX_MESSAGE_CONTENT_LENGTH,
   type MessageRow,
 } from './index.js';
 
@@ -275,5 +276,47 @@ describe('CreateMessageDto', () => {
     });
     expect(errors).toHaveLength(1);
     expect(errors[0].property).toBe('extraField');
+  });
+
+  describe('content length bounds', () => {
+    it('accepts content at, just under, and rejects just over the limit', async () => {
+      expect(
+        await validateDto(CreateMessageDto, {
+          content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH - 1),
+        }),
+      ).toHaveLength(0);
+      expect(
+        await validateDto(CreateMessageDto, {
+          content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH),
+        }),
+      ).toHaveLength(0);
+
+      const over = await validateDto(CreateMessageDto, {
+        content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1),
+      });
+      expect(over.find((e) => e.property === 'content')?.constraints).toEqual({
+        maxLength: `content must not exceed ${MAX_MESSAGE_CONTENT_LENGTH} characters`,
+      });
+    });
+
+    it('counts characters, not bytes, for non-ASCII content at the limit', async () => {
+      expect(
+        await validateDto(CreateMessageDto, {
+          content: '記'.repeat(MAX_MESSAGE_CONTENT_LENGTH),
+        }),
+      ).toHaveLength(0);
+      expect(
+        await validateDto(CreateMessageDto, {
+          content: '🧠'.repeat(MAX_MESSAGE_CONTENT_LENGTH),
+        }),
+      ).toHaveLength(0);
+      expect(
+        (
+          await validateDto(CreateMessageDto, {
+            content: '記'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1),
+          })
+        ).find((e) => e.property === 'content')?.constraints,
+      ).toHaveProperty('maxLength');
+    });
   });
 });
