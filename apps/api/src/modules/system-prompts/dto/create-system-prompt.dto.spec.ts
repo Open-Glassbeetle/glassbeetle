@@ -2,7 +2,11 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { CreateSystemPromptDto } from './create-system-prompt.dto.js';
+import {
+  CreateSystemPromptDto,
+  MAX_SYSTEM_PROMPT_CONTENT_LENGTH,
+  MAX_SYSTEM_PROMPT_NAME_LENGTH,
+} from './create-system-prompt.dto.js';
 
 const VALIDATION_OPTIONS = {
   whitelist: true,
@@ -100,5 +104,70 @@ describe('CreateSystemPromptDto', () => {
     expect(properties).toContain('id');
     expect(properties).toContain('createdAt');
     expect(properties).toContain('updatedAt');
+  });
+
+  describe('text field length bounds', () => {
+    it('accepts name at, just under, and rejects just over the limit', async () => {
+      expect(
+        await validateDto({
+          name: 'a'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH - 1),
+          content: 'ok',
+        }),
+      ).toHaveLength(0);
+      expect(
+        await validateDto({
+          name: 'a'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH),
+          content: 'ok',
+        }),
+      ).toHaveLength(0);
+
+      const over = await validateDto({
+        name: 'a'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH + 1),
+        content: 'ok',
+      });
+      expect(over.find((e) => e.property === 'name')?.constraints).toEqual({
+        maxLength: `name must not exceed ${MAX_SYSTEM_PROMPT_NAME_LENGTH} characters`,
+      });
+    });
+
+    it('accepts content at, just under, and rejects just over the limit', async () => {
+      expect(
+        await validateDto({
+          name: 'Prompt',
+          content: 'a'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH - 1),
+        }),
+      ).toHaveLength(0);
+      expect(
+        await validateDto({
+          name: 'Prompt',
+          content: 'a'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH),
+        }),
+      ).toHaveLength(0);
+
+      const over = await validateDto({
+        name: 'Prompt',
+        content: 'a'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH + 1),
+      });
+      expect(over.find((e) => e.property === 'content')?.constraints).toEqual({
+        maxLength: `content must not exceed ${MAX_SYSTEM_PROMPT_CONTENT_LENGTH} characters`,
+      });
+    });
+
+    it('counts characters, not bytes, for non-ASCII content at the limit', async () => {
+      expect(
+        await validateDto({
+          name: 'Prompt',
+          content: '記'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH),
+        }),
+      ).toHaveLength(0);
+      expect(
+        (
+          await validateDto({
+            name: 'Prompt',
+            content: '記'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH + 1),
+          })
+        ).find((e) => e.property === 'content')?.constraints,
+      ).toHaveProperty('maxLength');
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { MAX_MESSAGE_CONTENT_LENGTH } from '../src/modules/chats/messages/dto/create-message.dto.js';
 import { createTestApp, type TestApp } from './harness/index.js';
 
 describe('Chat Messages Endpoints (e2e)', () => {
@@ -593,6 +594,34 @@ describe('Chat Messages Endpoints (e2e)', () => {
 
       expect(res.body.statusCode).toBe(400);
       expect(JSON.stringify(res.body)).toContain('content');
+    });
+
+    it('rejects content longer than 100000 characters with 400', async () => {
+      const chat = testApp.fixtures.createChat();
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1) })
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(JSON.stringify(res.body.details)).toContain(
+        `content must not exceed ${MAX_MESSAGE_CONTENT_LENGTH} characters`,
+      );
+    });
+
+    it('accepts a non-ASCII content string of exactly 100000 characters', async () => {
+      const chat = testApp.fixtures.createChat();
+      const content = '記'.repeat(MAX_MESSAGE_CONTENT_LENGTH);
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/messages`)
+        .send({ content })
+        .expect(201);
+
+      expect(res.body.content).toBe(content);
     });
 
     it('rejects client-supplied server-managed fields with 400 Bad Request', async () => {

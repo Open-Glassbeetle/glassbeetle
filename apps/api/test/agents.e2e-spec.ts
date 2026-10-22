@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { resolveDefaultDataDir } from '../src/config/data-dir.js';
 import { FileStorageService } from '../src/file-storage/file-storage.service.js';
+import {
+  MAX_AGENT_NAME_LENGTH,
+  MAX_AGENT_PERSONALITY_LENGTH,
+} from '../src/modules/agents/dto/create-agent.dto.js';
 import { createTestApp, type TestApp } from './harness/index.js';
 
 describe('Agents endpoints (e2e)', () => {
@@ -602,6 +606,64 @@ describe('Agents endpoints (e2e)', () => {
         .expect(400);
 
       expect(response.body.statusCode).toBe(400);
+    });
+
+    it('rejects a name longer than 120 characters with 400', async () => {
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name: 'a'.repeat(MAX_AGENT_NAME_LENGTH + 1) })
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(JSON.stringify(response.body.details)).toContain(
+        `name must not exceed ${MAX_AGENT_NAME_LENGTH} characters`,
+      );
+    });
+
+    it('accepts a non-ASCII name of exactly 120 characters', async () => {
+      const name = '記'.repeat(MAX_AGENT_NAME_LENGTH);
+      const response = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({ name })
+        .expect(201);
+
+      expect(response.body.name).toBe(name);
+    });
+
+    it('rejects personality over the limit and still clears it with null on update', async () => {
+      const over = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({
+          name: 'Bounded Agent',
+          personality: 'a'.repeat(MAX_AGENT_PERSONALITY_LENGTH + 1),
+        })
+        .expect(400);
+
+      expect(JSON.stringify(over.body.details)).toContain(
+        `personality must not exceed ${MAX_AGENT_PERSONALITY_LENGTH} characters`,
+      );
+
+      const created = await testApp
+        .request()
+        .post('/api/v1/agents')
+        .send({
+          name: 'Bounded Agent',
+          personality: 'Friendly',
+          instructions: 'Be brief',
+        })
+        .expect(201);
+
+      const cleared = await testApp
+        .request()
+        .patch(`/api/v1/agents/${created.body.id}`)
+        .send({ personality: null, instructions: null })
+        .expect(200);
+
+      expect(cleared.body.personality).toBeNull();
+      expect(cleared.body.instructions).toBeNull();
     });
 
     it('rejects client-supplied server-managed fields with 400 Bad Request', async () => {

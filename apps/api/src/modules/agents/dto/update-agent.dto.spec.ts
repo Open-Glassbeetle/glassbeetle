@@ -2,6 +2,11 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
+import {
+  MAX_AGENT_INSTRUCTIONS_LENGTH,
+  MAX_AGENT_NAME_LENGTH,
+  MAX_AGENT_PERSONALITY_LENGTH,
+} from './create-agent.dto.js';
 import { UpdateAgentDto } from './update-agent.dto.js';
 
 const VALIDATION_OPTIONS = {
@@ -70,6 +75,56 @@ describe('UpdateAgentDto', () => {
       const nameError = errors.find((e) => e.property === 'name');
       expect(nameError).toBeDefined();
       expect(nameError?.constraints).toHaveProperty('isString');
+    });
+  });
+
+  describe('text field length bounds in updates', () => {
+    it('accepts name at the limit and rejects one character over', async () => {
+      expect(
+        await validateDto({ name: 'a'.repeat(MAX_AGENT_NAME_LENGTH) }),
+      ).toHaveLength(0);
+
+      const over = await validateDto({
+        name: 'a'.repeat(MAX_AGENT_NAME_LENGTH + 1),
+      });
+      expect(over.find((e) => e.property === 'name')?.constraints).toEqual({
+        maxLength: `name must not exceed ${MAX_AGENT_NAME_LENGTH} characters`,
+      });
+    });
+
+    it('accepts personality and instructions at their limits and rejects over', async () => {
+      expect(
+        await validateDto({
+          personality: 'a'.repeat(MAX_AGENT_PERSONALITY_LENGTH),
+          instructions: 'a'.repeat(MAX_AGENT_INSTRUCTIONS_LENGTH),
+        }),
+      ).toHaveLength(0);
+
+      const overPersonality = await validateDto({
+        personality: 'a'.repeat(MAX_AGENT_PERSONALITY_LENGTH + 1),
+      });
+      expect(
+        overPersonality.find((e) => e.property === 'personality')?.constraints,
+      ).toHaveProperty('maxLength');
+
+      const overInstructions = await validateDto({
+        instructions: 'a'.repeat(MAX_AGENT_INSTRUCTIONS_LENGTH + 1),
+      });
+      expect(
+        overInstructions.find((e) => e.property === 'instructions')
+          ?.constraints,
+      ).toHaveProperty('maxLength');
+    });
+
+    it('counts characters, not bytes, for a non-ASCII name at the limit', async () => {
+      expect(
+        await validateDto({ name: '記'.repeat(MAX_AGENT_NAME_LENGTH) }),
+      ).toHaveLength(0);
+      expect(
+        (
+          await validateDto({ name: '記'.repeat(MAX_AGENT_NAME_LENGTH + 1) })
+        ).find((e) => e.property === 'name')?.constraints,
+      ).toHaveProperty('maxLength');
     });
   });
 

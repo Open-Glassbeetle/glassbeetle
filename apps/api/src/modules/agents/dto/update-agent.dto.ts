@@ -1,6 +1,6 @@
 import { ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, ValidateIf } from 'class-validator';
-import { CreateAgentDto } from './create-agent.dto.js';
+import { IsNotEmpty, IsString, MaxLength, ValidateIf } from 'class-validator';
+import { CreateAgentDto, MAX_AGENT_NAME_LENGTH } from './create-agent.dto.js';
 
 /**
  * Request payload for updating an existing agent (PATCH).
@@ -20,9 +20,13 @@ export class UpdateAgentDto extends PartialType(CreateAgentDto) {
     type: String,
     description: 'Display name of the agent (cannot be null or empty)',
     example: 'Lead Researcher',
+    maxLength: MAX_AGENT_NAME_LENGTH,
   })
   @ValidateIf((_object, value) => value !== undefined)
   @IsString({ message: 'name must be a string' })
   @IsNotEmpty({ message: 'name must not be empty' })
+  @MaxLength(MAX_AGENT_NAME_LENGTH, {
+    message: `name must not exceed ${MAX_AGENT_NAME_LENGTH} characters`,
+  })
   override name?: string;
 }

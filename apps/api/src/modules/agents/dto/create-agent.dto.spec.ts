@@ -2,7 +2,12 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { CreateAgentDto } from './create-agent.dto.js';
+import {
+  CreateAgentDto,
+  MAX_AGENT_INSTRUCTIONS_LENGTH,
+  MAX_AGENT_NAME_LENGTH,
+  MAX_AGENT_PERSONALITY_LENGTH,
+} from './create-agent.dto.js';
 
 const VALIDATION_OPTIONS = {
   whitelist: true,
@@ -166,6 +171,94 @@ describe('CreateAgentDto', () => {
     it('passes for boundary maxTokens = 1', async () => {
       const errors = await validateDto({ name: 'Agent', maxTokens: 1 });
       expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe('text field length bounds', () => {
+    it('accepts a name at, just under, and rejects just over the limit', async () => {
+      expect(
+        await validateDto({ name: 'a'.repeat(MAX_AGENT_NAME_LENGTH - 1) }),
+      ).toHaveLength(0);
+      expect(
+        await validateDto({ name: 'a'.repeat(MAX_AGENT_NAME_LENGTH) }),
+      ).toHaveLength(0);
+
+      const over = await validateDto({
+        name: 'a'.repeat(MAX_AGENT_NAME_LENGTH + 1),
+      });
+      const nameError = over.find((e) => e.property === 'name');
+      expect(nameError?.constraints).toEqual({
+        maxLength: `name must not exceed ${MAX_AGENT_NAME_LENGTH} characters`,
+      });
+    });
+
+    it('accepts personality at the limit and rejects one character over', async () => {
+      expect(
+        await validateDto({
+          name: 'Agent',
+          personality: 'a'.repeat(MAX_AGENT_PERSONALITY_LENGTH),
+        }),
+      ).toHaveLength(0);
+
+      const over = await validateDto({
+        name: 'Agent',
+        personality: 'a'.repeat(MAX_AGENT_PERSONALITY_LENGTH + 1),
+      });
+      expect(
+        over.find((e) => e.property === 'personality')?.constraints,
+      ).toEqual({
+        maxLength: `personality must not exceed ${MAX_AGENT_PERSONALITY_LENGTH} characters`,
+      });
+    });
+
+    it('accepts instructions at the limit and rejects one character over', async () => {
+      expect(
+        await validateDto({
+          name: 'Agent',
+          instructions: 'a'.repeat(MAX_AGENT_INSTRUCTIONS_LENGTH),
+        }),
+      ).toHaveLength(0);
+
+      const over = await validateDto({
+        name: 'Agent',
+        instructions: 'a'.repeat(MAX_AGENT_INSTRUCTIONS_LENGTH + 1),
+      });
+      expect(
+        over.find((e) => e.property === 'instructions')?.constraints,
+      ).toEqual({
+        maxLength: `instructions must not exceed ${MAX_AGENT_INSTRUCTIONS_LENGTH} characters`,
+      });
+    });
+
+    it('counts characters, not bytes, for non-ASCII name and personality', async () => {
+      expect(
+        await validateDto({ name: '記'.repeat(MAX_AGENT_NAME_LENGTH) }),
+      ).toHaveLength(0);
+      expect(
+        await validateDto({ name: '🧠'.repeat(MAX_AGENT_NAME_LENGTH) }),
+      ).toHaveLength(0);
+      expect(
+        (
+          await validateDto({ name: '記'.repeat(MAX_AGENT_NAME_LENGTH + 1) })
+        ).find((e) => e.property === 'name')?.constraints,
+      ).toHaveProperty('maxLength');
+
+      expect(
+        await validateDto({
+          name: 'Agent',
+          personality: '記'.repeat(MAX_AGENT_PERSONALITY_LENGTH),
+        }),
+      ).toHaveLength(0);
+    });
+
+    it('still allows null personality and instructions', async () => {
+      expect(
+        await validateDto({
+          name: 'Agent',
+          personality: null,
+          instructions: null,
+        }),
+      ).toHaveLength(0);
     });
   });
 

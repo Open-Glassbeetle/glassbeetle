@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  MAX_SYSTEM_PROMPT_CONTENT_LENGTH,
+  MAX_SYSTEM_PROMPT_NAME_LENGTH,
+} from '../src/modules/system-prompts/dto/create-system-prompt.dto.js';
 import { createTestApp, type TestApp } from './harness/index.js';
 
 describe('System Prompts Endpoints (e2e)', () => {
@@ -184,6 +188,47 @@ describe('System Prompts Endpoints (e2e)', () => {
         .post('/api/v1/system-prompts')
         .send({ name: 'Valid name', content: '' })
         .expect(400);
+    });
+
+    it('returns 400 when name exceeds 120 characters', async () => {
+      const res = await testApp
+        .request()
+        .post('/api/v1/system-prompts')
+        .send({
+          name: 'a'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH + 1),
+          content: 'ok',
+        })
+        .expect(400);
+
+      expect(JSON.stringify(res.body.details)).toContain(
+        `name must not exceed ${MAX_SYSTEM_PROMPT_NAME_LENGTH} characters`,
+      );
+    });
+
+    it('returns 400 when content exceeds 100000 characters', async () => {
+      const res = await testApp
+        .request()
+        .post('/api/v1/system-prompts')
+        .send({
+          name: 'Long Prompt',
+          content: 'a'.repeat(MAX_SYSTEM_PROMPT_CONTENT_LENGTH + 1),
+        })
+        .expect(400);
+
+      expect(JSON.stringify(res.body.details)).toContain(
+        `content must not exceed ${MAX_SYSTEM_PROMPT_CONTENT_LENGTH} characters`,
+      );
+    });
+
+    it('accepts a non-ASCII name of exactly 120 characters', async () => {
+      const name = '記'.repeat(MAX_SYSTEM_PROMPT_NAME_LENGTH);
+      const res = await testApp
+        .request()
+        .post('/api/v1/system-prompts')
+        .send({ name, content: 'You are helpful.' })
+        .expect(201);
+
+      expect(res.body.name).toBe(name);
     });
 
     it('returns 400 when client attempts to set server-managed fields (id, createdAt, updatedAt)', async () => {
