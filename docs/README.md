@@ -14,6 +14,8 @@ describes work that has not shipped.
   IDs, log levels, and secret redaction stay consistent.
 - [Memory tags](memory-tags.md): Read when writing or filtering memories to
   preserve tag normalisation, storage, and query behaviour.
+- [Code comments](code-comments.md): Read before documenting backend code to
+  follow the TSDoc conventions and the division with the OpenAPI decorators.
 
 ## Design records
 
