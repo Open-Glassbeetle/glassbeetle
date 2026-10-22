@@ -1,8 +1,7 @@
 # Code comments
 
-How the backend is documented in its own source. This is a convention, not a
-build step: there is no documentation generator and no new dependency to
-install.
+How the backend is documented in its own source, and how to render that as a
+browsable API reference.
 
 The short version: write the *why*, let the code say the *what*, and never
 write a comment the implementation does not support.
@@ -73,9 +72,39 @@ confirmation parameter.
   foreign key to null, or fails against a `CHECK` constraint says which, per
   referencing table. `data/` is the authority; keep the comment in step with it.
 
+## Generating the reference site
+
+TypeDoc renders these comments into a browsable HTML reference:
+
+```bash
+npm run docs:api
+```
+
+The site is written to `apps/api/docs-site/`; open its `index.html`. The
+directory is generated and gitignored, and `npm run clean` removes it.
+
+Configuration lives in [`apps/api/typedoc.json`](../apps/api/typedoc.json).
+Three of its settings are decisions rather than defaults:
+
+- **`excludePrivate: false`.** The audience is contributors, not consumers of a
+  published package, so a private method's reasoning is exactly what they need.
+  It also means a `{@link}` to a private member resolves instead of warning.
+- **`skipErrorChecking: true`.** TypeDoc would otherwise run the whole
+  typecheck a second time. `npm run build` already does that, and a documented
+  build is not the place to discover a type error.
+- **`validation.invalidLink` and `validation.notExported`** are on, so a
+  `{@link}` pointing at something that is not in the documentation is reported.
+  `notDocumented` is off: it counts a DTO field as undocumented even though its
+  meaning lives in `@ApiProperty`, which would bury the real findings.
+
+A clean run reports `Found 0 errors and 0 warnings`. Warnings are worth fixing
+rather than tolerating — they are nearly always a link to a symbol that was
+renamed or never imported.
+
 ## Checking it
 
-There is no doc linter. The checks that do apply are the ordinary ones:
+There is no doc linter. The checks that apply are the ordinary ones, plus the
+generator:
 
 ```bash
 npm run lint -w @glassbeetle/api
@@ -85,11 +114,15 @@ npm run lint -w @glassbeetle/api
 npm run build -w @glassbeetle/api
 ```
 
+```bash
+npm run docs:api
+```
+
 A malformed doc comment is a syntax error, so `build` catches the structural
-mistakes; the rest is review.
+mistakes; TypeDoc catches broken references; the rest is review.
 
 One consequence of the build setup is worth knowing: `tsconfig.json` sets
 `removeComments: true`, so the emitted `dist/**/*.d.ts` files carry no doc
 comments. Nothing consumes this package as a library, so that costs nothing
-today — but it does mean the source, not the build output, is where the
-documentation lives.
+today — and TypeDoc reads the source rather than the build output, so the
+reference site is unaffected.

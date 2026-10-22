@@ -15,10 +15,11 @@
     "dev:web": "npm run start -w @glassbeetle/web",
     "dev:gui": "wait-on -t 180000 http-get://localhost:3000/api/v1/health http-get://localhost:4200 && npm run tauri:dev -w @glassbeetle/desktop",
     "stop": "node scripts/stop.mjs",
+    "docs:api": "npm run docs -w @glassbeetle/api",
     "build": "npm run build -w @glassbeetle/api && npm run build -w @glassbeetle/web",
     "build:desktop": "npm run build -w @glassbeetle/api && npm run tauri:build -w @glassbeetle/desktop",
     "test": "npm run test -w @glassbeetle/api && npm run test -w @glassbeetle/web && node --test scripts/stop.spec.mjs",
-    "clean": "rm -rf apps/api/dist apps/web/dist apps/desktop/src-tauri/target"
+    "clean": "rm -rf apps/api/dist apps/api/docs-site apps/web/dist apps/desktop/src-tauri/target"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
