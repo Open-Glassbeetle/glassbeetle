@@ -15,7 +15,8 @@ describes work that has not shipped.
 - [Memory tags](memory-tags.md): Read when writing or filtering memories to
   preserve tag normalisation, storage, and query behaviour.
 - [Code comments](code-comments.md): Read before documenting backend code to
-  follow the TSDoc conventions and the division with the OpenAPI decorators.
+  follow the TSDoc conventions and the division with the OpenAPI decorators,
+  and to render the reference site with `npm run docs:api`.
 
 ## Design records
 

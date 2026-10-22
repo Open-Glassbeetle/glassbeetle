@@ -25,3 +25,6 @@ npm-debug.log*
 
 # generated api spec
 apps/api/openapi.json
+
+# generated api reference site
+apps/api/docs-site/
