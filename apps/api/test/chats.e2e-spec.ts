@@ -454,6 +454,113 @@ describe('Chats endpoints (e2e)', () => {
       expect(page2.body.items).toHaveLength(1);
       expect(page2.body.items[0].title).toBe('C Chat');
     });
+
+    it('searches by title substring, ignoring ASCII case', async () => {
+      const agent = createAgent();
+      await createChat({ agentId: agent.id, title: 'Release plan for Q3' });
+      await createChat({ agentId: agent.id, title: 'Weekly sync' });
+      await createChat({ agentId: agent.id });
+
+      const res = await testApp
+        .request()
+        .get('/api/v1/chats?search=RELEASE')
+        .expect(200);
+      expect(res.body.total).toBe(1);
+      expect(res.body.items[0].title).toBe('Release plan for Q3');
+
+      const blank = await testApp
+        .request()
+        .get('/api/v1/chats?search=%20%20')
+        .expect(200);
+      expect(blank.body.total).toBe(3);
+    });
+
+    it('matches non-ASCII titles case-sensitively, like the other search endpoints', async () => {
+      const agent = createAgent();
+      await createChat({ agentId: agent.id, title: 'Über die Brücke' });
+
+      const exact = await testApp
+        .request()
+        .get(`/api/v1/chats?search=${encodeURIComponent('Brücke')}`)
+        .expect(200);
+      expect(exact.body.total).toBe(1);
+
+      // SQLite's LIKE only folds ASCII: "über" does not match "Über".
+      const folded = await testApp
+        .request()
+        .get(`/api/v1/chats?search=${encodeURIComponent('über')}`)
+        .expect(200);
+      expect(folded.body.total).toBe(0);
+    });
+
+    it('treats % and _ in the search term as literal characters', async () => {
+      const agent = createAgent();
+      await createChat({ agentId: agent.id, title: '100% done' });
+      await createChat({ agentId: agent.id, title: 'snake_case naming' });
+      await createChat({ agentId: agent.id, title: 'snakeXcase naming' });
+
+      const percent = await testApp
+        .request()
+        .get(`/api/v1/chats?search=${encodeURIComponent('%')}`)
+        .expect(200);
+      expect(percent.body.total).toBe(1);
+      expect(percent.body.items[0].title).toBe('100% done');
+
+      const underscore = await testApp
+        .request()
+        .get(`/api/v1/chats?search=${encodeURIComponent('snake_case')}`)
+        .expect(200);
+      expect(underscore.body.total).toBe(1);
+      expect(underscore.body.items[0].title).toBe('snake_case naming');
+    });
+
+    it('composes search with owner filters and filters before paginating', async () => {
+      const a1 = createAgent('A1');
+      const a2 = createAgent('A2');
+      const t1 = createTeam('T1');
+      for (let i = 0; i < 5; i++) {
+        await createChat({ agentId: a1.id, title: `Filler ${i}` });
+      }
+      await createChat({ agentId: a1.id, title: 'Needle for A1' });
+      await createChat({ agentId: a2.id, title: 'Needle for A2' });
+      await createChat({ teamId: t1.id, title: 'Needle for T1' });
+
+      const page = await testApp
+        .request()
+        .get(
+          '/api/v1/chats?search=needle&sort=title&order=asc&limit=2&offset=0',
+        )
+        .expect(200);
+      expect(page.body.total).toBe(3);
+      expect(page.body.items.map((c: { title: string }) => c.title)).toEqual([
+        'Needle for A1',
+        'Needle for A2',
+      ]);
+
+      const lastPage = await testApp
+        .request()
+        .get(
+          '/api/v1/chats?search=needle&sort=title&order=asc&limit=2&offset=2',
+        )
+        .expect(200);
+      expect(
+        lastPage.body.items.map((c: { title: string }) => c.title),
+      ).toEqual(['Needle for T1']);
+
+      const byAgent = await testApp
+        .request()
+        .get(`/api/v1/chats?search=needle&agentId=${a2.id}`)
+        .expect(200);
+      expect(byAgent.body.total).toBe(1);
+      expect(byAgent.body.items[0].title).toBe('Needle for A2');
+
+      const byTeam = await testApp
+        .request()
+        .get(`/api/v1/chats?search=needle&teamId=${t1.id}`)
+        .expect(200);
+      expect(byTeam.body.total).toBe(1);
+      expect(byTeam.body.items[0].title).toBe('Needle for T1');
+    });
   });
 
   describe('Deletion and Cascades', () => {

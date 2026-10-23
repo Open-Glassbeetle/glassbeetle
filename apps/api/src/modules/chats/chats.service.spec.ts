@@ -325,6 +325,47 @@ describe('ChatsService', () => {
       expect(result.items[0].title).toBe('P1-Agent');
     });
 
+    it('searches titles by substring and ignores a blank search', async () => {
+      const agent = fixtures.createAgent();
+      fixtures.createChat({ agent_id: agent.id, title: 'Quarterly Review' });
+      fixtures.createChat({ agent_id: agent.id, title: 'Standup notes' });
+      fixtures.createChat({ agent_id: agent.id, title: null });
+
+      const result = await service.findAll({
+        search: '  review ',
+        limit: 50,
+        offset: 0,
+      });
+      expect(result.total).toBe(1);
+      expect(result.items[0].title).toBe('Quarterly Review');
+
+      const blank = await service.findAll({
+        search: '   ',
+        limit: 50,
+        offset: 0,
+      });
+      expect(blank.total).toBe(3);
+    });
+
+    it('does not search context_summary', async () => {
+      const agent = fixtures.createAgent();
+      const chat = fixtures.createChat({
+        agent_id: agent.id,
+        title: 'Untitled thread',
+      });
+      db.run('UPDATE chats SET context_summary = ? WHERE id = ?', [
+        'Discussed the migration plan',
+        chat.id,
+      ]);
+
+      const result = await service.findAll({
+        search: 'migration',
+        limit: 50,
+        offset: 0,
+      });
+      expect(result.total).toBe(0);
+    });
+
     it('sorts by allowed sort columns', async () => {
       const agent = fixtures.createAgent();
       fixtures.createChat({ agent_id: agent.id, title: 'B Chat' });

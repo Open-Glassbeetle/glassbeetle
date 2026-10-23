@@ -15,6 +15,7 @@ import { PaginationQueryDto } from '../../../common/pagination/pagination-query.
  * - `projectId`: Filter by project ID. Pass `"null"` to filter for chats without an assigned project.
  * - `agentId`: Filter by owning agent ID.
  * - `teamId`: Filter by owning team ID.
+ * - `search`: Substring search matching chat title.
  */
 export class ListChatsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
@@ -41,4 +42,13 @@ export class ListChatsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   teamId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Substring search matching chat title. Case-insensitive for ASCII letters only, like the other list endpoints; `%` and `_` match literally.',
+    example: 'release plan',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

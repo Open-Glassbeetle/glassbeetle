@@ -16,6 +16,28 @@
 
   <gb-panel flush>
     <div class="toolbar">
+      <div class="search">
+        <mat-icon class="search__icon">search</mat-icon>
+        <input
+          class="search__input"
+          type="search"
+          placeholder="Filter by title"
+          aria-label="Filter chats by title"
+          [value]="list.searchTerm()"
+          (input)="list.setSearch($any($event.target).value)"
+        />
+        @if (list.searchTerm()) {
+          <button
+            matIconButton
+            class="search__clear"
+            aria-label="Clear the filter"
+            (click)="list.clearSearch()"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </div>
+
       <mat-form-field class="toolbar__select" subscriptSizing="fixed">
         <mat-label>Owner</mat-label>
         <mat-select [value]="ownerFilter()" (valueChange)="setOwnerFilter($event)">
@@ -75,7 +97,16 @@
         </button>
       </div>
     } @else if (list.isEmpty()) {
-      @if (filtered()) {
+      @if (searching()) {
+        <div class="blank">
+          <mat-icon class="blank__icon">search_off</mat-icon>
+          <p class="blank__title">No matching chats</p>
+          <p class="blank__text">
+            No chat title contains “{{ list.search() }}”{{ filtered() ? ' under this owner' : '' }}.
+          </p>
+          <button matButton (click)="clearFilters()">Clear filters</button>
+        </div>
+      } @else if (filtered()) {
         <div class="blank">
           <mat-icon class="blank__icon">filter_alt_off</mat-icon>
           <p class="blank__title">No chats here</p>
