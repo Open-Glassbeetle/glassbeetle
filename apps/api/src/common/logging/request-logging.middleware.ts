@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { requestLocalStorage } from './request-context.js';
-import { redactSensitiveData } from './redact.js';
+import { REDACTED_TEXT, redactSensitiveData } from './redact.js';
 
 /**
  * Header carrying the correlation id, in the lowercase form Node exposes
@@ -82,7 +82,18 @@ export class RequestLoggingMiddleware implements NestMiddleware {
           typeof req.body === 'object' &&
           Object.keys(req.body).length > 0
         ) {
-          const redacted = redactSensitiveData(req.body);
+          let redacted = redactSensitiveData(req.body);
+          if (path.includes('/credential')) {
+            redacted = {
+              ...(typeof redacted === 'object' && redacted !== null
+                ? redacted
+                : {}),
+              ...(req.body.value !== undefined ? { value: REDACTED_TEXT } : {}),
+              ...(req.body.apiKey !== undefined
+                ? { apiKey: REDACTED_TEXT }
+                : {}),
+            };
+          }
           this.logger.debug(
             `[${correlationId}] Request body: ${JSON.stringify(redacted)}`,
           );
