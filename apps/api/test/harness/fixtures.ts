@@ -27,6 +27,15 @@ export interface ProviderRow {
   updated_at: string;
 }
 
+export interface ProviderCredentialRow {
+  provider_id: string;
+  encrypted_value: Buffer;
+  nonce: Buffer;
+  masked_preview: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ModelRow {
   id: string;
   provider_id: string;
@@ -555,6 +564,39 @@ export class TestFixtures {
         row.output_tokens,
         row.cost_usd,
         row.metadata,
+      ],
+    );
+
+    return row;
+  }
+
+  createCredential(
+    providerId?: string,
+    overrides?: Partial<ProviderCredentialRow>,
+  ): ProviderCredentialRow {
+    const provider_id =
+      providerId ?? overrides?.provider_id ?? this.createProvider().id;
+    const now = nowIso();
+    const row: ProviderCredentialRow = {
+      provider_id,
+      encrypted_value: Buffer.from('encrypted_payload'),
+      nonce: Buffer.alloc(12, 1),
+      masked_preview: 'sk-ant-…4f2a',
+      created_at: now,
+      updated_at: now,
+      ...overrides,
+    };
+
+    this.dbService.run(
+      `INSERT INTO provider_credentials (provider_id, encrypted_value, nonce, masked_preview, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        row.provider_id,
+        row.encrypted_value,
+        row.nonce,
+        row.masked_preview,
+        row.created_at,
+        row.updated_at,
       ],
     );
 
