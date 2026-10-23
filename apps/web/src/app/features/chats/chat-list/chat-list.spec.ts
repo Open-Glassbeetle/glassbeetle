@@ -70,6 +70,7 @@ interface ChatListInternals {
   readonly list: {
     readonly pageIndex: { set(value: number): void };
     reload(): void;
+    clearSearch(): void;
   };
   setOwnerFilter(value: string): void;
   setSort(key: string): void;
@@ -135,6 +136,11 @@ function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Outlasts the search box's debounce, so the typed term reaches the request. */
+function debounce(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 300));
+}
+
 /** The next chats request, whatever filters it carries. */
 function nextChats(httpMock: HttpTestingController): TestRequest {
   return httpMock.expectOne((candidate) => candidate.url === CHATS_URL);
@@ -152,7 +158,7 @@ describe('ChatList', () => {
     expect(first.request.params.get('order')).toBe('desc');
   });
 
-  it('sends no text filter, which the endpoint would reject', () => {
+  it('sends no text filter until something is typed', () => {
     const { first } = setup();
 
     expect(first.request.params.has('search')).toBe(false);
@@ -202,6 +208,67 @@ describe('ChatList', () => {
     const request = nextChats(httpMock);
     expect(request.request.params.get('agentId')).toBe('a1');
     expect(request.request.params.get('offset')).toBe('0');
+    flush(request, [chat()]);
+  });
+
+  it('searches by title from the box, alongside the owner filter, from the first page', async () => {
+    const { component, element, httpMock, fixture } = setup();
+
+    component.setOwnerFilter('agent:a1');
+    fixture.detectChanges();
+    flush(nextChats(httpMock), [chat()]);
+
+    component.list.pageIndex.set(1);
+    fixture.detectChanges();
+    flush(nextChats(httpMock), [chat()]);
+
+    const input = element.querySelector<HTMLInputElement>('input.search__input');
+    expect(input).not.toBeNull();
+    input!.value = 'plan';
+    input!.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    // The box is debounced before it reaches the API.
+    await debounce();
+    fixture.detectChanges();
+
+    // Typing returns to the first page straight away; the term follows once
+    // the debounce settles. The last request is the one the list keeps.
+    const requests = httpMock.match((candidate) => candidate.url === CHATS_URL);
+    const request = requests[requests.length - 1]!;
+    expect(request.request.params.get('search')).toBe('plan');
+    expect(request.request.params.get('agentId')).toBe('a1');
+    expect(request.request.params.get('offset')).toBe('0');
+    requests.filter((pending) => !pending.cancelled).forEach((pending) => flush(pending, [chat()]));
+  });
+
+  it('says nothing matches, rather than that no chats exist, when a search finds nothing', async () => {
+    const { element, httpMock, fixture } = setup();
+
+    const input = element.querySelector<HTMLInputElement>('input.search__input')!;
+    input.value = 'nothing like this';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await debounce();
+    fixture.detectChanges();
+
+    flush(nextChats(httpMock), []);
+    fixture.detectChanges();
+
+    expect(element.textContent).toContain('No matching chats');
+    expect(element.textContent).toContain('nothing like this');
+    expect(element.textContent).not.toContain('No chats yet');
+
+    const clear = Array.from(element.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Clear filters'),
+    );
+    clear!.click();
+    fixture.detectChanges();
+    await debounce();
+    fixture.detectChanges();
+
+    const request = nextChats(httpMock);
+    expect(request.request.params.has('search')).toBe(false);
     flush(request, [chat()]);
   });
 

@@ -56,9 +56,8 @@ type OwnerFilter = { readonly agentId?: string; readonly teamId?: string };
 /**
  * `/chats` — the conversations agents and teams own.
  *
- * Filtered by owner rather than by text: `GET /chats` takes no `search`
- * parameter, and the API rejects query parameters it does not know, so a
- * search box here would be a control that cannot work.
+ * Filtered by title, the same way the other lists are, and by owner. Both go
+ * to the API, so a match on a later page is still found.
  *
  * `?agentId=` / `?teamId=` preselect the filter, which is how an agent's or a
  * team's page links to the conversations that belong to it.
@@ -155,6 +154,9 @@ export class ChatList {
   /** True while the owner filter is narrowing the list to one owner. */
   protected readonly filtered = computed(() => this.ownerFilter() !== '');
 
+  /** True while a title search is narrowing the list. */
+  protected readonly searching = computed(() => this.list.search() !== '');
+
   /**
    * Whether there is anything a chat could belong to.
    *
@@ -222,6 +224,12 @@ export class ChatList {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
+  }
+
+  /** Clears the title search and the owner filter together. */
+  protected clearFilters(): void {
+    this.list.clearSearch();
+    this.clearFilter();
   }
 
   /** Opens the create dialog, pre-pointed at whoever the list is filtered to. */

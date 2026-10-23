@@ -60,18 +60,17 @@ export type ChatSortField = (typeof CHAT_SORT_FIELDS)[number];
 /**
  * Filters for `GET /api/v1/chats`.
  *
- * Each filter accepts the literal string `'null'` to select chats with no
- * project, no agent or no team.
+ * Each owner and project filter accepts the literal string `'null'` to select
+ * chats with no project, no agent or no team.
  *
- * There is no text filter: the endpoint takes no `search` parameter, and the
- * API rejects unknown query parameters outright. That is why the chat list
- * filters by owner rather than offering a search box like the other
- * collections do.
+ * `search` is a substring match on the title only, applied before pagination
+ * like the other filters. The summary written by compaction is not searched.
  */
 export interface ChatListQuery extends PageQuery {
   readonly projectId?: string;
   readonly agentId?: string;
   readonly teamId?: string;
+  readonly search?: string;
 }
 
 /** Longest chat title the API accepts. */

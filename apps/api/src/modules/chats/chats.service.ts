@@ -9,7 +9,10 @@ import {
   createPaginatedResponse,
   type PaginatedResponse,
 } from '../../common/pagination/paginated-response.dto.js';
-import { buildPaginationSqlFragment } from '../../common/pagination/sql-query-builder.js';
+import {
+  buildPaginationSqlFragment,
+  escapeLikePattern,
+} from '../../common/pagination/sql-query-builder.js';
 import { DatabaseService } from '../../database/database.service.js';
 import {
   BOTH_OWNERS_ERROR_MESSAGE,
@@ -65,6 +68,12 @@ export class ChatsService {
    * - `projectId`: Exact match, or "null" for unassigned chats outside any project.
    * - `agentId`: Exact match, or "null" for chats without an assigned agent.
    * - `teamId`: Exact match, or "null" for chats without an assigned team.
+   * - `search`: Substring match on `title` only. `context_summary` is not
+   *   searched: it is only ever written by compaction, which is not
+   *   implemented, and once it is it will be rewritten on every compaction, so
+   *   a match there would come and go as the chat continues. Like every other
+   *   name search, this relies on SQLite's `LIKE`, which ignores case for ASCII
+   *   letters and respects it for everything else.
    *
    * Defensive mapping is applied so chats whose owner was deleted (and set to NULL
    * by SQLite foreign key cascade) are listed without error.
@@ -100,6 +109,12 @@ export class ChatsService {
         conditions.push('team_id = ?');
         filterParams.push(query.teamId);
       }
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      conditions.push("title LIKE ? ESCAPE '\\'");
+      filterParams.push(`%${escapeLikePattern(search)}%`);
     }
 
     const whereClause =

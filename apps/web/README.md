@@ -216,9 +216,10 @@ source for a name and the rail and the team page cannot disagree.
 **Chat ownership.** A chat belongs to exactly one agent or one team, and the
 API refuses to move it afterwards — the history was produced under that owner.
 So the owner is asked for when the chat is created and shown as a fact, not a
-field, on its page. The chat list filters by owner rather than by text because
-`GET /chats` takes no `search` parameter and the API rejects query parameters it
-does not know: a search box there would be a control that cannot work. Both
+field, on its page. The chat list filters by title, like the other lists, and
+by owner; both go to `GET /chats` as `search` and `agentId`/`teamId`, so the
+filtering happens before pagination. Only the title is searched: the compaction
+summary is not, since nothing writes it yet. Both
 owner columns are nullable, since deleting an agent or a team keeps its chats,
 so "owner deleted" is a state the list renders and can filter for.
 
