@@ -2,14 +2,13 @@ import { Module } from '@nestjs/common';
 import { AdapterFactoryService } from './adapter-factory/adapter-factory.service.js';
 
 /**
- * Will hold the per-provider adapters that talk to model APIs.
+ * Wires the model adapter abstraction layer.
  *
- * A placeholder: {@link AdapterFactoryService} has no implementation yet, and
- * the module exports nothing, so importing it has no effect beyond
- * registering that provider. It is wired into `AppModule` already so the
- * module graph does not have to change when the adapters land.
+ * Exports {@link AdapterFactoryService} for the inference and completion pipelines
+ * to resolve provider-agnostic {@link ModelAdapter} instances.
  */
 @Module({
-  providers: [AdapterFactoryService]
+  providers: [AdapterFactoryService],
+  exports: [AdapterFactoryService],
 })
 export class ModelAdaptersModule {}
