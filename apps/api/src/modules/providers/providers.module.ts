@@ -23,7 +23,7 @@ import { ModelsService } from './models/models.service.js';
     ModelsController,
   ],
   providers: [ProvidersService, CredentialsService, ModelsService],
-  exports: [ProvidersService, CredentialsService],
+  exports: [ProvidersService, CredentialsService, ModelsService],
 })
 export class ProvidersModule {}
 
