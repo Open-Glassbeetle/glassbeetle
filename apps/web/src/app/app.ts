@@ -1,6 +1,8 @@
+import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import {
   Component,
+  ElementRef,
   HostListener,
   OnInit,
   afterNextRender,
@@ -8,6 +10,7 @@ import {
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
@@ -87,7 +90,9 @@ export class App implements OnInit {
   private readonly breakpoints = inject(BreakpointObserver);
   private readonly theme = inject(ThemeService);
   private readonly router = inject(Router);
+  private readonly liveAnnouncer = inject(LiveAnnouncer);
   private readonly dialog = inject(MatDialog);
+  private readonly mainContent = viewChild<ElementRef<HTMLElement>>('mainContent');
 
   protected readonly roster = inject(AgentRosterService);
   protected readonly user = inject(UserProfileService);
@@ -140,6 +145,8 @@ export class App implements OnInit {
     { name: 'se', direction: 'SouthEast' },
     { name: 'sw', direction: 'SouthWest' },
   ] as const;
+
+  private hasHandledInitialNavigation = false;
 
   /** The current URL, so the trail recomputes on every navigation. */
   private readonly url = toSignal(
@@ -267,6 +274,22 @@ export class App implements OnInit {
       .subscribe(() => {
         if (!this.wideLayout()) {
           this.railOpen.set(false);
+        }
+
+        if (!this.hasHandledInitialNavigation) {
+          this.hasHandledInitialNavigation = true;
+          return;
+        }
+
+        this.mainContent()?.nativeElement.focus();
+
+        let route = this.router.routerState.snapshot.root;
+        while (route.firstChild) {
+          route = route.firstChild;
+        }
+
+        if (route.title) {
+          void this.liveAnnouncer.announce(route.title);
         }
       });
   }
