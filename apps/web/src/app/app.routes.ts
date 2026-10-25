@@ -77,6 +77,7 @@ export const routes: Routes = [
   { path: 'system-prompts', pathMatch: 'full', redirectTo: 'prompts' },
   {
     path: '**',
+    title: 'Page not found',
     loadComponent: () => import('./features/not-found/not-found').then((m) => m.NotFound),
   },
 ];

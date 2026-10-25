@@ -1,13 +1,19 @@
+import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { EMPTY } from 'rxjs';
+import { vi } from 'vitest';
 
 import { environment } from '../environments/environment';
 import { App } from './app';
 import { DesktopService } from './core/desktop/desktop.service';
 import { ApiStatusService } from './features/api-status/api-status.service';
+
+@Component({ template: '' })
+class TestRoute {}
 
 // Derived from the environment so the version prefix cannot drift out of sync
 // with the API again.
@@ -77,7 +83,14 @@ describe('App shell', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([
+          { path: 'overview', title: 'Overview · Glassbeetle', component: TestRoute },
+          { path: 'teams', title: 'Teams · Glassbeetle', component: TestRoute },
+        ]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -144,6 +157,23 @@ describe('App shell', () => {
   it('loads the roster, the health check, the capability probe, the profile and the budget once each', () => {
     const fixture = render();
     expect(fixture.componentInstance).toBeTruthy();
+  });
+
+  it('focuses and announces the new route after the initial navigation', async () => {
+    const fixture = render();
+    const main = fixture.nativeElement.querySelector('main.surface') as HTMLElement;
+    const focus = vi.spyOn(main, 'focus');
+    const announce = vi.spyOn(TestBed.inject(LiveAnnouncer), 'announce');
+    const router = TestBed.inject(Router);
+
+    await router.navigateByUrl('/overview');
+    expect(focus).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalled();
+
+    await router.navigateByUrl('/teams');
+    expect(focus).toHaveBeenCalledOnce();
+    expect(announce).toHaveBeenCalledOnce();
+    expect(announce).toHaveBeenCalledWith('Teams · Glassbeetle');
   });
 
   it('invites a budget from the deck when none is set, rather than hiding', () => {
