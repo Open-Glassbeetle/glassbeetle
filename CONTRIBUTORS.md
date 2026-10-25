@@ -25,7 +25,7 @@ the `question` label.
 ## Contributors ✨
 
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-8-orange.svg?style=flat-square)](#contributors-)
+[![All Contributors](https://img.shields.io/badge/all_contributors-9-orange.svg?style=flat-square)](#contributors-)
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 Maintained by the [all-contributors](https://allcontributors.org) bot. Emoji
@@ -48,6 +48,7 @@ each one means.
     </tr>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/dbdefault"><img src="https://avatars.githubusercontent.com/u/246079841?v=4?s=100" width="100px;" alt="dbdefault"/><br /><sub><b>dbdefault</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=dbdefault" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/deveshInfy890"><img src="https://avatars.githubusercontent.com/u/344684260?v=4?s=100" width="100px;" alt="deveshInfy890"/><br /><sub><b>deveshInfy890</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=deveshInfy890" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
