@@ -98,4 +98,24 @@ describe('ProviderModelsController', () => {
       expect(result).toBe(createdModel);
     });
   });
+
+  describe('discover', () => {
+    it('delegates to modelsService.discover', async () => {
+      const summary = {
+        added: 2,
+        updated: 1,
+        unchanged: 3,
+        disabled: 0,
+        models: [],
+      };
+      mockModelsService.discover = vi.fn().mockResolvedValue(summary);
+
+      const result = await controller.discover(providerId, { timeoutMs: 5000 });
+
+      expect(mockModelsService.discover).toHaveBeenCalledWith(providerId, {
+        timeoutMs: 5000,
+      });
+      expect(result).toBe(summary);
+    });
+  });
 });
