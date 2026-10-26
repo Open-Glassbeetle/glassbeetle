@@ -30,11 +30,11 @@ import type {
  * - {@link ModelAdapter.stream} returns an async iterable yielding structured {@link StreamEvent} objects.
  * - Tokens are yielded incrementally as `{ type: 'text-delta', delta: '...' }`.
  * - Models supporting chain-of-thought yield `{ type: 'thought-delta', delta: '...' }`.
- * - The stream terminates with a `{ type: 'complete' }` event or by throwing a {@link ModelAdapterError}.
+ * - The stream terminates with a `{ type: 'complete' }` event or by throwing a {@link model-adapters/errors/model-adapter-error.ModelAdapterError}.
  *
  * ## Cancellation:
  * - All methods accept {@link CompletionOptions.signal} or {@link DiscoveryOptions.signal}.
- * - When aborted, in-flight HTTP requests must be aborted immediately and throw {@link RequestAbortedError}.
+ * - When aborted, in-flight HTTP requests must be aborted immediately and throw {@link model-adapters/errors/model-adapter-error.RequestAbortedError}.
  */
 export interface ModelAdapter {
   /**

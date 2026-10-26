@@ -2,15 +2,22 @@
   "$schema": "https://typedoc.org/schema.json",
   "name": "Glassbeetle API",
   "entryPointStrategy": "expand",
-  "entryPoints": ["src"],
-  "exclude": ["**/*.spec.ts"],
+  "entryPoints": [
+    "src"
+  ],
+  "exclude": [
+    "**/*.spec.ts"
+  ],
   "out": "docs-site",
   "tsconfig": "tsconfig.build.json",
   "skipErrorChecking": true,
   "excludePrivate": false,
   "excludeExternals": true,
   "categorizeByGroup": true,
-  "sort": ["kind", "alphabetical"],
+  "sort": [
+    "kind",
+    "alphabetical"
+  ],
   "navigationLinks": {
     "Repository": "https://github.com/Open-Glassbeetle/glassbeetle",
     "Conventions": "https://github.com/Open-Glassbeetle/glassbeetle/blob/main/docs/README.md"
@@ -19,5 +26,6 @@
     "invalidLink": true,
     "notExported": true,
     "notDocumented": false
-  }
+  },
+  "treatWarningsAsErrors": true
 }

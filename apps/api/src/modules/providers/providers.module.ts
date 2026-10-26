@@ -12,9 +12,9 @@ import { ModelsService } from './models/models.service.js';
 /**
  * Wires `/providers` and the resources below it.
  *
- * Imports {@link CryptoModule} to provide {@link EncryptionService} for
+ * Imports {@link CryptoModule} to provide {@link "crypto/encryption/encryption.service".EncryptionService} for
  * encrypting provider API keys at rest, and {@link ModelAdaptersModule}
- * to provide {@link AdapterFactoryService} for model discovery.
+ * to provide {@link "model-adapters/adapter-factory/adapter-factory.service".AdapterFactoryService} for model discovery.
  */
 @Module({
   imports: [CryptoModule, ModelAdaptersModule],
