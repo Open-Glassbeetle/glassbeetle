@@ -255,15 +255,20 @@ is nothing to decide — just don't let your editor's auto-import drop the
 suffix.
 
 Formatting is Prettier, configured per workspace (`apps/api/.prettierrc` and
-`apps/web/.prettierrc`). There is no root script:
+`apps/web/.prettierrc`). From the repository root:
 
 ```bash
-npm run format -w @glassbeetle/api     # writes
-npx prettier --write "apps/web/src/**/*.{ts,html,scss}"
+npm run format        # write — API + web (workspaces that define `format`)
+npm run format:check  # non-writing; exits non-zero if anything would change
 ```
 
-`apps/web/.editorconfig` covers the basics for editors that read it. oxlint's
-rules live in `apps/api/oxlint.json`.
+Or target one workspace: `npm run format -w @glassbeetle/api`,
+`npm run format -w @glassbeetle/web`. Root `format` does **not** run
+`cargo fmt`; format the Rust shell with
+`cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml` when you touch
+it. A root `.editorconfig` covers the whole tree (the web copy remains for
+editors opened inside `apps/web/`). oxlint's rules live in
+`apps/api/oxlint.json`.
 
 ## Tests, lint and formatting
 
@@ -272,13 +277,17 @@ npm test                                  # API + frontend unit tests
 npm run test -w @glassbeetle/api          # API unit tests only
 npm run test:watch -w @glassbeetle/api    # …in watch mode
 npm run test:e2e -w @glassbeetle/api      # API integration tests
-npm run lint -w @glassbeetle/api          # oxlint
+npm run lint                              # oxlint (workspaces with a lint script)
+npm run lint -w @glassbeetle/api          # …API only
+npm run format                            # Prettier write (API + web)
+npm run format:check                      # Prettier check (no writes)
 npm run build                             # type-check both apps the way CI does
 ```
 
 [CI](.github/workflows/ci.yml) runs lint, build, unit tests and e2e tests on
-every pull request. Running `npm run lint -w @glassbeetle/api`, `npm test` and
-`npm run build` locally catches essentially everything it would.
+every pull request. Running `npm run lint`, `npm test` and `npm run build`
+locally catches essentially everything it would. `format:check` exists for
+contributors and a future CI decision; it is not enforced in CI yet.
 
 Two suites, split by filename:
 
