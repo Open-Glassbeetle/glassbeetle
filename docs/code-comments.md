@@ -118,6 +118,13 @@ npm run build -w @glassbeetle/api
 npm run docs:api
 ```
 
+CI runs all three on every pull request and on pushes to `main` and `develop`.
+`npm run docs:api` is folded into the existing **Build API & Web** job (after
+`npm run build`) so it reuses that job's checkout and install rather than
+standing up a fifth job. `apps/api/typedoc.json` sets `treatWarningsAsErrors`,
+so a broken `{@link}` or a documented reference to a symbol that is not
+exported fails the build rather than logging a warning.
+
 A malformed doc comment is a syntax error, so `build` catches the structural
 mistakes; TypeDoc catches broken references; the rest is review.
 

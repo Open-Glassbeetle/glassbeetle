@@ -26,7 +26,7 @@ import type {
  * 2. **Credential Privacy**: The decrypted API key is scoped privately and never logged or exposed.
  * 3. **System Prompt Normalisation**: Translates top-level `systemPrompt` into the vendor's protocol.
  * 4. **Cancellation**: Forwards `options.signal` directly to `fetch`.
- * 5. **Normalised Error Mapping**: Maps HTTP 401, 404, 429, 5xx to {@link ModelAdapterError} subclasses.
+ * 5. **Normalised Error Mapping**: Maps HTTP 401, 404, 429, 5xx to {@link model-adapters/errors/model-adapter-error.ModelAdapterError} subclasses.
  */
 export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
   readonly capabilities: ModelCapabilities = {

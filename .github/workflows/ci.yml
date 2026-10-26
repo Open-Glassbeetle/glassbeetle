@@ -45,6 +45,11 @@ jobs:
       - name: Build packages
         run: npm run build
 
+      # TypeDoc validates {@link} / notExported (treatWarningsAsErrors).
+      # Folded into Build so we reuse the same checkout+install; ~3s locally.
+      - name: Generate API docs (TypeDoc validation)
+        run: npm run docs:api
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
