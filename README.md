@@ -75,6 +75,9 @@ The three tiers talk to each other like this:
 | `npm run build`          | Compile the API and build the Angular bundle               |
 | `npm run build:desktop`  | Build the API, then bundle the installable desktop app     |
 | `npm test`               | Run the API and frontend unit tests                        |
+| `npm run lint`           | Lint workspaces that define a `lint` script (API today)    |
+| `npm run format`         | Format API + web sources with Prettier                     |
+| `npm run format:check`   | Check formatting without writing                           |
 | `npm run test:e2e -w @glassbeetle/api` | Run the API end-to-end tests                 |
 | `npm run openapi:export -w @glassbeetle/api` | Write the OpenAPI spec to a file       |
 | `npm run clean`          | Remove `dist/` output and the Rust `target/` directory      |

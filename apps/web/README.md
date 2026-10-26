@@ -8,6 +8,8 @@ bundle in `dist/web/browser`.
 npm run dev:web          # just this app
 npm test -w @glassbeetle/web
 npm run build -w @glassbeetle/web
+npm run format -w @glassbeetle/web
+npm run format:check -w @glassbeetle/web
 ```
 
 ## What the UI covers
