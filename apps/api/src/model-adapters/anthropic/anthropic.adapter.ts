@@ -1,0 +1,435 @@
+import {
+  AuthenticationError,
+  ContextLengthExceededError,
+  InvalidRequestError,
+  ModelAdapterError,
+  ModelNotFoundError,
+  ProviderUnavailableError,
+  RateLimitError,
+  RequestAbortedError,
+  UnsupportedCapabilityError,
+} from '../errors/model-adapter-error.js';
+import type { ModelAdapter } from '../model-adapter.interface.js';
+import type {
+  AdapterConfig,
+  AdapterMessage,
+  CompletionOptions,
+  CompletionRequest,
+  CompletionResponse,
+  DiscoveredModel,
+  DiscoveryOptions,
+  FinishReason,
+  ModelCapabilities,
+  StreamEvent,
+} from '../types/index.js';
+import type {
+  AnthropicContentBlock,
+  AnthropicErrorBody,
+  AnthropicMessagesRequest,
+  AnthropicMessagesResponse,
+  AnthropicWireMessage,
+} from './anthropic.types.js';
+
+/**
+ * Standard Anthropic API base endpoint URL.
+ */
+export const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com';
+
+/**
+ * Anthropic API protocol version header.
+ */
+export const ANTHROPIC_API_VERSION = '2023-06-01';
+
+/**
+ * Documented fallback for `max_tokens` when omitted by both the caller and the model configuration.
+ *
+ * The Anthropic Messages API strictly requires `max_tokens`. 4096 is supported by all Claude 3 and 3.5
+ * models (Haiku, Sonnet, Opus) and provides a generous token budget without risking schema rejection.
+ */
+export const ANTHROPIC_DEFAULT_MAX_TOKENS = 4096;
+
+/**
+ * Default Claude model identifier when omitted from both request and provider configuration.
+ */
+export const ANTHROPIC_DEFAULT_MODEL = 'claude-3-5-sonnet-20241022';
+
+/**
+ * Model adapter for Anthropic's Messages and Models API.
+ *
+ * ## Capabilities:
+ * - Translates normalised completion requests into Anthropic Messages API wire payloads.
+ * - Extracts and hoists top-level system prompts and conversation system-role messages.
+ * - Merges consecutive same-role turns into single turns to satisfy Anthropic turn alternation rules.
+ * - Enforces `max_tokens` fallback when unspecified (`ANTHROPIC_DEFAULT_MAX_TOKENS = 4096`).
+ * - Maps HTTP and upstream error codes into normalised {@link ModelAdapterError} classes.
+ * - Strictly prevents API key and credential leaks across logs and errors.
+ */
+export class AnthropicAdapter implements ModelAdapter {
+  readonly capabilities: ModelCapabilities = {
+    supportsStreaming: true,
+    supportsDiscovery: true,
+    supportsSystemPrompt: true,
+    supportsToolCalls: false,
+  };
+
+  private readonly baseUrl: string;
+  private readonly apiKey?: string;
+  private readonly defaultModel: string;
+
+  constructor(private readonly config: AdapterConfig) {
+    this.baseUrl = (config.baseUrl?.trim() || ANTHROPIC_DEFAULT_BASE_URL).replace(/\/+$/, '');
+    this.apiKey = config.apiKey;
+    this.defaultModel = config.modelIdentifier || ANTHROPIC_DEFAULT_MODEL;
+  }
+
+  /**
+   * Executes a non-streaming completion using the Anthropic Messages API.
+   *
+   * @param request - Normalised completion request.
+   * @param options - Cancellation signal and additional request headers.
+   * @returns Normalised completion response with generated content and token usage.
+   */
+  async complete(
+    request: CompletionRequest,
+    options?: CompletionOptions,
+  ): Promise<CompletionResponse> {
+    const payload = this.buildMessagesPayload(request, false);
+    const url = this.resolveEndpointUrl('/messages');
+    const headers = this.buildHeaders(options?.headers);
+
+    const res = await this.executeFetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    });
+
+    const data = (await res.json()) as AnthropicMessagesResponse;
+
+    const textContent = this.extractTextContent(data.content);
+    const reasoningContent = this.extractReasoningContent(data.content);
+
+    return {
+      content: textContent,
+      reasoningContent,
+      finishReason: this.mapFinishReason(data.stop_reason),
+      usage: {
+        inputTokens: data.usage.input_tokens ?? 0,
+        outputTokens: data.usage.output_tokens ?? 0,
+        totalTokens: (data.usage.input_tokens ?? 0) + (data.usage.output_tokens ?? 0),
+      },
+      model: data.model || payload.model,
+      raw: data,
+    };
+  }
+
+  /**
+   * Streaming completion yielding structured {@link StreamEvent} objects.
+   * (Implemented in streaming phase).
+   */
+  async *stream(
+    _request: CompletionRequest,
+    _options?: CompletionOptions,
+  ): AsyncIterable<StreamEvent> {
+    throw new UnsupportedCapabilityError('streaming', 'anthropic');
+  }
+
+  /**
+   * Discovers models available from Anthropic's `/v1/models` endpoint.
+   * (Implemented in discovery phase).
+   */
+  async discoverModels(_options?: DiscoveryOptions): Promise<DiscoveredModel[]> {
+    throw new UnsupportedCapabilityError('model discovery', 'anthropic');
+  }
+
+  /**
+   * Translates a normalised {@link CompletionRequest} into the Anthropic wire payload.
+   *
+   * Handles:
+   * 1. System prompt hoisting (from `request.systemPrompt` and any `role === 'system'` messages).
+   * 2. Turn alternation & consecutive same-role merging (e.g. multi-agent team responses).
+   * 3. Fallback `max_tokens` when omitted.
+   * 4. Opaque pass-through of `request.modelParams`.
+   */
+  buildMessagesPayload(
+    request: CompletionRequest,
+    stream: boolean,
+  ): AnthropicMessagesRequest {
+    const { systemPrompt, wireMessages } = this.translateMessages(request);
+
+    const model = request.model?.trim() || this.defaultModel;
+    const maxTokens = request.maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS;
+
+    const payload: AnthropicMessagesRequest = {
+      model,
+      messages: wireMessages,
+      max_tokens: maxTokens,
+      stream,
+      ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+      ...(request.modelParams ?? {}),
+    };
+
+    if (systemPrompt) {
+      payload.system = systemPrompt;
+    }
+
+    return payload;
+  }
+
+  /**
+   * Normalises conversation history for Anthropic:
+   * - Hoists any `role === 'system'` messages alongside `request.systemPrompt`.
+   * - Converts `role === 'tool'` messages to user turns (if any).
+   * - Merges consecutive same-role messages by joining formatted contents with `\n\n`.
+   * - Prepends an introductory user turn if conversation begins with an assistant turn.
+   */
+  private translateMessages(request: CompletionRequest): {
+    systemPrompt?: string;
+    wireMessages: AnthropicWireMessage[];
+  } {
+    const systemParts: string[] = [];
+
+    if (request.systemPrompt && request.systemPrompt.trim().length > 0) {
+      systemParts.push(request.systemPrompt.trim());
+    }
+
+    // Filter system messages and hoist their contents
+    const nonSystemMessages: AdapterMessage[] = [];
+    for (const msg of request.messages) {
+      if (msg.role === 'system') {
+        if (msg.content.trim().length > 0) {
+          systemParts.push(msg.content.trim());
+        }
+      } else {
+        nonSystemMessages.push(msg);
+      }
+    }
+
+    const systemPrompt = systemParts.length > 0 ? systemParts.join('\n\n') : undefined;
+
+    if (nonSystemMessages.length === 0) {
+      return {
+        systemPrompt,
+        wireMessages: [{ role: 'user', content: ' ' }],
+      };
+    }
+
+    // Merge consecutive same-role messages
+    const wireMessages: AnthropicWireMessage[] = [];
+
+    for (const msg of nonSystemMessages) {
+      // Map tool messages to user role for turn alternation
+      const role: 'user' | 'assistant' = msg.role === 'assistant' ? 'assistant' : 'user';
+      const formattedContent = msg.name ? `${msg.name}: ${msg.content}` : msg.content;
+
+      const previous = wireMessages[wireMessages.length - 1];
+
+      if (previous && previous.role === role) {
+        // Merge consecutive same-role turn
+        if (typeof previous.content === 'string') {
+          previous.content = `${previous.content}\n\n${formattedContent}`;
+        }
+      } else {
+        wireMessages.push({
+          role,
+          content: formattedContent,
+        });
+      }
+    }
+
+    // Anthropic requires the first message to have role 'user'
+    if (wireMessages.length > 0 && wireMessages[0].role === 'assistant') {
+      wireMessages.unshift({ role: 'user', content: ' ' });
+    }
+
+    return {
+      systemPrompt,
+      wireMessages,
+    };
+  }
+
+  /**
+   * Resolves endpoint URLs, supporting both standard Anthropic endpoints and custom gateways.
+   */
+  private resolveEndpointUrl(path: string): string {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    if (this.baseUrl.endsWith('/v1')) {
+      return `${this.baseUrl}${cleanPath}`;
+    }
+    return `${this.baseUrl}/v1${cleanPath}`;
+  }
+
+  /**
+   * Constructs request headers, including mandatory `anthropic-version` and authentication.
+   */
+  private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'anthropic-version': ANTHROPIC_API_VERSION,
+      ...(customHeaders ?? {}),
+    };
+
+    if (this.apiKey) {
+      headers['x-api-key'] = this.apiKey;
+    }
+
+    return headers;
+  }
+
+  /**
+   * Safely executes an HTTP request, ensuring API keys are never leaked upon failure.
+   */
+  private async executeFetch(
+    url: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    try {
+      const res = await fetch(url, init);
+
+      if (!res.ok) {
+        await this.handleErrorResponse(res);
+      }
+
+      return res;
+    } catch (err: unknown) {
+      if (err instanceof ModelAdapterError) {
+        throw err;
+      }
+
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new RequestAbortedError('Request to Anthropic was aborted', 'anthropic');
+      }
+
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const safeMsg = this.sanitizeCredentials(rawMsg);
+
+      throw new ProviderUnavailableError(
+        `Failed to reach Anthropic: ${safeMsg}`,
+        'anthropic',
+      );
+    }
+  }
+
+  /**
+   * Translates HTTP error responses into normalised {@link ModelAdapterError} subclasses.
+   */
+  private async handleErrorResponse(res: Response): Promise<never> {
+    let upstreamMessage = `HTTP ${res.status}`;
+    let upstreamType = '';
+
+    try {
+      const body = (await res.json()) as AnthropicErrorBody;
+      if (body?.error?.message) {
+        upstreamMessage = body.error.message;
+      }
+      if (body?.error?.type) {
+        upstreamType = body.error.type;
+      }
+    } catch {
+      // Body not JSON or unreadable
+    }
+
+    const safeMessage = this.sanitizeCredentials(upstreamMessage);
+
+    switch (res.status) {
+      case 401:
+      case 403:
+        throw new AuthenticationError(
+          `Anthropic authentication failed: ${safeMessage}`,
+          'anthropic',
+        );
+
+      case 404:
+        throw new ModelNotFoundError(this.defaultModel, 'anthropic');
+
+      case 429:
+        throw new RateLimitError(
+          `Anthropic rate limit exceeded: ${safeMessage}`,
+          'anthropic',
+        );
+
+      case 400:
+        if (
+          upstreamType === 'invalid_request_error' &&
+          (safeMessage.toLowerCase().includes('prompt is too long') ||
+            safeMessage.toLowerCase().includes('context') ||
+            safeMessage.toLowerCase().includes('maximum context length'))
+        ) {
+          throw new ContextLengthExceededError(safeMessage, 'anthropic');
+        }
+        throw new InvalidRequestError(
+          `Anthropic rejected request: ${safeMessage}`,
+          'anthropic',
+        );
+
+      case 529: // Anthropic Overloaded Error
+        throw new ProviderUnavailableError(
+          `Anthropic is currently overloaded (529): ${safeMessage}`,
+          'anthropic',
+        );
+
+      case 500:
+      case 502:
+      case 503:
+      case 504:
+        throw new ProviderUnavailableError(
+          `Anthropic service unavailable (HTTP ${res.status}): ${safeMessage}`,
+          'anthropic',
+        );
+
+      default:
+        throw new ProviderUnavailableError(
+          `Anthropic error (HTTP ${res.status}): ${safeMessage}`,
+          'anthropic',
+        );
+    }
+  }
+
+  /**
+   * Sanitizes any occurrences of the decrypted API key from error strings or logs.
+   */
+  private sanitizeCredentials(message: string): string {
+    if (!this.apiKey || this.apiKey.length === 0) {
+      return message;
+    }
+    return message.replaceAll(this.apiKey, '[REDACTED_API_KEY]');
+  }
+
+  /**
+   * Extracts text content from Anthropic content blocks.
+   */
+  private extractTextContent(blocks: AnthropicContentBlock[]): string {
+    return blocks
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+  }
+
+  /**
+   * Extracts thinking / chain-of-thought content from Anthropic content blocks (if any).
+   */
+  private extractReasoningContent(blocks: AnthropicContentBlock[]): string | undefined {
+    const thinkingBlocks = blocks
+      .filter((b): b is { type: 'thinking'; thinking: string } => b.type === 'thinking')
+      .map((b) => b.thinking);
+
+    return thinkingBlocks.length > 0 ? thinkingBlocks.join('') : undefined;
+  }
+
+  /**
+   * Maps Anthropic stop reason to normalised {@link FinishReason}.
+   */
+  private mapFinishReason(stopReason?: string | null): FinishReason {
+    switch (stopReason) {
+      case 'end_turn':
+      case 'stop_sequence':
+        return 'stop';
+      case 'max_tokens':
+        return 'length';
+      case 'tool_use':
+        return 'tool_calls';
+      default:
+        return 'other';
+    }
+  }
+}
