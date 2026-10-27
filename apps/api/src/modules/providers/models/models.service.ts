@@ -37,11 +37,13 @@ import {
 } from '../dto/provider.dto.js';
 import {
   type DiscoverModelsDto,
+  type ListModelsQueryDto,
   type ListProviderModelsQueryDto,
   type ModelDiscoverySummaryDto,
   type ModelDto,
   type ModelRow,
   type RegisterModelDto,
+  type UpdateModelDto,
   mapModelRow,
 } from './dto/index.js';
 
@@ -52,6 +54,7 @@ import {
  */
 export const ALLOWED_MODEL_SORT_COLUMNS: Readonly<Record<string, string>> = {
   id: 'id',
+  providerId: 'provider_id',
   modelIdentifier: 'model_identifier',
   displayName: 'display_name',
   source: 'source',
@@ -61,6 +64,24 @@ export const ALLOWED_MODEL_SORT_COLUMNS: Readonly<Record<string, string>> = {
   enabled: 'enabled',
   createdAt: 'created_at',
   updatedAt: 'updated_at',
+};
+
+/**
+ * Whitelist of client-facing sort keys for the global models list, with table qualification
+ * to prevent ambiguous column errors in queries joining `providers`.
+ */
+export const ALLOWED_GLOBAL_MODEL_SORT_COLUMNS: Readonly<Record<string, string>> = {
+  id: 'models.id',
+  providerId: 'models.provider_id',
+  modelIdentifier: 'models.model_identifier',
+  displayName: 'models.display_name',
+  source: 'models.source',
+  contextWindow: 'models.context_window',
+  defaultTemperature: 'models.default_temperature',
+  defaultMaxTokens: 'models.default_max_tokens',
+  enabled: 'models.enabled',
+  createdAt: 'models.created_at',
+  updatedAt: 'models.updated_at',
 };
 
 /**
@@ -553,13 +574,199 @@ export class ModelsService {
   }
 
   /**
-   * Retrieves a single model by ID.
+   * Returns a paginated, filterable collection of models across all providers.
+   *
+   * Includes embedded parent provider summary (id, name, kind) on each model.
+   *
+   * @param query - Pagination, sorting, and filter options (`providerId`, `enabled`, `source`).
+   */
+  listAll(query: ListModelsQueryDto): PaginatedResponse<ModelDto> {
+    const { clauseSql, params: paginationParams } = buildPaginationSqlFragment({
+      query,
+      allowedSortColumns: ALLOWED_GLOBAL_MODEL_SORT_COLUMNS,
+      defaultSortKey: 'createdAt',
+      defaultOrder: 'desc',
+      tiebreakerColumn: 'models.id',
+    });
+
+    const whereClauses: string[] = [];
+    const filterParams: unknown[] = [];
+
+    if (query.providerId !== undefined) {
+      whereClauses.push('models.provider_id = ?');
+      filterParams.push(query.providerId);
+    }
+
+    if (query.enabled !== undefined) {
+      whereClauses.push('models.enabled = ?');
+      filterParams.push(toDbBoolean(query.enabled));
+    }
+
+    if (query.source !== undefined) {
+      whereClauses.push('models.source = ?');
+      filterParams.push(query.source);
+    }
+
+    const where =
+      whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const countSql = `SELECT COUNT(*) AS total FROM models ${where}`;
+    const dataSql = `SELECT
+        models.*,
+        providers.name AS provider_name,
+        providers.kind AS provider_kind
+      FROM models
+      LEFT JOIN providers ON providers.id = models.provider_id
+      ${where} ${clauseSql}`;
+
+    const countRow = this.db.get<{ total: number }>(countSql, filterParams);
+    const rows = this.db.all<ModelRow>(dataSql, [
+      ...filterParams,
+      ...paginationParams,
+    ]);
+
+    const limit = Math.min(Math.max(1, query.limit ?? 50), 100);
+    const offset = Math.max(0, query.offset ?? 0);
+
+    return createPaginatedResponse(
+      rows.map(mapModelRow),
+      countRow?.total ?? 0,
+      limit,
+      offset,
+    );
+  }
+
+  /**
+   * Retrieves a single model by ID, including embedded provider summary.
    *
    * @param id - Model UUIDv7.
    * @throws NotFoundException (404) when no model with that ID exists.
    */
   findOne(id: string): ModelDto {
-    return this.findOneOrFail(id);
+    const row = this.db.get<ModelRow>(
+      `SELECT
+         models.*,
+         providers.name AS provider_name,
+         providers.kind AS provider_kind
+       FROM models
+       LEFT JOIN providers ON providers.id = models.provider_id
+       WHERE models.id = ?`,
+      [id],
+    );
+    if (!row) {
+      throw new NotFoundException(`Model '${id}' not found`);
+    }
+    return mapModelRow(row);
+  }
+
+  /**
+   * Partially updates a model's mutable configuration.
+   *
+   * Rejects changes to immutable fields (`providerId`, `modelIdentifier`, `source`) with 400.
+   *
+   * @param id - Model UUIDv7.
+   * @param dto - Partial update fields (displayName, contextWindow, defaultTemperature, defaultMaxTokens, enabled).
+   * @throws NotFoundException (404) if the model does not exist.
+   * @throws BadRequestException (400) if client attempts to modify immutable fields.
+   */
+  update(id: string, dto: UpdateModelDto): ModelDto {
+    if (
+      'providerId' in (dto as Record<string, unknown>) ||
+      'provider_id' in (dto as Record<string, unknown>) ||
+      'modelIdentifier' in (dto as Record<string, unknown>) ||
+      'model_identifier' in (dto as Record<string, unknown>) ||
+      'source' in (dto as Record<string, unknown>)
+    ) {
+      throw new BadRequestException(
+        'providerId, modelIdentifier, and source are immutable and cannot be updated',
+      );
+    }
+
+    const existing = this.db.get<ModelRow>(
+      'SELECT * FROM models WHERE id = ?',
+      [id],
+    );
+    if (!existing) {
+      throw new NotFoundException(`Model '${id}' not found`);
+    }
+
+    const setClauses: string[] = [];
+    const setParams: unknown[] = [];
+
+    if (dto.displayName !== undefined) {
+      setClauses.push('display_name = ?');
+      setParams.push(dto.displayName);
+    }
+    if (dto.contextWindow !== undefined) {
+      setClauses.push('context_window = ?');
+      setParams.push(dto.contextWindow);
+    }
+    if (dto.defaultTemperature !== undefined) {
+      setClauses.push('default_temperature = ?');
+      setParams.push(dto.defaultTemperature);
+    }
+    if (dto.defaultMaxTokens !== undefined) {
+      setClauses.push('default_max_tokens = ?');
+      setParams.push(dto.defaultMaxTokens);
+    }
+    if (dto.enabled !== undefined) {
+      setClauses.push('enabled = ?');
+      setParams.push(toDbBoolean(dto.enabled));
+    }
+
+    if (setClauses.length > 0) {
+      const now = nowIso();
+      setClauses.push('updated_at = ?');
+      setParams.push(now);
+
+      const result = this.db.run(
+        `UPDATE models SET ${setClauses.join(', ')} WHERE id = ?`,
+        [...setParams, id],
+      );
+      if (result.changes === 0) {
+        throw new NotFoundException(`Model '${id}' not found`);
+      }
+    }
+
+    return this.findOne(id);
+  }
+
+  /**
+   * Permanently deletes a model by ID.
+   *
+   * Referenced tables behavior:
+   * - `agents.model_id` is configured with `ON DELETE SET NULL`. Dependent agents
+   *   lose their model reference and can no longer run until reconfigured.
+   *   Logs a warning with the count of affected agents so operators are aware.
+   * - `usage_events.model_id` is configured with `ON DELETE SET NULL`. Historical
+   *   records survive with attribution lost.
+   *
+   * @param id - Model UUIDv7.
+   * @throws NotFoundException (404) when the model does not exist.
+   */
+  delete(id: string): void {
+    const existing = this.db.get<ModelRow>(
+      'SELECT id, display_name FROM models WHERE id = ?',
+      [id],
+    );
+    if (!existing) {
+      throw new NotFoundException(`Model '${id}' not found`);
+    }
+
+    const dependentAgents = this.db.get<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM agents WHERE model_id = ?',
+      [id],
+    );
+    const affectedAgents = dependentAgents?.count ?? 0;
+    if (affectedAgents > 0) {
+      this.logger.warn(
+        `Deleting model '${id}' ('${existing.display_name}') unlinked ${affectedAgents} dependent agent(s) (agents.model_id set to NULL). Consider disabling the model (enabled = 0) if agent references should be preserved.`,
+      );
+    }
+
+    const result = this.db.run('DELETE FROM models WHERE id = ?', [id]);
+    if (result.changes === 0) {
+      throw new NotFoundException(`Model '${id}' not found`);
+    }
   }
 
   /**
@@ -578,7 +785,7 @@ export class ModelsService {
   }
 
   /**
-   * Reads one model row by ID or throws.
+   * Reads one model row by ID without joins (for provider-scoped operations).
    *
    * @throws NotFoundException (404) when model does not exist.
    */

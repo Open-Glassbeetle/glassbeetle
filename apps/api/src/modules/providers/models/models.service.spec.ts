@@ -578,5 +578,205 @@ describe('ModelsService', () => {
       expect(result.id).toBe('existing-id');
       expect(result.modelIdentifier).toBe(row.model_identifier);
     });
+
+    it('returns mapped ModelDto with provider summary when provider is joined', () => {
+      const row = makeModelRow({
+        id: 'existing-id',
+        provider_name: 'Anthropic',
+        provider_kind: 'anthropic',
+      });
+      mockDb.get.mockReturnValueOnce(row);
+
+      const result = service.findOne('existing-id');
+      expect(result.id).toBe('existing-id');
+      expect(result.provider).toEqual({
+        id: row.provider_id,
+        name: 'Anthropic',
+        kind: 'anthropic',
+      });
+    });
+  });
+
+  describe('listAll', () => {
+    it('returns a paginated list of models across providers with default pagination', () => {
+      const row1 = makeModelRow({
+        id: 'm1',
+        provider_name: 'Anthropic',
+        provider_kind: 'anthropic',
+      });
+      const row2 = makeModelRow({
+        id: 'm2',
+        provider_name: 'OpenAI',
+        provider_kind: 'openai',
+      });
+
+      mockDb.get.mockReturnValueOnce({ total: 2 });
+      mockDb.all.mockReturnValueOnce([row1, row2]);
+
+      const result = service.listAll({});
+
+      expect(result.total).toBe(2);
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0].provider?.name).toBe('Anthropic');
+      expect(result.items[1].provider?.name).toBe('OpenAI');
+    });
+
+    it('applies providerId, enabled, and source filters', () => {
+      mockDb.get.mockReturnValueOnce({ total: 1 });
+      mockDb.all.mockReturnValueOnce([makeModelRow({ id: 'm1' })]);
+
+      service.listAll({
+        providerId: 'p1',
+        enabled: true,
+        source: 'manual',
+      });
+
+      const [countSql, countParams] = mockDb.get.mock.calls[0];
+      expect(countSql).toContain('models.provider_id = ?');
+      expect(countSql).toContain('models.enabled = ?');
+      expect(countSql).toContain('models.source = ?');
+      expect(countParams).toEqual(['p1', 1, 'manual']);
+
+      const [dataSql, dataParams] = mockDb.all.mock.calls[0];
+      expect(dataSql).toContain('LEFT JOIN providers');
+      expect(dataSql).toContain('models.provider_id = ?');
+      expect(dataParams).toEqual(['p1', 1, 'manual', 50, 0]);
+    });
+  });
+
+  describe('update', () => {
+    it('throws BadRequestException when providerId is supplied', () => {
+      expect(() =>
+        service.update('m1', { providerId: 'p2' } as any),
+      ).toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when modelIdentifier is supplied', () => {
+      expect(() =>
+        service.update('m1', { modelIdentifier: 'gpt-4' } as any),
+      ).toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when source is supplied', () => {
+      expect(() =>
+        service.update('m1', { source: 'discovered' } as any),
+      ).toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException when model does not exist', () => {
+      mockDb.get.mockReturnValueOnce(undefined);
+
+      expect(() =>
+        service.update('non-existent', { displayName: 'New Name' }),
+      ).toThrow(NotFoundException);
+    });
+
+    it('updates mutable fields and advances updated_at', () => {
+      const existing = makeModelRow({ id: 'm1', display_name: 'Old Name' });
+      const updatedRow = makeModelRow({
+        id: 'm1',
+        display_name: 'New Name',
+        context_window: 128000,
+        default_temperature: 0.2,
+        default_max_tokens: 2048,
+        enabled: 0,
+      });
+
+      mockDb.get
+        .mockReturnValueOnce(existing) // existing check
+        .mockReturnValueOnce(updatedRow); // findOneOrFail return
+
+      const result = service.update('m1', {
+        displayName: 'New Name',
+        contextWindow: 128000,
+        defaultTemperature: 0.2,
+        defaultMaxTokens: 2048,
+        enabled: false,
+      });
+
+      expect(mockDb.run).toHaveBeenCalledTimes(1);
+      const [updateSql, updateParams] = mockDb.run.mock.calls[0];
+      expect(updateSql).toContain('UPDATE models SET');
+      expect(updateSql).toContain('display_name = ?');
+      expect(updateSql).toContain('context_window = ?');
+      expect(updateSql).toContain('default_temperature = ?');
+      expect(updateSql).toContain('default_max_tokens = ?');
+      expect(updateSql).toContain('enabled = ?');
+      expect(updateSql).toContain('updated_at = ?');
+      expect(updateParams).toContain('New Name');
+      expect(updateParams).toContain(128000);
+      expect(updateParams).toContain(0.2);
+      expect(updateParams).toContain(2048);
+      expect(updateParams).toContain(0); // toDbBoolean(false)
+      expect(updateParams).toContain('m1');
+
+      expect(result.displayName).toBe('New Name');
+      expect(result.enabled).toBe(false);
+    });
+
+    it('clears nullable fields when set to null', () => {
+      const existing = makeModelRow({ id: 'm1' });
+      mockDb.get
+        .mockReturnValueOnce(existing)
+        .mockReturnValueOnce(existing);
+
+      service.update('m1', {
+        contextWindow: null,
+        defaultTemperature: null,
+        defaultMaxTokens: null,
+      });
+
+      expect(mockDb.run).toHaveBeenCalledTimes(1);
+      const [updateSql, updateParams] = mockDb.run.mock.calls[0];
+      expect(updateSql).toContain('context_window = ?');
+      expect(updateSql).toContain('default_temperature = ?');
+      expect(updateSql).toContain('default_max_tokens = ?');
+      expect(updateParams).toContain(null);
+    });
+
+    it('does not execute UPDATE query when body is empty ({})', () => {
+      const existing = makeModelRow({ id: 'm1' });
+      mockDb.get
+        .mockReturnValueOnce(existing)
+        .mockReturnValueOnce(existing);
+
+      service.update('m1', {});
+
+      expect(mockDb.run).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('delete', () => {
+    it('throws NotFoundException when model does not exist', () => {
+      mockDb.get.mockReturnValueOnce(undefined);
+
+      expect(() => service.delete('unknown-id')).toThrow(NotFoundException);
+      expect(mockDb.run).not.toHaveBeenCalled();
+    });
+
+    it('deletes model and warns if dependent agents exist', () => {
+      const existing = makeModelRow({ id: 'm1', display_name: 'Claude' });
+      mockDb.get
+        .mockReturnValueOnce(existing) // existing check
+        .mockReturnValueOnce({ count: 3 }); // dependent agents check
+      mockDb.run.mockReturnValueOnce({ changes: 1, lastInsertRowid: 1 });
+
+      service.delete('m1');
+
+      expect(mockDb.run).toHaveBeenCalledWith(
+        'DELETE FROM models WHERE id = ?',
+        ['m1'],
+      );
+    });
+
+    it('throws NotFoundException if delete changes 0 rows', () => {
+      const existing = makeModelRow({ id: 'm1' });
+      mockDb.get
+        .mockReturnValueOnce(existing)
+        .mockReturnValueOnce({ count: 0 });
+      mockDb.run.mockReturnValueOnce({ changes: 0, lastInsertRowid: 0 });
+
+      expect(() => service.delete('m1')).toThrow(NotFoundException);
+    });
   });
 });

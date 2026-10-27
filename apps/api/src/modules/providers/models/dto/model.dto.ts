@@ -1,10 +1,33 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { fromDbBoolean } from '../../../../common/persistence/index.js';
 
 /**
  * Valid values for the `models.source` discriminator column.
  */
 export type ModelSource = 'discovered' | 'manual';
+
+/**
+ * Summary of a model's parent provider.
+ */
+export class ProviderSummaryDto {
+  @ApiProperty({
+    description: 'Parent provider identifier (UUIDv7)',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  id!: string;
+
+  @ApiProperty({
+    description: 'Human-facing provider display name',
+    example: 'Anthropic',
+  })
+  name!: string;
+
+  @ApiProperty({
+    description: 'Provider kind (e.g. anthropic, openai, ollama)',
+    example: 'anthropic',
+  })
+  kind!: string;
+}
 
 /**
  * Public DTO representing an AI model.
@@ -87,6 +110,12 @@ export class ModelDto {
     example: '2026-10-24T12:00:00.000Z',
   })
   updatedAt!: string;
+
+  @ApiPropertyOptional({
+    type: ProviderSummaryDto,
+    description: 'Summary of the parent provider (id, name, and kind)',
+  })
+  provider?: ProviderSummaryDto;
 }
 
 /**
@@ -104,6 +133,8 @@ export interface ModelRow {
   enabled: number;
   created_at: string;
   updated_at: string;
+  provider_name?: string | null;
+  provider_kind?: string | null;
 }
 
 /**
@@ -122,5 +153,14 @@ export function mapModelRow(row: ModelRow): ModelDto {
     enabled: fromDbBoolean(row.enabled),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.provider_name && row.provider_kind
+      ? {
+          provider: {
+            id: row.provider_id,
+            name: row.provider_name,
+            kind: row.provider_kind,
+          },
+        }
+      : {}),
   };
 }
