@@ -446,6 +446,15 @@ export class App implements OnInit {
     });
   }
 
+  /**
+   * Moves focus into the content, which is what the skip link is for. The
+   * browser also jumps to the fragment; focusing here means the next Tab
+   * continues from the main region even in webviews that do not focus it.
+   */
+  protected skipToContent(): void {
+    this.mainContent()?.nativeElement.focus();
+  }
+
   protected toggleTheme(): void {
     this.theme.toggle();
   }

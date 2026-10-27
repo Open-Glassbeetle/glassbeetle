@@ -1,3 +1,7 @@
+<!-- Before the chrome: a keyboard user should be able to step over the whole
+     rail, which grows one entry per agent, and land in the content. -->
+<a class="skip-link" href="#main-content" (click)="skipToContent()">Skip to main content</a>
+
 <!-- The deck: this app's window chrome. The window is undecorated, so the
      title bar, the controls and the drag surface are all drawn here.
      `data-tauri-drag-region` applies to the element carrying it, so the bar's
@@ -191,7 +195,7 @@
     </footer>
   </nav>
 
-  <main #mainContent class="surface" tabindex="-1">
+  <main #mainContent id="main-content" class="surface" tabindex="-1">
     <router-outlet />
   </main>
 </div>
