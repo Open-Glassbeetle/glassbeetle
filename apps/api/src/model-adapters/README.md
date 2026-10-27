@@ -144,3 +144,17 @@ const adapter = new TestDoubleAdapter({ providerKind: 'openai' }, {
 const response = await adapter.complete({ messages: [{ role: 'user', content: 'Hi' }] });
 // response.content === 'Deterministic response'
 ```
+
+---
+
+## 5. Provider Adapters
+
+### `AnthropicAdapter` (`anthropic/anthropic.adapter.ts`)
+Adapter for Anthropic's Messages and Models API (`providers.kind = 'anthropic'`):
+- **Messages API Protocol**: Translates normalised requests to Anthropic's Messages wire shape.
+- **System Prompt Hoisting**: Extracts `request.systemPrompt` and any `role === 'system'` messages to the top-level `system` parameter.
+- **Turn Alternation & Merging**: Automatically merges consecutive same-role turns (`user` or `assistant`) with `\n\n` separation (preserving participant names) and ensures conversation begins with a user turn.
+- **Max Tokens Fallback**: Explicitly defaults to `ANTHROPIC_DEFAULT_MAX_TOKENS = 4096` when omitted.
+- **Streaming (SSE)**: Consumes Server-Sent Events, yielding incremental text/thought deltas and accumulating token usage across `message_start` and `message_delta` events.
+- **Model Discovery**: Interrogates `GET /v1/models` and extracts context windows and token limits.
+- **Credential Privacy**: Never leaks API keys across errors, logs, or thrown exception causes.

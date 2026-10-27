@@ -7,7 +7,6 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
-  UnsupportedCapabilityError,
 } from '../errors/model-adapter-error.js';
 import type { ModelAdapter } from '../model-adapter.interface.js';
 import type {
@@ -27,6 +26,7 @@ import type {
   AnthropicErrorBody,
   AnthropicMessagesRequest,
   AnthropicMessagesResponse,
+  AnthropicModelsResponse,
   AnthropicWireMessage,
 } from './anthropic.types.js';
 
@@ -292,10 +292,67 @@ export class AnthropicAdapter implements ModelAdapter {
 
   /**
    * Discovers models available from Anthropic's `/v1/models` endpoint.
-   * (Implemented in discovery phase).
+   *
+   * Maps upstream models into normalised {@link DiscoveredModel} instances, extracting
+   * context window and token limit properties where reported.
+   *
+   * @param options - Cancellation signal and query options.
+   * @returns List of models in normalised shape.
    */
-  async discoverModels(_options?: DiscoveryOptions): Promise<DiscoveredModel[]> {
-    throw new UnsupportedCapabilityError('model discovery', 'anthropic');
+  async discoverModels(options?: DiscoveryOptions): Promise<DiscoveredModel[]> {
+    const headers = this.buildHeaders(options?.headers);
+    const discoveredModels: DiscoveredModel[] = [];
+    let afterId: string | null | undefined = undefined;
+    let pageCount = 0;
+    const maxPages = 10;
+
+    do {
+      const endpoint = this.resolveEndpointUrl('/models');
+      const url = new URL(endpoint);
+      url.searchParams.set('limit', '100');
+      if (afterId) {
+        url.searchParams.set('after_id', afterId);
+      }
+
+      const res = await this.executeFetch(url.toString(), {
+        method: 'GET',
+        headers,
+        signal: options?.signal,
+      });
+
+      const json = (await res.json()) as AnthropicModelsResponse;
+      const items = json.data ?? [];
+
+      for (const item of items) {
+        if (item?.id) {
+          discoveredModels.push({
+            modelIdentifier: item.id,
+            displayName: item.display_name || item.id,
+            contextWindow:
+              typeof item.context_window === 'number' ? item.context_window : null,
+            defaultTemperature:
+              typeof item.default_temperature === 'number'
+                ? item.default_temperature
+                : null,
+            defaultMaxTokens:
+              typeof item.max_tokens === 'number'
+                ? item.max_tokens
+                : typeof item.default_max_tokens === 'number'
+                  ? item.default_max_tokens
+                  : null,
+          });
+        }
+      }
+
+      if (json.has_more && json.last_id && pageCount < maxPages) {
+        afterId = json.last_id;
+        pageCount++;
+      } else {
+        break;
+      }
+    } while (afterId);
+
+    return discoveredModels;
   }
 
   /**

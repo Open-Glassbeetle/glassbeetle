@@ -8,6 +8,7 @@ import {
   RateLimitError,
   RequestAbortedError,
 } from '../errors/model-adapter-error.js';
+import { AdapterFactoryService } from '../adapter-factory/adapter-factory.service.js';
 import type { AdapterConfig, CompletionRequest } from '../types/index.js';
 import {
   AnthropicAdapter,
@@ -876,6 +877,134 @@ describe('AnthropicAdapter', () => {
           // do nothing
         }
       }).rejects.toThrow(ProviderUnavailableError);
+    });
+  });
+
+  describe('discoverModels() execution', () => {
+    it('discovers models and maps them into normalised DiscoveredModel instances', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+
+      const mockResponse = {
+        data: [
+          {
+            type: 'model',
+            id: 'claude-3-5-sonnet-20241022',
+            display_name: 'Claude 3.5 Sonnet',
+            created_at: '2024-10-22T00:00:00Z',
+            context_window: 200000,
+            max_tokens: 8192,
+            default_temperature: 1.0,
+          },
+          {
+            type: 'model',
+            id: 'claude-3-5-haiku-20241022',
+            display_name: 'Claude 3.5 Haiku',
+            created_at: '2024-10-22T00:00:00Z',
+          },
+        ],
+        has_more: false,
+      };
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), { status: 200 }),
+      );
+
+      const models = await adapter.discoverModels({
+        headers: { 'X-Trace-Id': 'trace-123' },
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain('/v1/models?limit=100');
+      expect((init.headers as Record<string, string>)['x-api-key']).toBe(secretKey);
+      expect((init.headers as Record<string, string>)['X-Trace-Id']).toBe('trace-123');
+      expect(init.method).toBe('GET');
+
+      expect(models).toEqual([
+        {
+          modelIdentifier: 'claude-3-5-sonnet-20241022',
+          displayName: 'Claude 3.5 Sonnet',
+          contextWindow: 200000,
+          defaultMaxTokens: 8192,
+          defaultTemperature: 1.0,
+        },
+        {
+          modelIdentifier: 'claude-3-5-haiku-20241022',
+          displayName: 'Claude 3.5 Haiku',
+          contextWindow: null,
+          defaultMaxTokens: null,
+          defaultTemperature: null,
+        },
+      ]);
+    });
+
+    it('paginates across multiple pages when has_more is true', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+
+      const page1 = {
+        data: [{ type: 'model', id: 'model-page-1', display_name: 'Model Page 1' }],
+        has_more: true,
+        last_id: 'model-page-1',
+      };
+      const page2 = {
+        data: [{ type: 'model', id: 'model-page-2', display_name: 'Model Page 2' }],
+        has_more: false,
+      };
+
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify(page1), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(page2), { status: 200 }));
+
+      const models = await adapter.discoverModels();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0][0]).toContain('/v1/models?limit=100');
+      expect(fetchMock.mock.calls[1][0]).toContain('/v1/models?limit=100&after_id=model-page-1');
+
+      expect(models).toHaveLength(2);
+      expect(models.map((m) => m.modelIdentifier)).toEqual(['model-page-1', 'model-page-2']);
+    });
+
+    it('propagates cancellation signal on discovery', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+      const controller = new AbortController();
+      controller.abort();
+
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      fetchMock.mockRejectedValueOnce(abortError);
+
+      await expect(
+        adapter.discoverModels({ signal: controller.signal }),
+      ).rejects.toThrow(RequestAbortedError);
+    });
+
+    it('maps HTTP 401 on discovery to AuthenticationError', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            type: 'error',
+            error: { type: 'authentication_error', message: 'invalid x-api-key' },
+          }),
+          { status: 401 },
+        ),
+      );
+
+      await expect(adapter.discoverModels()).rejects.toThrow(AuthenticationError);
+    });
+  });
+
+  describe('Factory Registration', () => {
+    it('registers for providers.kind = "anthropic" and constructs an AnthropicAdapter instance', () => {
+      const factory = new AdapterFactoryService();
+      factory.register('anthropic', (config) => new AnthropicAdapter(config));
+
+      expect(factory.isSupported('anthropic')).toBe(true);
+      const adapter = factory.create(defaultConfig);
+      expect(adapter).toBeInstanceOf(AnthropicAdapter);
+      expect(adapter.capabilities.supportsStreaming).toBe(true);
+      expect(adapter.capabilities.supportsDiscovery).toBe(true);
     });
   });
 });

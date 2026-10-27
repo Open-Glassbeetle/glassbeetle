@@ -14,6 +14,7 @@ import {
   RequestAbortedError,
   UnsupportedCapabilityError,
 } from '../src/model-adapters/errors/index.js';
+import { AnthropicAdapter } from '../src/model-adapters/anthropic/anthropic.adapter.js';
 import { TestDoubleAdapter } from '../src/model-adapters/test/test-double-adapter.js';
 import { createTestApp, type TestApp } from './harness/index.js';
 
@@ -754,6 +755,66 @@ describe('Model discovery endpoint (POST /api/v1/providers/:providerId/models/di
         [provider.id],
       );
       expect(rows).toHaveLength(0);
+    });
+
+    it('discovers Anthropic models and reconciles them into database using AnthropicAdapter', async () => {
+      const provider = testApp.fixtures.createProvider({
+        kind: 'anthropic',
+      });
+      await testApp
+        .request()
+        .put(`/api/v1/providers/${provider.id}/credential`)
+        .send({ apiKey: 'sk-ant-test-key-mock' })
+        .expect(200);
+
+      adapterFactory.register('anthropic', (config) => new AnthropicAdapter(config));
+
+      const mockAnthropicResponse = {
+        data: [
+          {
+            type: 'model',
+            id: 'claude-3-5-sonnet-20241022',
+            display_name: 'Claude 3.5 Sonnet',
+            created_at: '2024-10-22T00:00:00Z',
+            context_window: 200000,
+            max_tokens: 8192,
+            default_temperature: 1.0,
+          },
+          {
+            type: 'model',
+            id: 'claude-3-5-haiku-20241022',
+            display_name: 'Claude 3.5 Haiku',
+            created_at: '2024-10-22T00:00:00Z',
+            context_window: 200000,
+            max_tokens: 8192,
+          },
+        ],
+        has_more: false,
+      };
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockAnthropicResponse), { status: 200 }),
+      );
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/providers/${provider.id}/models/discover`)
+        .expect(200);
+
+      expect(res.body.added).toBe(2);
+      expect(res.body.models.map((m: any) => m.modelIdentifier)).toEqual(
+        expect.arrayContaining([
+          'claude-3-5-sonnet-20241022',
+          'claude-3-5-haiku-20241022',
+        ]),
+      );
+      const sonnet = res.body.models.find(
+        (m: any) => m.modelIdentifier === 'claude-3-5-sonnet-20241022',
+      );
+      expect(sonnet.contextWindow).toBe(200000);
+      expect(sonnet.defaultMaxTokens).toBe(8192);
+
+      fetchSpy.mockRestore();
     });
   });
 });
