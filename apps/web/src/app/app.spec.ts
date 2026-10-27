@@ -159,6 +159,29 @@ describe('App shell', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
+  it('offers a skip link as the first focusable element', () => {
+    const element = render().nativeElement as HTMLElement;
+    const first = element.querySelector('a, button, input, select, textarea, [tabindex]');
+    const skip = element.querySelector<HTMLAnchorElement>('a.skip-link');
+    const main = element.querySelector<HTMLElement>('main');
+
+    expect(skip).not.toBeNull();
+    expect(first).toBe(skip);
+    expect(skip?.getAttribute('href')).toBe('#main-content');
+    expect(main?.id).toBe('main-content');
+    expect(main?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('moves focus into the content when the skip link is used', () => {
+    const element = render().nativeElement as HTMLElement;
+    const skip = element.querySelector<HTMLAnchorElement>('a.skip-link');
+    const main = element.querySelector<HTMLElement>('main.surface');
+
+    skip?.click();
+
+    expect(document.activeElement).toBe(main);
+  });
+
   it('focuses and announces the new route after the initial navigation', async () => {
     const fixture = render();
     const main = fixture.nativeElement.querySelector('main.surface') as HTMLElement;
