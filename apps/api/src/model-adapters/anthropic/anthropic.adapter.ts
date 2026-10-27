@@ -124,14 +124,170 @@ export class AnthropicAdapter implements ModelAdapter {
   }
 
   /**
-   * Streaming completion yielding structured {@link StreamEvent} objects.
-   * (Implemented in streaming phase).
+   * Executes a streaming completion consuming Anthropic's SSE stream and yielding structured {@link StreamEvent} objects.
+   *
+   * @param request - Normalised completion request.
+   * @param options - Cancellation signal and additional request headers.
+   * @returns Async iterable yielding typed {@link StreamEvent} objects.
    */
   async *stream(
-    _request: CompletionRequest,
-    _options?: CompletionOptions,
+    request: CompletionRequest,
+    options?: CompletionOptions,
   ): AsyncIterable<StreamEvent> {
-    throw new UnsupportedCapabilityError('streaming', 'anthropic');
+    const payload = this.buildMessagesPayload(request, true);
+    const url = this.resolveEndpointUrl('/messages');
+    const headers = this.buildHeaders(options?.headers);
+
+    const res = await this.executeFetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    });
+
+    if (!res.body) {
+      throw new ProviderUnavailableError(
+        'Anthropic streaming response body is empty',
+        'anthropic',
+      );
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    let model = request.model?.trim() || this.defaultModel;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let finishReason: FinishReason = 'stop';
+    let completed = false;
+
+    let buffer = '';
+
+    try {
+      while (true) {
+        if (options?.signal?.aborted) {
+          throw new RequestAbortedError(
+            'Anthropic streaming request was aborted',
+            'anthropic',
+          );
+        }
+
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? '';
+
+        let currentEvent = '';
+        const currentDataLines: string[] = [];
+
+        for (const line of lines) {
+          if (line.trim().length === 0) {
+            if (currentDataLines.length > 0 || currentEvent.length > 0) {
+              const dataStr = currentDataLines.join('\n');
+              const events = this.parseSseEvent(dataStr, currentEvent, {
+                onModel: (m) => {
+                  model = m;
+                },
+                onFinishReason: (r) => {
+                  finishReason = r;
+                },
+                onUsage: (inTok, outTok) => {
+                  if (inTok !== undefined) inputTokens = inTok;
+                  if (outTok !== undefined) outputTokens = outTok;
+                },
+                onComplete: () => {
+                  completed = true;
+                },
+                getUsage: () => ({
+                  inputTokens,
+                  outputTokens,
+                  totalTokens: inputTokens + outputTokens,
+                }),
+                getModel: () => model,
+                getFinishReason: () => finishReason,
+              });
+
+              for (const event of events) {
+                yield event;
+              }
+
+              currentEvent = '';
+              currentDataLines.length = 0;
+            }
+          } else if (line.startsWith(':')) {
+            // Ping / comment
+            continue;
+          } else if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            currentDataLines.push(line.slice(5).trimStart());
+          }
+        }
+      }
+
+      // Process any trailing line in buffer
+      if (buffer.trim().length > 0) {
+        const events = this.parseSseEvent(buffer, '', {
+          onModel: (m) => {
+            model = m;
+          },
+          onFinishReason: (r) => {
+            finishReason = r;
+          },
+          onUsage: (inTok, outTok) => {
+            if (inTok !== undefined) inputTokens = inTok;
+            if (outTok !== undefined) outputTokens = outTok;
+          },
+          onComplete: () => {
+            completed = true;
+          },
+          getUsage: () => ({
+            inputTokens,
+            outputTokens,
+            totalTokens: inputTokens + outputTokens,
+          }),
+          getModel: () => model,
+          getFinishReason: () => finishReason,
+        });
+
+        for (const event of events) {
+          yield event;
+        }
+      }
+
+      // Final complete event if stream closed without explicit message_stop
+      if (!completed) {
+        yield {
+          type: 'complete',
+          finishReason,
+          usage: {
+            inputTokens,
+            outputTokens,
+            totalTokens: inputTokens + outputTokens,
+          },
+          model,
+        };
+      }
+    } catch (err: unknown) {
+      if (err instanceof ModelAdapterError) {
+        throw err;
+      }
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new RequestAbortedError(
+          'Anthropic streaming request was aborted',
+          'anthropic',
+        );
+      }
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      throw new ProviderUnavailableError(
+        `Anthropic streaming failed: ${this.sanitizeCredentials(rawMsg)}`,
+        'anthropic',
+      );
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   /**
@@ -166,7 +322,7 @@ export class AnthropicAdapter implements ModelAdapter {
       max_tokens: maxTokens,
       stream,
       ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
-      ...(request.modelParams ?? {}),
+      ...(request.modelParams),
     };
 
     if (systemPrompt) {
@@ -266,7 +422,7 @@ export class AnthropicAdapter implements ModelAdapter {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'anthropic-version': ANTHROPIC_API_VERSION,
-      ...(customHeaders ?? {}),
+      ...(customHeaders),
     };
 
     if (this.apiKey) {
@@ -329,60 +485,192 @@ export class AnthropicAdapter implements ModelAdapter {
       // Body not JSON or unreadable
     }
 
+    throw this.mapErrorByTypeAndStatus(upstreamType, upstreamMessage, res.status);
+  }
+
+  /**
+   * Normalises Anthropic error codes into typed {@link ModelAdapterError} instances.
+   */
+  private mapErrorByTypeAndStatus(
+    upstreamType: string,
+    upstreamMessage: string,
+    status: number,
+  ): ModelAdapterError {
     const safeMessage = this.sanitizeCredentials(upstreamMessage);
 
-    switch (res.status) {
-      case 401:
-      case 403:
-        throw new AuthenticationError(
-          `Anthropic authentication failed: ${safeMessage}`,
-          'anthropic',
-        );
-
-      case 404:
-        throw new ModelNotFoundError(this.defaultModel, 'anthropic');
-
-      case 429:
-        throw new RateLimitError(
-          `Anthropic rate limit exceeded: ${safeMessage}`,
-          'anthropic',
-        );
-
-      case 400:
-        if (
-          upstreamType === 'invalid_request_error' &&
-          (safeMessage.toLowerCase().includes('prompt is too long') ||
-            safeMessage.toLowerCase().includes('context') ||
-            safeMessage.toLowerCase().includes('maximum context length'))
-        ) {
-          throw new ContextLengthExceededError(safeMessage, 'anthropic');
-        }
-        throw new InvalidRequestError(
-          `Anthropic rejected request: ${safeMessage}`,
-          'anthropic',
-        );
-
-      case 529: // Anthropic Overloaded Error
-        throw new ProviderUnavailableError(
-          `Anthropic is currently overloaded (529): ${safeMessage}`,
-          'anthropic',
-        );
-
-      case 500:
-      case 502:
-      case 503:
-      case 504:
-        throw new ProviderUnavailableError(
-          `Anthropic service unavailable (HTTP ${res.status}): ${safeMessage}`,
-          'anthropic',
-        );
-
-      default:
-        throw new ProviderUnavailableError(
-          `Anthropic error (HTTP ${res.status}): ${safeMessage}`,
-          'anthropic',
-        );
+    if (status === 401 || status === 403 || upstreamType === 'authentication_error') {
+      return new AuthenticationError(
+        `Anthropic authentication failed: ${safeMessage}`,
+        'anthropic',
+      );
     }
+
+    if (status === 404 || upstreamType === 'not_found_error') {
+      return new ModelNotFoundError(this.defaultModel, 'anthropic');
+    }
+
+    if (status === 429 || upstreamType === 'rate_limit_error') {
+      return new RateLimitError(
+        `Anthropic rate limit exceeded: ${safeMessage}`,
+        'anthropic',
+      );
+    }
+
+    if (status === 400 || upstreamType === 'invalid_request_error') {
+      if (
+        safeMessage.toLowerCase().includes('prompt is too long') ||
+        safeMessage.toLowerCase().includes('context') ||
+        safeMessage.toLowerCase().includes('maximum context length')
+      ) {
+        return new ContextLengthExceededError(safeMessage, 'anthropic');
+      }
+      return new InvalidRequestError(
+        `Anthropic rejected request: ${safeMessage}`,
+        'anthropic',
+      );
+    }
+
+    if (status === 529 || upstreamType === 'overloaded_error') {
+      return new ProviderUnavailableError(
+        `Anthropic is currently overloaded (529): ${safeMessage}`,
+        'anthropic',
+      );
+    }
+
+    if (status === 500 || status === 502 || status === 503 || status === 504) {
+      return new ProviderUnavailableError(
+        `Anthropic service unavailable (HTTP ${status}): ${safeMessage}`,
+        'anthropic',
+      );
+    }
+
+    return new ProviderUnavailableError(
+      `Anthropic error (HTTP ${status}): ${safeMessage}`,
+      'anthropic',
+    );
+  }
+
+  /**
+   * Processes a single parsed SSE event block and emits corresponding normalised {@link StreamEvent}s.
+   */
+  private parseSseEvent(
+    dataStr: string,
+    eventName: string,
+    ctx: {
+      onModel: (model: string) => void;
+      onFinishReason: (reason: FinishReason) => void;
+      onUsage: (inputTokens?: number, outputTokens?: number) => void;
+      onComplete: () => void;
+      getUsage: () => { inputTokens: number; outputTokens: number; totalTokens: number };
+      getModel: () => string;
+      getFinishReason: () => FinishReason;
+    },
+  ): StreamEvent[] {
+    const trimmed = dataStr.trim();
+    if (!trimmed || trimmed === '[DONE]') {
+      if (trimmed === '[DONE]') {
+        ctx.onComplete();
+        return [
+          {
+            type: 'complete',
+            finishReason: ctx.getFinishReason(),
+            usage: ctx.getUsage(),
+            model: ctx.getModel(),
+          },
+        ];
+      }
+      return [];
+    }
+
+    let parsed: Record<string, any>;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      // Non-JSON SSE payload (e.g. keep-alive or ping)
+      return [];
+    }
+
+    const type = eventName || parsed.type;
+    const events: StreamEvent[] = [];
+
+    switch (type) {
+      case 'message_start': {
+        if (parsed.message?.model) {
+          ctx.onModel(parsed.message.model);
+        }
+        if (parsed.message?.usage) {
+          const inTok = parsed.message.usage.input_tokens ?? 0;
+          const outTok = parsed.message.usage.output_tokens ?? 0;
+          ctx.onUsage(inTok, outTok);
+          events.push({
+            type: 'usage',
+            usage: ctx.getUsage(),
+          });
+        }
+        break;
+      }
+
+      case 'content_block_delta': {
+        const delta = parsed.delta;
+        if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+          events.push({
+            type: 'text-delta',
+            delta: delta.text,
+          });
+        } else if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+          events.push({
+            type: 'thought-delta',
+            delta: delta.thinking,
+          });
+        }
+        break;
+      }
+
+      case 'message_delta': {
+        if (parsed.delta?.stop_reason) {
+          ctx.onFinishReason(this.mapFinishReason(parsed.delta.stop_reason));
+        }
+        if (parsed.usage?.output_tokens !== undefined) {
+          ctx.onUsage(undefined, parsed.usage.output_tokens);
+          events.push({
+            type: 'usage',
+            usage: ctx.getUsage(),
+          });
+        }
+        break;
+      }
+
+      case 'message_stop': {
+        ctx.onComplete();
+        events.push({
+          type: 'complete',
+          finishReason: ctx.getFinishReason(),
+          usage: ctx.getUsage(),
+          model: ctx.getModel(),
+        });
+        break;
+      }
+
+      case 'error': {
+        const errType = parsed.error?.type || 'error';
+        const errMsg = parsed.error?.message || 'Streaming error';
+        const mappedError = this.mapErrorByTypeAndStatus(errType, errMsg, 500);
+        events.push({
+          type: 'error',
+          error: mappedError,
+        });
+        break;
+      }
+
+      case 'ping':
+      case 'content_block_start':
+      case 'content_block_stop':
+      default:
+        // Internal control events; no StreamEvent emitted
+        break;
+    }
+
+    return events;
   }
 
   /**

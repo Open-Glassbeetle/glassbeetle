@@ -72,6 +72,35 @@ export interface AnthropicErrorBody {
   };
 }
 
+export interface AnthropicSseMessageStartEvent {
+  type: 'message_start';
+  message: {
+    id: string;
+    model: string;
+    usage?: AnthropicUsage;
+  };
+}
+
+export interface AnthropicSseContentBlockDeltaEvent {
+  type: 'content_block_delta';
+  index: number;
+  delta:
+    | { type: 'text_delta'; text: string }
+    | { type: 'thinking_delta'; thinking: string }
+    | { type: string; [key: string]: unknown };
+}
+
+export interface AnthropicSseMessageDeltaEvent {
+  type: 'message_delta';
+  delta?: {
+    stop_reason?: string | null;
+    stop_sequence?: string | null;
+  };
+  usage?: {
+    output_tokens?: number;
+  };
+}
+
 export interface AnthropicModelItem {
   type: 'model';
   id: string;

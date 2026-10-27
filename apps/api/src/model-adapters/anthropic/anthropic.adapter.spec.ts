@@ -623,4 +623,259 @@ describe('AnthropicAdapter', () => {
       }
     });
   });
+
+  describe('stream() execution', () => {
+    function createSseStream(events: { event?: string; data: unknown }[]): ReadableStream<Uint8Array> {
+      const lines: string[] = [];
+      for (const e of events) {
+        if (e.event) {
+          lines.push(`event: ${e.event}\n`);
+        }
+        lines.push(`data: ${typeof e.data === 'string' ? e.data : JSON.stringify(e.data)}\n\n`);
+      }
+      const rawText = lines.join('');
+      const encoder = new TextEncoder();
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(rawText));
+          controller.close();
+        },
+      });
+    }
+
+    it('consumes SSE stream and emits text deltas, usage, and final completion event', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+
+      const sseEvents = [
+        {
+          event: 'message_start',
+          data: {
+            type: 'message_start',
+            message: {
+              id: 'msg_stream_1',
+              model: 'claude-3-5-sonnet-20241022',
+              usage: { input_tokens: 22, output_tokens: 1 },
+            },
+          },
+        },
+        {
+          event: 'content_block_start',
+          data: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        },
+        {
+          event: 'content_block_delta',
+          data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello, ' } },
+        },
+        {
+          event: 'content_block_delta',
+          data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'streaming world!' } },
+        },
+        {
+          event: 'content_block_stop',
+          data: { type: 'content_block_stop', index: 0 },
+        },
+        {
+          event: 'message_delta',
+          data: {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn', stop_sequence: null },
+            usage: { output_tokens: 14 },
+          },
+        },
+        {
+          event: 'message_stop',
+          data: { type: 'message_stop' },
+        },
+      ];
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(createSseStream(sseEvents), { status: 200 }),
+      );
+
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({ messages: [{ role: 'user', content: 'Hi' }] })) {
+        emitted.push(event);
+      }
+
+      expect(emitted).toEqual([
+        {
+          type: 'usage',
+          usage: { inputTokens: 22, outputTokens: 1, totalTokens: 23 },
+        },
+        {
+          type: 'text-delta',
+          delta: 'Hello, ',
+        },
+        {
+          type: 'text-delta',
+          delta: 'streaming world!',
+        },
+        {
+          type: 'usage',
+          usage: { inputTokens: 22, outputTokens: 14, totalTokens: 36 },
+        },
+        {
+          type: 'complete',
+          finishReason: 'stop',
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { inputTokens: 22, outputTokens: 14, totalTokens: 36 },
+        },
+      ]);
+    });
+
+    it('emits thought-delta events when thinking_delta is received', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+
+      const sseEvents = [
+        {
+          event: 'content_block_delta',
+          data: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'thinking_delta', thinking: 'Let me ponder this...' },
+          },
+        },
+        {
+          event: 'content_block_delta',
+          data: {
+            type: 'content_block_delta',
+            index: 1,
+            delta: { type: 'text_delta', text: 'Here is the answer.' },
+          },
+        },
+        {
+          event: 'message_stop',
+          data: { type: 'message_stop' },
+        },
+      ];
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(createSseStream(sseEvents), { status: 200 }),
+      );
+
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({ messages: [{ role: 'user', content: 'Think' }] })) {
+        emitted.push(event);
+      }
+
+      expect(emitted[0]).toEqual({
+        type: 'thought-delta',
+        delta: 'Let me ponder this...',
+      });
+      expect(emitted[1]).toEqual({
+        type: 'text-delta',
+        delta: 'Here is the answer.',
+      });
+      expect(emitted[2].type).toBe('complete');
+    });
+
+    it('handles chunk fragmentation across network packets seamlessly', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+
+      const chunk1 = 'event: content_block_delta\ndata: {"type":"content_block_d';
+      const chunk2 = 'elta","index":0,"delta":{"type":"text_delta","text":"Frag';
+      const chunk3 = 'mented token"}}\n\nevent: message_stop\ndata: {}\n\n';
+
+      const encoder = new TextEncoder();
+      const chunks = [chunk1, chunk2, chunk3];
+      let i = 0;
+      const stream = new ReadableStream({
+        pull(controller) {
+          if (i < chunks.length) {
+            controller.enqueue(encoder.encode(chunks[i++]));
+          } else {
+            controller.close();
+          }
+        },
+      });
+
+      fetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({ messages: [{ role: 'user', content: 'Test' }] })) {
+        emitted.push(event);
+      }
+
+      expect(emitted).toContainEqual({
+        type: 'text-delta',
+        delta: 'Fragmented token',
+      });
+      expect(emitted.some((e) => e.type === 'complete')).toBe(true);
+    });
+
+    it('aborts cleanly mid-stream when signal is triggered', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+      const controller = new AbortController();
+
+      const encoder = new TextEncoder();
+      const infiniteStream = new ReadableStream({
+        pull(ctrl) {
+          ctrl.enqueue(
+            encoder.encode(
+              'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"chunk"}}\n\n',
+            ),
+          );
+        },
+      });
+
+      fetchMock.mockResolvedValueOnce(new Response(infiniteStream, { status: 200 }));
+
+      const streamIterator = adapter.stream(
+        { messages: [{ role: 'user', content: 'Test' }] },
+        { signal: controller.signal },
+      );
+
+      const firstItem = await streamIterator[Symbol.asyncIterator]().next();
+      expect(firstItem.value).toEqual({ type: 'text-delta', delta: 'chunk' });
+
+      controller.abort();
+
+      await expect(streamIterator[Symbol.asyncIterator]().next()).rejects.toThrow(
+        RequestAbortedError,
+      );
+    });
+
+    it('emits error event when in-band error event arrives over SSE', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+
+      const sseEvents = [
+        {
+          event: 'error',
+          data: {
+            type: 'error',
+            error: {
+              type: 'overloaded_error',
+              message: 'Anthropic overloaded during stream',
+            },
+          },
+        },
+      ];
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(createSseStream(sseEvents), { status: 200 }),
+      );
+
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({ messages: [{ role: 'user', content: 'Hi' }] })) {
+        emitted.push(event);
+      }
+
+      expect(emitted.length).toBeGreaterThan(0);
+      expect(emitted[0].type).toBe('error');
+      const errEvent = emitted[0] as { type: 'error'; error: ProviderUnavailableError };
+      expect(errEvent.error).toBeInstanceOf(ProviderUnavailableError);
+      expect(errEvent.error.message).toContain('overloaded');
+    });
+
+    it('throws ProviderUnavailableError if streaming response body is null', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig);
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+      await expect(async () => {
+        for await (const _ of adapter.stream({ messages: [{ role: 'user', content: 'Hi' }] })) {
+          // do nothing
+        }
+      }).rejects.toThrow(ProviderUnavailableError);
+    });
+  });
 });
