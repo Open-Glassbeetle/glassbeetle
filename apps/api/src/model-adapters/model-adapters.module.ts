@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, type OnModuleInit } from '@nestjs/common';
 import { AdapterFactoryService } from './adapter-factory/adapter-factory.service.js';
+import { AnthropicAdapter } from './anthropic/anthropic.adapter.js';
 
 /**
  * Wires the model adapter abstraction layer.
@@ -11,4 +12,10 @@ import { AdapterFactoryService } from './adapter-factory/adapter-factory.service
   providers: [AdapterFactoryService],
   exports: [AdapterFactoryService],
 })
-export class ModelAdaptersModule {}
+export class ModelAdaptersModule implements OnModuleInit {
+  constructor(private readonly adapterFactory: AdapterFactoryService) {}
+
+  onModuleInit(): void {
+    this.adapterFactory.register('anthropic', (config) => new AnthropicAdapter(config));
+  }
+}
