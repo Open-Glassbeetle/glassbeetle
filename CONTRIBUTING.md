@@ -95,7 +95,7 @@ the schema already anticipates.
 
 | What | Why |
 | --- | --- |
-| Node.js ≥ 20.19 | API and frontend. See the [toolchain notes](README.md#toolchain-notes) before picking a version. |
+| Node.js 24, ≥ 24.15.0 within that major | API and frontend. `.nvmrc` pins the version used by all four CI jobs; `nvm install` and `nvm use` select it. See the [toolchain notes](README.md#toolchain-notes). |
 | A Rust toolchain ([`rustup`](https://rustup.rs)) | Only for the Tauri desktop shell. |
 | Tauri 2 platform prerequisites | [Tauri's prerequisites page](https://v2.tauri.app/start/prerequisites/). On macOS this is the Xcode Command Line Tools. |
 
@@ -162,19 +162,22 @@ npm run stop -- --dry-run    # show what would be stopped, kill nothing
 API_PORT=3001 npm run stop   # non-default ports
 ```
 
-**`npm install` crashes with `Cannot read properties of null (reading
-'edgesOut')`.** That is npm 11.3.0 choking on Vitest's peer graph. Installing
-from the committed lockfile works; see
-[Toolchain notes](README.md#toolchain-notes). Don't regenerate the lockfile as
-a side effect of another change.
+**`npm ci` reports `EBADENGINE`.** Check `node --version` against `.nvmrc`.
+The supported runtime is Node 24.15.0 or newer within Node 24; Node 20 cannot
+run the locked database driver and NestJS tooling. With nvm, run `nvm install`
+and `nvm use`, then `npm ci` to reinstall native dependencies for that Node
+version. CI adds `--engine-strict` to catch unsupported dependency engines
+during installation. Don't regenerate the lockfile as a side effect of
+another change.
 
 **The Tauri window never appears.** `npm run dev` waits up to three minutes for
 both servers before it launches the shell, and a first-time Rust build can take
 longer than that on its own. Check that both dev servers actually came up, then
 try again — the second build is cached.
 
-**Angular wants a newer Node.** Angular is pinned to 21 because 22 requires a
-newer Node than the project's floor. Don't bump it as part of an unrelated PR.
+**Angular major updates.** Angular remains on 21, and Dependabot ignores its
+major updates. The supported Node runtime permits a future Angular migration;
+discuss and test that separately rather than bumping it in an unrelated PR.
 
 If none of that is it, open an issue. A first-run failure is a bug in this
 document.
