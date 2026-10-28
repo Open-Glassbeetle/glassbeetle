@@ -104,7 +104,7 @@ Returns 200 with the credential metadata (safe masked preview and timestamps).`,
   })
   @ApiBadRequestResponse({
     description:
-      'Request validation failed (e.g. empty or whitespace-only value)',
+      'Request validation failed (e.g. empty, whitespace-only or over-long value)',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({

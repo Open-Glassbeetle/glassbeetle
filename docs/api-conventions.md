@@ -178,6 +178,14 @@ The 256-bit master key is stored in a dedicated file (`master.key`) inside the a
 - A backup archive containing both the database and `master.key` negates the separation of data and key at rest.
 - Recommended approach for backup issues: Backups should either require a user-supplied export passphrase to encrypt credentials within export archives, or intentionally exclude provider credentials, requiring users to re-enter them upon restoring.
 
+### Request limit
+
+`PUT /providers/:providerId/credential` accepts `apiKey` or `value` of up to
+4096 characters. Real provider keys are tens to a few hundred characters, so
+the limit is generous for every supported kind while it keeps a pasted `.env`
+file, certificate or JSON blob from being accepted and encrypted as if it were
+a key. A longer value is rejected with `400 Bad Request`.
+
 ## Collection endpoints (Pagination, Filtering, Sorting)
 
 All eleven list endpoints in the API (`/agents`, `/memories`, `/teams`, `/chats`, `/projects`, `/artifacts`, `/providers`, `/models`, `/system-prompts`, `/chats/:chatId/messages`, `/application/backups`) share a unified envelope, pagination model, and SQL fragment helper.
