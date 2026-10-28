@@ -364,8 +364,9 @@ describe('User profile endpoints (e2e)', () => {
         .request()
         .put('/api/v1/user/picture')
         .attach('file', Buffer.from('<svg xmlns="..."></svg>'), 'x.svg')
-        .expect(400);
+        .expect(415);
 
+      expect(response.body.statusCode).toBe(415);
       expect(response.body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
     });
 

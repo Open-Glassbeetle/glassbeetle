@@ -1218,7 +1218,7 @@ describe('Agents endpoints (e2e)', () => {
       expect(secondPath).not.toBe(firstPath);
     });
 
-    it('rejects a non-image file disguised as image (magic bytes sniffing) with 400', async () => {
+    it('rejects a non-image file disguised as image (magic bytes sniffing) with 415', async () => {
       const fileStorage = testApp.app.get(FileStorageService);
       const picturesDirectory = join(fileStorage.storageRoot, 'pictures');
       const storedFilesBefore = (await readdir(picturesDirectory)).sort();
@@ -1230,9 +1230,9 @@ describe('Agents endpoints (e2e)', () => {
         .request()
         .put(`/api/v1/agents/${agent.id}/picture`)
         .attach('file', textBuffer, 'innocent.png')
-        .expect(400);
+        .expect(415);
 
-      expect(response.body.statusCode).toBe(400);
+      expect(response.body.statusCode).toBe(415);
       expect(response.body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
 
       // Database row untouched
@@ -1246,7 +1246,7 @@ describe('Agents endpoints (e2e)', () => {
       expect((await readdir(picturesDirectory)).sort()).toEqual(storedFilesBefore);
     });
 
-    it('rejects an SVG file due to stored-XSS concern with 400', async () => {
+    it('rejects an SVG file due to stored-XSS concern with 415', async () => {
       const agent = testApp.fixtures.createAgent({ name: 'SVG Agent' });
 
       const svgBuffer = Buffer.from(
@@ -1257,9 +1257,9 @@ describe('Agents endpoints (e2e)', () => {
         .request()
         .put(`/api/v1/agents/${agent.id}/picture`)
         .attach('file', svgBuffer, 'image.svg')
-        .expect(400);
+        .expect(415);
 
-      expect(response.body.statusCode).toBe(400);
+      expect(response.body.statusCode).toBe(415);
       expect(response.body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
     });
 

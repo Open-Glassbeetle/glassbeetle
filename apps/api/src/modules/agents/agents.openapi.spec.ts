@@ -168,7 +168,7 @@ describe('Agents OpenAPI specification', () => {
   });
 
   describe('PUT /api/v1/agents/{agentId}/picture', () => {
-    it('documents multipart/form-data upload and responses (200, 400, 404, 413)', () => {
+    it('documents multipart/form-data upload and responses (200, 400, 404, 413, 415)', () => {
       const op = doc.paths['/api/v1/agents/{agentId}/picture'].put;
       expect(op.summary).toBe('Upload an agent profile picture');
       expect(op.tags).toContain('agents');
@@ -195,6 +195,11 @@ describe('Agents OpenAPI specification', () => {
 
       expect(op.responses['413']).toBeDefined();
       expect(op.responses['413'].content['application/json'].schema.$ref).toBe(
+        '#/components/schemas/ApiErrorResponseDto',
+      );
+
+      expect(op.responses['415']).toBeDefined();
+      expect(op.responses['415'].content['application/json'].schema.$ref).toBe(
         '#/components/schemas/ApiErrorResponseDto',
       );
     });
