@@ -105,6 +105,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "developerjillur",
+      "name": "Jillur Rahman",
+      "avatar_url": "https://avatars.githubusercontent.com/u/22579419?v=4",
+      "profile": "http://www.developerjillur.me",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "commitType": "docs",
