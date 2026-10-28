@@ -3,7 +3,9 @@ import {
   NotFoundException,
   PayloadTooLargeException,
   UnprocessableEntityException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
+import { UnsupportedMediaTypeError } from '../../file-storage/file-storage.errors.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
 import type { FileStorageService } from '../../file-storage/file-storage.service.js';
@@ -1275,11 +1277,13 @@ describe('AgentsService', () => {
         await serviceWithStorage.uploadPicture(agent.id, file);
         expect.unreachable('Should have rejected non-image content');
       } catch (err: any) {
-        expect(err).toBeInstanceOf(BadRequestException);
-        expect(err.getStatus()).toBe(400);
+        expect(err).toBeInstanceOf(UnsupportedMediaTypeError);
+        expect(err).toBeInstanceOf(UnsupportedMediaTypeException);
+        expect(err.getStatus()).toBe(415);
         const res = err.getResponse();
         expect(res.code).toBe('UNSUPPORTED_MEDIA_TYPE');
-        expect(res.message).toContain("Unsupported image format 'text/plain'");
+        expect(res.message).toContain('text/plain');
+        expect(res.message).toMatch(/image\/(jpeg|png)/);
       }
 
       // Storage write never called
@@ -1309,8 +1313,8 @@ describe('AgentsService', () => {
         await serviceWithStorage.uploadPicture(agent.id, file);
         expect.unreachable('Should have rejected SVG file');
       } catch (err: any) {
-        expect(err).toBeInstanceOf(BadRequestException);
-        expect(err.getStatus()).toBe(400);
+        expect(err).toBeInstanceOf(UnsupportedMediaTypeError);
+        expect(err.getStatus()).toBe(415);
         const res = err.getResponse();
         expect(res.code).toBe('UNSUPPORTED_MEDIA_TYPE');
         expect(res.message).toContain('image/svg+xml');

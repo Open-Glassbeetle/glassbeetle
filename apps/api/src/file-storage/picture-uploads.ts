@@ -1,5 +1,6 @@
 import { BadRequestException, PayloadTooLargeException } from '@nestjs/common';
 import { detectContentType } from './content-type.js';
+import { UnsupportedMediaTypeError } from './file-storage.errors.js';
 
 /**
  * Allowed MIME types for uploaded profile pictures.
@@ -26,6 +27,9 @@ export interface UploadedPicture {
 
 /**
  * Rejects an uploaded picture that is missing, oversized, or not an image.
+ *
+ * A disallowed content type raises `UnsupportedMediaTypeError` (415), matching
+ * `FileStorageService`, rather than a 400 Bad Request.
  *
  * Returns the content type detected from the file's actual bytes. The declared
  * MIME type and the filename are both ignored: a client may claim anything, and
@@ -56,10 +60,10 @@ export function assertUploadablePicture(
   const detected = detectContentType(file.buffer);
 
   if (!ALLOWED_PICTURE_MIME_TYPES.includes(detected.mime)) {
-    throw new BadRequestException({
-      code: 'UNSUPPORTED_MEDIA_TYPE',
-      message: `Unsupported image format '${detected.mime}'. Allowed formats: ${ALLOWED_PICTURE_MIME_TYPES.join(', ')}`,
-    });
+    throw new UnsupportedMediaTypeError(
+      detected.mime,
+      ALLOWED_PICTURE_MIME_TYPES,
+    );
   }
 
   return detected.mime;

@@ -130,8 +130,9 @@ export class UserService {
    * `picture_updated_at` is refreshed as well as `updated_at`, because it is
    * what the download endpoint's `ETag` is built from.
    *
-   * @throws BadRequestException (400) when no file was sent, it is empty, or
-   * its bytes are not a permitted image format.
+   * @throws BadRequestException (400) when no file was sent or it is empty.
+   * @throws UnsupportedMediaTypeError (415) when its bytes are not a permitted
+   * image format.
    * @throws PayloadTooLargeException (413) when it exceeds the configured
    * maximum size.
    */

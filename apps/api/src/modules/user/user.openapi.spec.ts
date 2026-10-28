@@ -113,6 +113,7 @@ describe('User OpenAPI specification', () => {
       );
       expect(op.responses['400']).toBeDefined();
       expect(op.responses['413']).toBeDefined();
+      expect(op.responses['415']).toBeDefined();
     });
   });
 

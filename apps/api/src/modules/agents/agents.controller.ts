@@ -29,6 +29,7 @@ import {
   ApiQuery,
   ApiTags,
   ApiUnprocessableEntityResponse,
+  ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { ApiErrorResponseDto } from '../../common/http/api-error.js';
@@ -330,8 +331,12 @@ Cascade behavior across referencing tables:
     type: AgentResponseDto,
   })
   @ApiBadRequestResponse({
+    description: 'No file uploaded or file is empty',
+    type: ApiErrorResponseDto,
+  })
+  @ApiUnsupportedMediaTypeResponse({
     description:
-      'No file uploaded, file is empty, or unsupported media type (non-image or SVG)',
+      'Unsupported media type (non-image or SVG); detected type is not permitted',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
