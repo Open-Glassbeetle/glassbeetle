@@ -158,3 +158,16 @@ Adapter for Anthropic's Messages and Models API (`providers.kind = 'anthropic'`)
 - **Streaming (SSE)**: Consumes Server-Sent Events, yielding incremental text/thought deltas and accumulating token usage across `message_start` and `message_delta` events.
 - **Model Discovery**: Interrogates `GET /v1/models` and extracts context windows and token limits.
 - **Credential Privacy**: Never leaks API keys across errors, logs, or thrown exception causes.
+
+### `OpenAiAdapter` (`openai/openai.adapter.ts`)
+Adapter for OpenAI's Chat Completions and Models API (`providers.kind` values: `openai`, `openai_compatible`, `lmstudio`):
+- **Provider Kinds**: Serves hosted OpenAI as well as local or custom compatible runtimes (LM Studio, vLLM, LocalAI, OpenRouter, Together).
+- **Base URL Normalisation**: Accommodates user-supplied base URLs with or without a `/v1` path segment. If `/v1` is already present (e.g. `http://localhost:1234/v1`), paths are appended directly; if omitted (e.g. `http://localhost:1234`), `/v1` is automatically injected (`/v1/chat/completions`, `/v1/models`). Defaults to `https://api.openai.com` for kind `openai`.
+- **System Prompt Placement**: Prepends normalised `request.systemPrompt` as the first message with role `system` in the messages array.
+- **Flexible Authentication**: Transmits `Authorization: Bearer <key>` when a credential is configured. Sends no authorization header for local unauthenticated runtimes (e.g. default LM Studio).
+- **Streaming (SSE)**: Consumes chunk deltas, yielding `text-delta` and `thought-delta` (reasoning models) events. Safely handles the non-JSON `[DONE]` termination sentinel without parse errors.
+- **Tolerance & Defensive Parsing**: Reports missing streaming token usage as unknown (`usage: undefined`) rather than zero. Tolerates missing usage in compatible non-streaming responses.
+- **Model Discovery & Graceful Degradation**: Queries `GET /models` to discover available models. When an upstream server returns 404, 405, or 501, reports "not supported" cleanly via `UnsupportedCapabilityError` rather than failing generically.
+- **Fast Timeout & Cancellation**: Applies a 30s connection timeout (`OPENAI_DEFAULT_TIMEOUT_MS`) so unreachable local servers fail fast rather than hanging. Propagates `AbortSignal` for instantaneous client cancellation.
+- **Credential Privacy**: Decrypted keys are strictly redacted from logs, error messages, and exception causes.
+

@@ -1,6 +1,7 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
 import { AdapterFactoryService } from './adapter-factory/adapter-factory.service.js';
 import { AnthropicAdapter } from './anthropic/anthropic.adapter.js';
+import { OpenAiAdapter } from './openai/openai.adapter.js';
 
 /**
  * Wires the model adapter abstraction layer.
@@ -16,6 +17,13 @@ export class ModelAdaptersModule implements OnModuleInit {
   constructor(private readonly adapterFactory: AdapterFactoryService) {}
 
   onModuleInit(): void {
-    this.adapterFactory.register('anthropic', (config) => new AnthropicAdapter(config));
+    this.adapterFactory.register(
+      'anthropic',
+      (config) => new AnthropicAdapter(config),
+    );
+    this.adapterFactory.register(
+      ['openai', 'openai_compatible', 'lmstudio'],
+      (config) => new OpenAiAdapter(config),
+    );
   }
 }
