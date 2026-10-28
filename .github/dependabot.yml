@@ -13,9 +13,8 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore"
-    # The committed lockfile is the update baseline. The npm bundled with
-    # Node 24.2.0 cannot rebuild the Vitest peer graph from scratch, so every
-    # generated lockfile change must still pass `npm ci` on CI's Node 20.19.0.
+    # The committed lockfile is the update baseline. Every generated lockfile
+    # change must pass `npm ci --engine-strict` on the Node version in .nvmrc.
     # Avoid changing manifest ranges when the existing range permits an update.
     versioning-strategy: "increase-if-necessary"
     groups:
@@ -54,8 +53,8 @@ updates:
           - "minor"
           - "patch"
     ignore:
-      # Angular 22 does not support the repository's Node.js floor. Keep the
-      # Angular family on 21 until the minimum Node.js version is raised.
+      # Keep Angular on 21 until a separate major migration is discussed and
+      # tested, even though the supported Node version permits newer Angular.
       - dependency-name: "@angular/*"
         update-types:
           - "version-update:semver-major"

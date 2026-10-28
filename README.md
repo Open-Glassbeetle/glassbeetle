@@ -151,7 +151,7 @@ Override it with `GLASSBEETLE_DATA_DIR` (absolute paths only).
 
 ## Requirements
 
-- Node.js ≥ 20.19 (see the note below about newer Angular)
+- Node.js 24, version 24.15.0 or newer within that major (`.nvmrc` pins the CI version)
 - Rust toolchain (`rustup`), plus the platform prerequisites for Tauri 2 —
   Xcode Command Line Tools on macOS
 
@@ -187,18 +187,25 @@ Conventions live next to the code they govern:
 
 ## Toolchain notes
 
-Two things on this machine are pinned by the installed Node version (24.2.0):
+**Node.js 24.15.0 is the minimum supported runtime.** `better-sqlite3` requires
+Node 22 or newer, and the locked NestJS schematics and Angular devkit require
+`^22.22.3 || ^24.15.0 || >=26.0.0`. Node 24 satisfies both without downgrading
+the database driver. The supported range is `^24.15.0`; other Node majors are
+not part of the tested toolchain.
 
-- **Angular is on 21, not 22.** Angular 22 requires Node `^22.22.3 || ^24.15.0`.
-  Upgrading Node to a current release lets you `ng update` to 22.
-- **`package-lock.json` was generated with a newer npm.** npm 11.3.0 (the
-  version bundled with Node 24.2.0) crashes with
-  `Cannot read properties of null (reading 'edgesOut')` while resolving
-  Vitest's peer graph from scratch. Installing from the committed lockfile
-  works fine. If you ever need to regenerate it before upgrading Node, use
-  `npx npm@latest install`.
+All four CI jobs read the same exact version from [`.nvmrc`](.nvmrc). If you
+use nvm, run `nvm install` and `nvm use` from the repository root. Keep that
+pin, `package.json`'s engine range and the lockfile's root metadata in step
+when changing the runtime. CI uses `npm ci --engine-strict` so incompatible
+dependency engines fail at installation rather than becoming warnings.
 
-Upgrading Node to a current LTS resolves both.
+After switching Node versions, run `npm ci` to reinstall native dependencies
+for the new Node ABI. Use the committed lockfile for ordinary setup; if it
+needs regenerating, use `npx npm@latest install` rather than the old npm
+11.3.0 that failed on Vitest's peer graph.
+
+**Angular remains on 21.** A major frontend upgrade is a separate migration;
+Dependabot continues to ignore Angular majors.
 
 ## Licence
 
