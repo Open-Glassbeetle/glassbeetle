@@ -11,7 +11,9 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -26,13 +28,16 @@ import {
   ApiOperation,
   ApiParam,
   ApiPayloadTooLargeResponse,
+  ApiProduces,
+  ApiResponse,
   ApiQuery,
   ApiTags,
   ApiUnprocessableEntityResponse,
   ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { ApiErrorResponseDto } from '../../common/http/api-error.js';
+import { matchesEtag } from '../user/user.controller.js';
 import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import { AgentsService } from './agents.service.js';
@@ -294,6 +299,70 @@ Cascade behavior across referencing tables:
   })
   async delete(@Param('agentId') agentId: string): Promise<void> {
     await this.agentsService.delete(agentId);
+  }
+
+
+  /**
+   * `GET /agents/:agentId/picture` — the stored picture, with revalidation.
+   *
+   * Mirrors `GET /user/picture`: sets the validators before deciding what to
+   * send, so a 304 carries the same `ETag` as the 200 would. `nosniff` is set
+   * because the body is user-supplied bytes rendered inside the desktop
+   * webview.
+   *
+   * @throws NotFoundException (404) when the agent does not exist, when no
+   * picture is stored, or when the recorded file is missing from the storage
+   * root.
+   */
+  @Get(':agentId/picture')
+  @ApiOperation({
+    summary: 'Download an agent profile picture',
+    description: `Serves the stored profile picture for an agent.
+
+The content type is detected from the file's own bytes rather than from anything the uploading client claimed. The URL is stable across replacements, so the response carries an \`ETag\` and revalidates: a conditional request with a matching \`If-None-Match\` gets \`304 Not Modified\`. \`updatedAt\` from the agent also works as a cache-busting query parameter for clients that would rather not wait for the round trip.`,
+  })
+  @ApiParam({
+    name: 'agentId',
+    description: 'Unique agent identifier',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiProduces('image/jpeg', 'image/png', 'image/webp', 'image/gif')
+  @ApiOkResponse({
+    description: 'The stored profile picture',
+    schema: { type: 'string', format: 'binary' },
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_MODIFIED,
+    description: 'The client already holds this picture',
+  })
+  @ApiNotFoundResponse({
+    description:
+      'No agent found with that ID, no picture is stored, or the stored file is missing from the storage root',
+    type: ApiErrorResponseDto,
+  })
+  async findPicture(
+    @Param('agentId') agentId: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile | undefined> {
+    const picture = await this.agentsService.openPicture(agentId);
+
+    res.setHeader('ETag', picture.etag);
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    if (matchesEtag(req.headers['if-none-match'], picture.etag)) {
+      res.status(HttpStatus.NOT_MODIFIED);
+      return undefined;
+    }
+
+    return new StreamableFile(await picture.open(), {
+      type: picture.contentType,
+      length: picture.size,
+      // No filename: the stored name is a generated UUIDv7 and the uploaded
+      // one was discarded, so there is nothing truthful to put in it.
+      disposition: 'inline',
+    });
   }
 
   /**

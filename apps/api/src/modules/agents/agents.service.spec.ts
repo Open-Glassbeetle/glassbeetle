@@ -9,6 +9,7 @@ import { UnsupportedMediaTypeError } from '../../file-storage/file-storage.error
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
 import type { FileStorageService } from '../../file-storage/file-storage.service.js';
+import { FileNotFoundError } from '../../file-storage/file-storage.errors.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
 import {
   AgentsService,
@@ -1483,7 +1484,117 @@ describe('AgentsService', () => {
       expect(mockFileStorage.delete).not.toHaveBeenCalled();
     });
   });
+
+  describe('openPicture', () => {
+    let mockFileStorage: {
+      stat: ReturnType<typeof vi.fn>;
+      createReadStream: ReturnType<typeof vi.fn>;
+    };
+    let serviceWithStorage: AgentsService;
+
+    beforeEach(() => {
+      mockFileStorage = {
+        stat: vi.fn(async () => ({
+          size: 2048,
+          contentType: 'image/png',
+          modifiedAt: new Date(),
+          createdAt: new Date(),
+        })),
+        createReadStream: vi.fn(async () => ({})),
+      };
+
+      serviceWithStorage = new AgentsService(
+        db,
+        mockFileStorage as unknown as FileStorageService,
+      );
+    });
+
+    it('reports 404 AGENT_NOT_FOUND for an unknown agent', async () => {
+      await expect(
+        serviceWithStorage.openPicture(
+          '018f3a9e-0000-7000-8000-999999999999',
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'AGENT_NOT_FOUND' },
+      });
+    });
+
+    it('reports 404 PICTURE_NOT_FOUND when no picture is stored', async () => {
+      const agent = fixtures.createAgent({
+        name: 'No Picture Open Agent',
+        picture_path: null,
+      });
+
+      await expect(
+        serviceWithStorage.openPicture(agent.id),
+      ).rejects.toMatchObject({
+        response: { code: 'PICTURE_NOT_FOUND' },
+      });
+    });
+
+    it('describes the stored picture from the file itself', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Open Picture Agent',
+        picture_path: 'pictures/agent-avatar.png',
+      });
+
+      const picture = await serviceWithStorage.openPicture(agent.id);
+
+      expect(picture.contentType).toBe('image/png');
+      expect(picture.size).toBe(2048);
+      expect(mockFileStorage.stat).toHaveBeenCalledWith(
+        'pictures/agent-avatar.png',
+      );
+    });
+
+    it('builds an entity tag from updated_at and size', async () => {
+      const agent = fixtures.createAgent({
+        name: 'ETag Open Agent',
+        picture_path: 'pictures/agent-avatar.png',
+      });
+      const row = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM agents WHERE id = ?',
+        [agent.id],
+      );
+
+      const picture = await serviceWithStorage.openPicture(agent.id);
+
+      expect(picture.etag).toBe(`"${row!.updated_at}-2048"`);
+    });
+
+    it('opens the stream only when asked', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Lazy Stream Agent',
+        picture_path: 'pictures/agent-avatar.png',
+      });
+
+      const picture = await serviceWithStorage.openPicture(agent.id);
+      expect(mockFileStorage.createReadStream).not.toHaveBeenCalled();
+
+      await picture.open();
+      expect(mockFileStorage.createReadStream).toHaveBeenCalledWith(
+        'pictures/agent-avatar.png',
+      );
+    });
+
+    it('reports 404 PICTURE_NOT_FOUND when the stored file is gone', async () => {
+      const agent = fixtures.createAgent({
+        name: 'Missing File Open Agent',
+        picture_path: 'pictures/gone.png',
+      });
+      mockFileStorage.stat.mockRejectedValue(
+        new FileNotFoundError('pictures/gone.png'),
+      );
+
+      await expect(
+        serviceWithStorage.openPicture(agent.id),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'PICTURE_NOT_FOUND',
+          message: 'No profile picture is stored',
+        },
+      });
+    });
+  });
+
 });
-
-
-

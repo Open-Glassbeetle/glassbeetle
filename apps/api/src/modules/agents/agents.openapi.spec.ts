@@ -167,6 +167,36 @@ describe('Agents OpenAPI specification', () => {
     });
   });
 
+
+  describe('GET /api/v1/agents/{agentId}/picture', () => {
+    it('documents a binary response rather than JSON', () => {
+      const op = doc.paths['/api/v1/agents/{agentId}/picture'].get;
+      expect(op).toBeDefined();
+      expect(op.summary).toBe('Download an agent profile picture');
+      expect(op.tags).toContain('agents');
+
+      expect(Object.keys(op.responses['200'].content)).toEqual(
+        expect.arrayContaining([
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'image/gif',
+        ]),
+      );
+      expect(op.responses['200'].content['image/png'].schema).toMatchObject({
+        type: 'string',
+        format: 'binary',
+      });
+    });
+
+    it('documents revalidation and the missing-picture case', () => {
+      const op = doc.paths['/api/v1/agents/{agentId}/picture'].get;
+
+      expect(op.responses['304']).toBeDefined();
+      expect(op.responses['404']).toBeDefined();
+    });
+  });
+
   describe('PUT /api/v1/agents/{agentId}/picture', () => {
     it('documents multipart/form-data upload and responses (200, 400, 404, 413, 415)', () => {
       const op = doc.paths['/api/v1/agents/{agentId}/picture'].put;

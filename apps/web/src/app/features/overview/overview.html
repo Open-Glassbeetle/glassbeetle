@@ -67,7 +67,7 @@
           @for (entry of agents(); track entry.agent.id) {
             <a class="card" [routerLink]="['/agents', entry.agent.id]">
               <div class="card__top">
-                <app-agent-avatar [name]="entry.agent.name" [hasPicture]="entry.agent.hasPicture" />
+                <app-agent-avatar [name]="entry.agent.name" [agent]="entry.agent" />
                 <gb-readiness-badge [readiness]="entry.readiness" />
               </div>
 

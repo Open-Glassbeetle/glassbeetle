@@ -53,4 +53,24 @@ export class AgentsService extends ApiClient {
   removePicture(agentId: string): Observable<void> {
     return this.http.delete<void>(this.url(`/agents/${agentId}/picture`));
   }
+
+  /**
+   * Stable download URL for an agent's picture, or `null` when none is stored.
+   *
+   * The endpoint serves one stable URL and revalidates with an `ETag`, so
+   * `updatedAt` is carried as a query parameter: it changes the URL the
+   * moment the picture is replaced, which is what makes the new image appear
+   * without waiting for a conditional request to come back.
+   */
+  pictureUrl(
+    agent: { id: string; hasPicture: boolean; updatedAt: string } | null | undefined,
+  ): string | null {
+    if (!agent?.hasPicture) {
+      return null;
+    }
+
+    return this.url(
+      `/agents/${agent.id}/picture?v=${encodeURIComponent(agent.updatedAt)}`,
+    );
+  }
 }

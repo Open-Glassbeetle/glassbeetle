@@ -1,58 +1,31 @@
-import { Component, input } from '@angular/core';
-import { MatIconModule } from '@angular/material/icon';
-import { MatTooltipModule } from '@angular/material/tooltip';
+import { Component, computed, inject, input } from '@angular/core';
 
+import { AgentsService } from '../../../core/api/agents.service';
 import { Avatar } from '../../../shared/ui/avatar';
 
 /**
  * An agent's avatar.
  *
- * The agents endpoint has no counterpart to `GET /user/picture` yet, so an
- * agent's stored picture still cannot be read back — `hasPicture` is all a
- * client gets. It therefore shows as a badge on the initials rather than as
- * the picture itself; when the download endpoint lands, this component passes
- * its URL to `imageUrl` and the badge goes away.
+ * When the agent has a stored picture, the URL is handed to `gb-avatar`, which
+ * falls back to initials if the image fails to load. `hasPicture` on the agent
+ * is the signal for whether to build a URL at all.
  */
 @Component({
   selector: 'app-agent-avatar',
-  imports: [Avatar, MatIconModule, MatTooltipModule],
-  template: `
-    <gb-avatar [name]="name()" [size]="size()">
-      <!-- A 1.5rem avatar has no room for a badge beside the initials. -->
-      @if (hasPicture() && size() !== 'small') {
-        <span
-          class="badge"
-          matTooltip="A profile picture is stored. The API does not serve it back yet."
-        >
-          <mat-icon>photo_camera</mat-icon>
-        </span>
-      }
-    </gb-avatar>
-  `,
-  styles: `
-    .badge {
-      position: absolute;
-      right: -0.15rem;
-      bottom: -0.15rem;
-      display: grid;
-      place-items: center;
-      width: 1.1rem;
-      height: 1.1rem;
-      border-radius: var(--mat-sys-corner-full);
-      background: var(--mat-sys-surface-container-highest);
-      color: var(--mat-sys-on-surface-variant);
-      font-size: 0.7rem;
-
-      .mat-icon {
-        width: 0.7rem;
-        height: 0.7rem;
-        font-size: 0.7rem;
-      }
-    }
-  `,
+  imports: [Avatar],
+  template: ` <gb-avatar [name]="name()" [imageUrl]="imageUrl()" [size]="size()" /> `,
 })
 export class AgentAvatar {
+  private readonly agents = inject(AgentsService);
+
   readonly name = input.required<string>();
-  readonly hasPicture = input(false);
+  /** Agent whose picture to show; omit or pass null for initials only. */
+  readonly agent = input<{
+    id: string;
+    hasPicture: boolean;
+    updatedAt: string;
+  } | null>(null);
   readonly size = input<'small' | 'normal' | 'large'>('normal');
+
+  protected readonly imageUrl = computed(() => this.agents.pictureUrl(this.agent()));
 }
