@@ -183,3 +183,17 @@ Adapter for Google's Gemini Generative Language API (`providers.kind = 'google'`
 - **Model Discovery**: Queries `GET /v1beta/models`, strips `models/` prefix, maps `inputTokenLimit` to `contextWindow`, and filters for models supporting `generateContent`.
 - **Credential & URL Privacy**: API keys sent via `x-goog-api-key` header (or `?key=` query param) are strictly redacted across error output and logged URLs.
 
+### `OllamaAdapter` (`ollama/ollama.adapter.ts`)
+Adapter for Ollama, the local model runtime (`providers.kind = 'ollama'`):
+- **Native Chat API**: Communicates via Ollama's native `POST /api/chat` and `GET /api/tags` endpoints for richer loading and execution diagnostics.
+- **Zero Credential Dependency**: Operates entirely without credentials or API keys; warns nothing if omitted. Forwards optional bearer tokens for proxy authentication.
+- **Zero Financial Cost Accounting**: Local inference incurs no monetary API expense (`usage_events.cost_usd` is evaluated to `0.0` rather than `null`).
+- **Timeout Architecture**: Separates fast connection timeout (`OLLAMA_DEFAULT_CONNECT_TIMEOUT_MS = 5000`) from generous generation timeout (`OLLAMA_DEFAULT_GENERATION_TIMEOUT_MS = 300000`). The connect timer clears immediately once headers arrive so slow CPU inference is never cut off prematurely.
+- **Actionable Local Error Mapping**:
+  - Connection refused $\to$ Explains that Ollama is not running at the target URL and advises running `ollama serve`.
+  - Model not found (404) $\to$ Names the missing model tag and advises running `ollama pull <model>`.
+  - Model loading $\to$ Explains that model weights are currently loading into memory.
+- **NDJSON Streaming**: Parses newline-delimited JSON streams, buffering partial lines split across TCP chunks. Extracts final token counts from terminating objects, reporting absent counts as unknown (`usage: undefined`) rather than zero.
+- **Model Tag Integrity**: Preserves model tags verbatim (e.g. `qwen2.5:14b`) throughout requests and model discovery.
+- **Cancellation**: Forwards `AbortSignal` to cancel outbound fetch requests, stopping local CPU/GPU computation on the Ollama daemon immediately.
+

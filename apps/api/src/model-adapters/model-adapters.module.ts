@@ -2,6 +2,7 @@ import { Module, type OnModuleInit } from '@nestjs/common';
 import { AdapterFactoryService } from './adapter-factory/adapter-factory.service.js';
 import { AnthropicAdapter } from './anthropic/anthropic.adapter.js';
 import { GoogleAdapter } from './google/google.adapter.js';
+import { OllamaAdapter } from './ollama/ollama.adapter.js';
 import { OpenAiAdapter } from './openai/openai.adapter.js';
 
 /**
@@ -29,6 +30,10 @@ export class ModelAdaptersModule implements OnModuleInit {
     this.adapterFactory.register(
       'google',
       (config) => new GoogleAdapter(config),
+    );
+    this.adapterFactory.register(
+      'ollama',
+      (config) => new OllamaAdapter(config),
     );
   }
 }
