@@ -1,6 +1,7 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
 import { AdapterFactoryService } from './adapter-factory/adapter-factory.service.js';
 import { AnthropicAdapter } from './anthropic/anthropic.adapter.js';
+import { GoogleAdapter } from './google/google.adapter.js';
 import { OpenAiAdapter } from './openai/openai.adapter.js';
 
 /**
@@ -24,6 +25,10 @@ export class ModelAdaptersModule implements OnModuleInit {
     this.adapterFactory.register(
       ['openai', 'openai_compatible', 'lmstudio'],
       (config) => new OpenAiAdapter(config),
+    );
+    this.adapterFactory.register(
+      'google',
+      (config) => new GoogleAdapter(config),
     );
   }
 }
