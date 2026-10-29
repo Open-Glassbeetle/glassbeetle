@@ -67,7 +67,7 @@ const RING = 2 * Math.PI * 7;
             >
               <app-agent-avatar
                 [name]="entry.agent.name"
-                [hasPicture]="entry.agent.hasPicture"
+                [agent]="entry.agent"
                 size="small"
               />
             </button>

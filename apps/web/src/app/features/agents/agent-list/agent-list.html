@@ -111,7 +111,7 @@
         @for (entry of entries(); track entry.agent.id) {
           <li class="row">
             <a class="row__main" [routerLink]="['/agents', entry.agent.id]">
-              <app-agent-avatar [name]="entry.agent.name" [hasPicture]="entry.agent.hasPicture" />
+              <app-agent-avatar [name]="entry.agent.name" [agent]="entry.agent" />
 
               <span class="row__text">
                 <span class="row__name">{{ entry.agent.name }}</span>

@@ -31,7 +31,7 @@
     </div>
   } @else if (agent(); as current) {
     <header class="masthead">
-      <app-agent-avatar [name]="current.name" [hasPicture]="current.hasPicture" size="large" />
+      <app-agent-avatar [name]="current.name" [agent]="current" size="large" />
 
       <div class="masthead__text">
         <div class="masthead__line">

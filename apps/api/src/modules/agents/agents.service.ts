@@ -5,6 +5,7 @@ import {
   Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import type { Readable } from 'node:stream';
 import {
   createPaginatedResponse,
   type PaginatedResponse,
@@ -18,6 +19,7 @@ import { nowIso } from '../../common/persistence/timestamps.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { DEFAULT_MAX_PICTURE_SIZE_BYTES } from '../../config/app.config.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { FileNotFoundError } from '../../file-storage/file-storage.errors.js';
 import {
   ALLOWED_PICTURE_MIME_TYPES,
   assertUploadablePicture,
@@ -50,6 +52,25 @@ export const ALLOWED_AGENT_SORT_COLUMNS: Readonly<Record<string, string>> = {
  * while the list itself is shared with every other picture upload endpoint.
  */
 export { ALLOWED_PICTURE_MIME_TYPES };
+
+/**
+ * A stored agent profile picture, ready to be served.
+ *
+ * The stream is behind `open()` so a conditional request can be answered from
+ * the metadata alone, without opening a file descriptor for bytes that will
+ * never be written to the response.
+ */
+export interface StoredAgentPicture {
+  /** Content type detected from the file's own bytes. */
+  readonly contentType: string;
+  /** Size in bytes. */
+  readonly size: number;
+  /** Strong entity tag, including its quotes. */
+  readonly etag: string;
+  /** Opens the file for reading. */
+  readonly open: () => Promise<Readable>;
+}
+
 
 /**
  * Re-exported so the agents service keeps naming the escaping its search
@@ -530,5 +551,72 @@ export class AgentsService {
         );
       }
     }
+  }
+
+  /**
+   * Describes the stored profile picture and offers a reader for its bytes.
+   *
+   * A missing agent is `AGENT_NOT_FOUND`. A row that names no picture, or that
+   * names a file the storage root no longer holds, is `PICTURE_NOT_FOUND` —
+   * the same code the user route uses, so clients do not have to special-case
+   * agents.
+   */
+  async openPicture(id: string): Promise<StoredAgentPicture> {
+    const existing = this.db.get<{
+      id: string;
+      picture_path: string | null;
+      updated_at: string;
+    }>('SELECT id, picture_path, updated_at FROM agents WHERE id = ?', [id]);
+
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'AGENT_NOT_FOUND',
+        message: `Agent with ID "${id}" not found`,
+      });
+    }
+
+    if (!existing.picture_path) {
+      throw this.pictureNotFound();
+    }
+
+    if (!this.fileStorage) {
+      throw new Error('FileStorageService is required to serve pictures');
+    }
+
+    const reference = existing.picture_path;
+    const fileStorage = this.fileStorage;
+    const updatedAt = existing.updated_at;
+
+    try {
+      const stat = await fileStorage.stat(reference);
+
+      return {
+        contentType: stat.contentType,
+        size: stat.size,
+        // Agents have no `picture_updated_at`; `updated_at` already moves on
+        // every picture write, and the size guards a same-millisecond replace.
+        etag: `"${updatedAt}-${stat.size}"`,
+        open: () => fileStorage.createReadStream(reference),
+      };
+    } catch (err) {
+      if (err instanceof FileNotFoundError) {
+        this.logger.warn(
+          `Agent "${id}" names a picture that is no longer in storage`,
+        );
+        throw this.pictureNotFound();
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * The 404 used both for "no picture stored" and for a recorded file that is
+   * missing from storage.
+   */
+  private pictureNotFound(): NotFoundException {
+    return new NotFoundException({
+      code: 'PICTURE_NOT_FOUND',
+      message: 'No profile picture is stored',
+    });
   }
 }

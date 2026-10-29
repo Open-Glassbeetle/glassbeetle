@@ -1121,6 +1121,133 @@ describe('Agents endpoints (e2e)', () => {
     });
   });
 
+
+  describe('GET /api/v1/agents/:agentId/picture', () => {
+    const PNG = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52]),
+      Buffer.alloc(32, 0x01),
+    ]);
+
+    const GIF = Buffer.concat([
+      Buffer.from('GIF89a', 'ascii'),
+      Buffer.alloc(32, 0x02),
+    ]);
+
+    async function upload(agentId: string, bytes: Buffer, filename = 'avatar.png') {
+      return testApp
+        .request()
+        .put(`/api/v1/agents/${agentId}/picture`)
+        .attach('file', bytes, filename)
+        .expect(200);
+    }
+
+    it('serves the bytes back with the type detected from the file', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Picture Download Agent' });
+      await upload(agent.id, PNG);
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/picture`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(response.headers['content-type']).toBe('image/png');
+      expect(response.headers['content-length']).toBe(String(PNG.length));
+      expect(response.headers['x-content-type-options']).toBe('nosniff');
+      expect(Buffer.compare(response.body, PNG)).toBe(0);
+    });
+
+    it('offers a validator and answers a matching conditional request with 304', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'ETag Agent' });
+      await upload(agent.id, PNG);
+
+      const first = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/picture`)
+        .responseType('blob')
+        .expect(200);
+
+      const etag = first.headers.etag;
+      expect(etag).toBeTruthy();
+      expect(first.headers['cache-control']).toBe(
+        'private, max-age=0, must-revalidate',
+      );
+
+      const second = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/picture`)
+        .set('If-None-Match', etag)
+        .expect(304);
+
+      expect(second.body).toEqual({});
+      expect(second.headers.etag).toBe(etag);
+    });
+
+    it('replaces the picture and changes the validator', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Replace ETag Agent' });
+      await upload(agent.id, PNG);
+      const before = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/picture`)
+        .responseType('blob')
+        .expect(200);
+
+      await upload(agent.id, GIF, 'second.gif');
+      const after = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/picture`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(after.headers.etag).not.toBe(before.headers.etag);
+      expect(Buffer.compare(after.body, GIF)).toBe(0);
+    });
+
+    it('reports 404 with AGENT_NOT_FOUND for an unknown agent', async () => {
+      const response = await testApp
+        .request()
+        .get('/api/v1/agents/018f3a9e-0000-7000-8000-999999999999/picture')
+        .expect(404);
+
+      expect(response.body).toMatchObject({
+        statusCode: 404,
+        code: 'AGENT_NOT_FOUND',
+      });
+    });
+
+    it('reports 404 with PICTURE_NOT_FOUND when no picture is stored', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'No Picture Agent' });
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/picture`)
+        .expect(404);
+
+      expect(response.body).toMatchObject({
+        statusCode: 404,
+        code: 'PICTURE_NOT_FOUND',
+      });
+    });
+
+    it('reports 404 with PICTURE_NOT_FOUND when the stored file is gone', async () => {
+      const agent = testApp.fixtures.createAgent({ name: 'Missing File Agent' });
+      await upload(agent.id, PNG);
+      testApp.db.run('UPDATE agents SET picture_path = ? WHERE id = ?', [
+        'pictures/never-written.png',
+        agent.id,
+      ]);
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/agents/${agent.id}/picture`)
+        .expect(404);
+
+      expect(response.body.code).toBe('PICTURE_NOT_FOUND');
+      expect(JSON.stringify(response.body)).not.toContain('never-written');
+    });
+  });
+
   describe('PUT /api/v1/agents/:agentId/picture', () => {
     const validPng = Buffer.from([
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
