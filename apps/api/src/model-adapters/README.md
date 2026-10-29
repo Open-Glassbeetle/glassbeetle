@@ -171,3 +171,15 @@ Adapter for OpenAI's Chat Completions and Models API (`providers.kind` values: `
 - **Fast Timeout & Cancellation**: Applies a 30s connection timeout (`OPENAI_DEFAULT_TIMEOUT_MS`) so unreachable local servers fail fast rather than hanging. Propagates `AbortSignal` for instantaneous client cancellation.
 - **Credential Privacy**: Decrypted keys are strictly redacted from logs, error messages, and exception causes.
 
+### `GoogleAdapter` (`google/google.adapter.ts`)
+Adapter for Google's Gemini Generative Language API (`providers.kind = 'google'`):
+- **GenerateContent Protocol**: Translates normalised requests to Gemini's `generateContent` and `streamGenerateContent` wire shapes.
+- **Role & Turn Mapping**: Maps normalised `assistant` to Gemini `model` and vice versa. Hoists `request.systemPrompt` and any `role === 'system'` messages into the top-level `systemInstruction` field.
+- **Turn Alternation & Merging**: Merges consecutive turns of the same role (e.g. multi-agent team responses) separated by `\n\n`, preserving participant name prefixes. Automatically prepends a blank user turn if the conversation begins with an assistant turn.
+- **Content Parts Wrapping**: Correctly wraps content into `{ parts: [{ text }] }` and unwraps returned candidate parts. Multimodal extension point is documented for future media columns.
+- **Nested Generation Config**: Maps `temperature` and `maxTokens` into `generationConfig.temperature` and `generationConfig.maxOutputTokens`. Opaquely passes through `request.modelParams`.
+- **Safety Block Handling**: Intercepts `promptFeedback.blockReason` and candidate finish reasons (`SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`), converting them to actionable `InvalidRequestError`s instead of silently returning empty completions.
+- **Streaming (SSE)**: Consumes Server-Sent Events with `?alt=sse`, yielding incremental `text-delta` and `thought-delta` (for reasoning models) events, and tracks cumulative `usage`.
+- **Model Discovery**: Queries `GET /v1beta/models`, strips `models/` prefix, maps `inputTokenLimit` to `contextWindow`, and filters for models supporting `generateContent`.
+- **Credential & URL Privacy**: API keys sent via `x-goog-api-key` header (or `?key=` query param) are strictly redacted across error output and logged URLs.
+
