@@ -14,6 +14,7 @@ import {
 } from '../../http/api-error.js';
 import { getCorrelationId } from '../../logging/request-context.js';
 import { nowIso } from '../../persistence/timestamps.js';
+import { ModelAdapterError } from '../../../model-adapters/errors/model-adapter-error.js';
 
 /**
  * Message returned for any error the application did not raise deliberately.
@@ -86,7 +87,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const cid = getCorrelationId();
     const cidPrefix = cid ? `[${cid}] ` : '';
 
-    if (body.statusCode === HttpStatus.PAYLOAD_TOO_LARGE) {
+    if (isCancellation(exception)) {
+      // Client-initiated abort/cancel is normal user behavior. Log at debug level.
+      this.logger.debug(
+        `${cidPrefix}${request?.method ?? 'UNKNOWN'} ${body.path} cancelled: ${describe(exception)}`,
+      );
+    } else if (body.statusCode === HttpStatus.PAYLOAD_TOO_LARGE) {
       // The client sent more than the body limit allows. That is worth seeing
       // in the log, but it is not a fault in the server.
       this.logger.warn(
@@ -111,19 +117,27 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return;
     }
 
+    if (
+      exception instanceof ModelAdapterError &&
+      exception.retryAfterSeconds !== undefined &&
+      typeof response.setHeader === 'function'
+    ) {
+      response.setHeader('Retry-After', String(exception.retryAfterSeconds));
+    }
+
     response.status(body.statusCode).json(body);
   }
 
   /**
    * Maps a thrown value onto the `ApiErrorResponse` fields.
    *
-   * Four cases, in precedence order: body-parser's oversized-body error becomes
-   * 413; anything that is not an `HttpException` becomes a 500 whose message is
-   * deliberately generic, since the real one may carry SQLite messages or local
-   * paths; an `HttpException` with a string body uses that string as the
-   * message; and an `HttpException` with an object body keeps whatever `error`
-   * and `code` it set, so a service can raise a specific code such as
-   * `AGENT_NOT_FOUND` instead of the status-derived default.
+   * Five cases, in precedence order:
+   * 1. body-parser's oversized-body error becomes 413.
+   * 2. `ModelAdapterError` uses its own normalized `statusCode`, `code`, and user-safe `message`.
+   * 3. Anything that is not an `HttpException` becomes a 500 whose message is
+   *    deliberately generic, since the real one may carry SQLite messages or local paths.
+   * 4. An `HttpException` with a string body uses that string as the message.
+   * 5. An `HttpException` with an object body keeps whatever `error` and `code` it set.
    *
    * `ValidationPipe` reports an array of constraint messages, which is moved to
    * `details` under a fixed summary message rather than being joined into one
@@ -144,6 +158,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
         error: titleForStatus(HttpStatus.PAYLOAD_TOO_LARGE),
         code: codeForStatus(HttpStatus.PAYLOAD_TOO_LARGE),
         message: PAYLOAD_TOO_LARGE_MESSAGE,
+        path,
+        timestamp,
+      };
+    }
+
+    // Normalised model adapter errors carry clean machine-readable codes and user-safe messages
+    if (exception instanceof ModelAdapterError) {
+      return {
+        statusCode: exception.statusCode,
+        error: titleForStatus(exception.statusCode),
+        code: exception.code,
+        message: exception.message,
         path,
         timestamp,
       };
@@ -242,3 +268,13 @@ function describe(exception: unknown): string {
 function toStack(exception: unknown): string | undefined {
   return exception instanceof Error ? exception.stack : undefined;
 }
+
+/**
+ * Recognises an exception representing client cancellation or abort.
+ */
+function isCancellation(exception: unknown): boolean {
+  return (
+    exception instanceof ModelAdapterError && exception.isCancellation
+  );
+}
+

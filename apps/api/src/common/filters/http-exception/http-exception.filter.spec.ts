@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import type { ApiErrorResponse } from '../../http/api-error.js';
 import { HttpExceptionFilter } from './http-exception.filter.js';
+import {
+  AuthenticationError,
+  RateLimitError,
+  RequestAbortedError,
+} from '../../../model-adapters/errors/model-adapter-error.js';
 
 interface Captured {
   status: number;
@@ -15,11 +20,16 @@ interface Captured {
 
 function createHost(options: { headersSent?: boolean; type?: string } = {}) {
   const captured: Partial<Captured> = {};
+  const headers: Record<string, string> = {};
   const destroy = vi.fn();
+  const setHeader = vi.fn((key: string, val: string) => {
+    headers[key.toLowerCase()] = val;
+  });
 
   const response = {
     headersSent: options.headersSent ?? false,
     destroy,
+    setHeader,
     status(code: number) {
       captured.status = code;
 
@@ -40,7 +50,7 @@ function createHost(options: { headersSent?: boolean; type?: string } = {}) {
     }),
   } as unknown as ArgumentsHost;
 
-  return { host, captured: captured as Captured, destroy };
+  return { host, captured: captured as Captured, destroy, headers, setHeader };
 }
 
 describe('HttpExceptionFilter', () => {
@@ -221,4 +231,62 @@ describe('HttpExceptionFilter', () => {
     expect(() => filter.catch(new Error('boom'), host)).not.toThrow();
     expect(captured.status).toBeUndefined();
   });
+
+  it('maps ModelAdapterError with its normalized statusCode and code', () => {
+    const { host, captured } = createHost();
+
+    filter.catch(
+      new AuthenticationError(
+        'Provider authentication failed: bad key',
+        'anthropic',
+      ),
+      host,
+    );
+
+    expect(captured.status).toBe(502);
+    expect(captured.body).toMatchObject({
+      statusCode: 502,
+      error: 'Bad Gateway',
+      code: 'AUTHENTICATION_FAILED',
+      message: 'Provider authentication failed: bad key',
+      path: '/api/v1/agents/abc',
+    });
+  });
+
+  it('sets Retry-After header when ModelAdapterError has retryAfterSeconds', () => {
+    const { host, captured, headers } = createHost();
+
+    filter.catch(
+      new RateLimitError('Rate limit exceeded', 'openai', {
+        retryAfterSeconds: 60,
+      }),
+      host,
+    );
+
+    expect(captured.status).toBe(429);
+    expect(captured.body.code).toBe('RATE_LIMIT_EXCEEDED');
+    expect(headers['retry-after']).toBe('60');
+  });
+
+  it('handles client cancellation without logging as error or warning', () => {
+    const { host, captured } = createHost();
+    const errorSpy = vi.spyOn(filter['logger'], 'error');
+    const warnSpy = vi.spyOn(filter['logger'], 'warn');
+    const debugSpy = vi
+      .spyOn(filter['logger'], 'debug')
+      .mockImplementation(() => undefined);
+
+    filter.catch(
+      new RequestAbortedError('The model request was aborted.', 'ollama'),
+      host,
+    );
+
+    expect(captured.status).toBe(499);
+    expect(captured.body.code).toBe('REQUEST_ABORTED');
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalledTimes(1);
+    expect(String(debugSpy.mock.calls[0]?.[0])).toContain('cancelled');
+  });
 });
+

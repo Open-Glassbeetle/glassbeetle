@@ -38,11 +38,38 @@ export interface CompleteEvent {
 }
 
 /**
+ * In-band error payload emitted mid-stream over realtime transport (SSE).
+ *
+ * Once HTTP headers (200 OK) have been sent, the response status code cannot
+ * be changed and the global exception filter cannot rewrite the body. Instead,
+ * the stream yields an in-band error event containing this wire-safe payload.
+ *
+ * Adheres strictly to redaction rules: no causes, credentials, or raw upstream
+ * bodies are ever included in this payload.
+ */
+export interface StreamErrorPayload {
+  /** Normalised machine-readable error code */
+  readonly code: string;
+  /** User-safe human-readable message */
+  readonly message: string;
+  /** Whether the generation failure is retryable */
+  readonly retryable: boolean;
+  /** The provider kind encountering the error */
+  readonly providerKind?: string;
+  /** Model identifier involved in the generation failure */
+  readonly model?: string;
+  /** Suggested retry delay in seconds if provided by upstream */
+  readonly retryAfterSeconds?: number;
+}
+
+/**
  * In-band error event emitted if a failure occurs during streaming.
  */
 export interface ErrorEvent {
   readonly type: 'error';
   readonly error: ModelAdapterError;
+  /** Wire-safe payload representation for in-band streaming transport */
+  readonly payload?: StreamErrorPayload;
 }
 
 /**
