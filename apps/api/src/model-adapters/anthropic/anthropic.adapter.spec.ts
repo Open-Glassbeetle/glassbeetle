@@ -7,6 +7,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
 } from '../errors/model-adapter-error.js';
 import { AdapterFactoryService } from '../adapter-factory/adapter-factory.service.js';
 import type { AdapterConfig, CompletionRequest } from '../types/index.js';
@@ -16,6 +17,7 @@ import {
   ANTHROPIC_DEFAULT_BASE_URL,
   ANTHROPIC_DEFAULT_MAX_TOKENS,
   ANTHROPIC_DEFAULT_MODEL,
+  ANTHROPIC_DEFAULT_TIMEOUT_MS,
 } from './anthropic.adapter.js';
 import type { AnthropicMessagesResponse } from './anthropic.types.js';
 
@@ -568,6 +570,37 @@ describe('AnthropicAdapter', () => {
       ).rejects.toThrow(RequestAbortedError);
     });
 
+    it('rejects with RequestTimeoutError when the provider accepts and never responds', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig, { timeoutMs: 50 });
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            const err = new Error('The operation was aborted due to timeout');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      });
+
+      const promise = adapter.complete({
+        messages: [{ role: 'user', content: 'Hi' }],
+      });
+      await expect(promise).rejects.toThrow(RequestTimeoutError);
+      await promise.catch((err: RequestTimeoutError) => {
+        expect(err.message).toContain('timed out after 50ms');
+        expect(err.retryable).toBe(true);
+        expect(err.statusCode).toBe(504);
+      });
+      expect(clearSpy).toHaveBeenCalled();
+      clearSpy.mockRestore();
+    });
+
+    it('exports ANTHROPIC_DEFAULT_TIMEOUT_MS as 30 seconds', () => {
+      expect(ANTHROPIC_DEFAULT_TIMEOUT_MS).toBe(30_000);
+    });
+
     it('maps generic fetch network failures to ProviderUnavailableError', async () => {
       const adapter = new AnthropicAdapter(defaultConfig);
       fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch (DNS lookup failed)'));
@@ -802,6 +835,67 @@ describe('AnthropicAdapter', () => {
         delta: 'Fragmented token',
       });
       expect(emitted.some((e) => e.type === 'complete')).toBe(true);
+    });
+
+    it('rejects stream() with RequestTimeoutError when headers never arrive', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig, { timeoutMs: 50 });
+
+      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            const err = new Error('The operation was aborted due to timeout');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      });
+
+      const iter = adapter.stream({
+        messages: [{ role: 'user', content: 'Hi' }],
+      });
+      await expect(iter.next()).rejects.toThrow(RequestTimeoutError);
+    });
+
+    it('does not cut off a slow-but-alive stream after headers arrive', async () => {
+      const adapter = new AnthropicAdapter(defaultConfig, { timeoutMs: 30 });
+
+      const encoder = new TextEncoder();
+      const chunks = [
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"slow"}}\n\n',
+        'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+      ];
+      let idx = 0;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          if (idx === 0) {
+            // Delay past the header timeout to prove the timer was cleared.
+            await new Promise((r) => setTimeout(r, 60));
+          }
+          if (idx >= chunks.length) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(encoder.encode(chunks[idx]));
+          idx += 1;
+        },
+      });
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      const events: string[] = [];
+      for await (const event of adapter.stream({
+        messages: [{ role: 'user', content: 'Hi' }],
+      })) {
+        if (event.type === 'text-delta') {
+          events.push(event.delta);
+        }
+      }
+      expect(events).toContain('slow');
     });
 
     it('aborts cleanly mid-stream when signal is triggered', async () => {

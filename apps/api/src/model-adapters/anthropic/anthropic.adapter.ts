@@ -7,6 +7,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
 } from '../errors/model-adapter-error.js';
 import type { ModelAdapter } from '../model-adapter.interface.js';
 import type {
@@ -54,6 +55,24 @@ export const ANTHROPIC_DEFAULT_MAX_TOKENS = 4096;
 export const ANTHROPIC_DEFAULT_MODEL = 'claude-3-5-sonnet-20241022';
 
 /**
+ * Default outbound request timeout in milliseconds.
+ *
+ * Bounds how long Anthropic will wait for response headers. Cleared once
+ * headers arrive so a slow-but-alive stream is not cut off at this deadline.
+ */
+export const ANTHROPIC_DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Options for configuring {@link AnthropicAdapter}.
+ */
+export interface AnthropicAdapterOptions {
+  /**
+   * Request timeout in milliseconds (defaults to {@link ANTHROPIC_DEFAULT_TIMEOUT_MS}).
+   */
+  readonly timeoutMs?: number;
+}
+
+/**
  * Model adapter for Anthropic's Messages and Models API.
  *
  * ## Capabilities:
@@ -63,6 +82,8 @@ export const ANTHROPIC_DEFAULT_MODEL = 'claude-3-5-sonnet-20241022';
  * - Enforces `max_tokens` fallback when unspecified (`ANTHROPIC_DEFAULT_MAX_TOKENS = 4096`).
  * - Maps HTTP and upstream error codes into normalised {@link ModelAdapterError} classes.
  * - Strictly prevents API key and credential leaks across logs and errors.
+ * - Fails fast within a configurable timeout when the provider accepts the
+ *   connection and then goes quiet (cleared once response headers arrive).
  */
 export class AnthropicAdapter implements ModelAdapter {
   readonly capabilities: ModelCapabilities = {
@@ -75,11 +96,16 @@ export class AnthropicAdapter implements ModelAdapter {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly defaultModel: string;
+  private readonly timeoutMs: number;
 
-  constructor(private readonly config: AdapterConfig) {
+  constructor(
+    private readonly config: AdapterConfig,
+    options?: AnthropicAdapterOptions,
+  ) {
     this.baseUrl = (config.baseUrl?.trim() || ANTHROPIC_DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.apiKey = config.apiKey;
     this.defaultModel = config.modelIdentifier || ANTHROPIC_DEFAULT_MODEL;
+    this.timeoutMs = options?.timeoutMs ?? ANTHROPIC_DEFAULT_TIMEOUT_MS;
   }
 
   /**
@@ -97,12 +123,15 @@ export class AnthropicAdapter implements ModelAdapter {
     const url = this.resolveEndpointUrl('/messages');
     const headers = this.buildHeaders(options?.headers);
 
-    const res = await this.executeFetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    });
+    const res = await this.executeFetch(
+      url,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      },
+      options?.signal,
+    );
 
     const data = (await res.json()) as AnthropicMessagesResponse;
 
@@ -138,12 +167,15 @@ export class AnthropicAdapter implements ModelAdapter {
     const url = this.resolveEndpointUrl('/messages');
     const headers = this.buildHeaders(options?.headers);
 
-    const res = await this.executeFetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    });
+    const res = await this.executeFetch(
+      url,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      },
+      options?.signal,
+    );
 
     if (!res.body) {
       throw new ProviderUnavailableError(
@@ -314,11 +346,14 @@ export class AnthropicAdapter implements ModelAdapter {
         url.searchParams.set('after_id', afterId);
       }
 
-      const res = await this.executeFetch(url.toString(), {
-        method: 'GET',
-        headers,
-        signal: options?.signal,
-      });
+      const res = await this.executeFetch(
+        url.toString(),
+        {
+          method: 'GET',
+          headers,
+        },
+        options?.signal,
+      );
 
       const json = (await res.json()) as AnthropicModelsResponse;
       const items = json.data ?? [];
@@ -490,14 +525,52 @@ export class AnthropicAdapter implements ModelAdapter {
   }
 
   /**
-   * Safely executes an HTTP request, ensuring API keys are never leaked upon failure.
+   * Safely executes an HTTP request with timeout and cancellation.
+   *
+   * The deadline covers waiting for response headers only — once `fetch`
+   * resolves the timer is cleared so a slow-but-alive stream is not cut off.
+   * API keys are never leaked upon failure.
    */
   private async executeFetch(
     url: string,
     init: RequestInit,
+    signal?: AbortSignal,
   ): Promise<Response> {
+    const controller = new AbortController();
+    let timedOut = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    if (signal) {
+      if (signal.aborted) {
+        throw new RequestAbortedError(
+          'Request to Anthropic was aborted',
+          'anthropic',
+        );
+      }
+      signal.addEventListener(
+        'abort',
+        () => {
+          controller.abort();
+        },
+        { once: true },
+      );
+    }
+
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeoutMs);
+
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
 
       if (!res.ok) {
         await this.handleErrorResponse(res);
@@ -505,12 +578,30 @@ export class AnthropicAdapter implements ModelAdapter {
 
       return res;
     } catch (err: unknown) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+
       if (err instanceof ModelAdapterError) {
         throw err;
       }
 
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new RequestAbortedError('Request to Anthropic was aborted', 'anthropic');
+      if (timedOut) {
+        throw new RequestTimeoutError(
+          `Request to Anthropic timed out after ${this.timeoutMs}ms`,
+          'anthropic',
+        );
+      }
+
+      if (
+        signal?.aborted ||
+        (err instanceof Error && err.name === 'AbortError')
+      ) {
+        throw new RequestAbortedError(
+          'Request to Anthropic was aborted',
+          'anthropic',
+        );
       }
 
       const rawMsg = err instanceof Error ? err.message : String(err);
