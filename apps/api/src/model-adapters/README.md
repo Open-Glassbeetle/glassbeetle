@@ -158,6 +158,7 @@ Adapter for Anthropic's Messages and Models API (`providers.kind = 'anthropic'`)
 - **Streaming (SSE)**: Consumes Server-Sent Events, yielding incremental text/thought deltas and accumulating token usage across `message_start` and `message_delta` events.
 - **Model Discovery**: Interrogates `GET /v1/models` and extracts context windows and token limits.
 - **Credential Privacy**: Never leaks API keys across errors, logs, or thrown exception causes.
+- **Fast Timeout & Cancellation**: Applies a 30s connection timeout (`ANTHROPIC_DEFAULT_TIMEOUT_MS`) so a provider that accepts the connection and then goes quiet fails fast. The timer clears once response headers arrive so a slow-but-alive stream is not cut off. Propagates `AbortSignal` for client cancellation.
 
 ### `OpenAiAdapter` (`openai/openai.adapter.ts`)
 Adapter for OpenAI's Chat Completions and Models API (`providers.kind` values: `openai`, `openai_compatible`, `lmstudio`):

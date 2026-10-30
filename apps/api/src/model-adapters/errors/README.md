@@ -118,7 +118,8 @@ Adapter authors and completion controllers convert any error into this wire shap
 When implementing an adapter:
 1. Wrap all network calls in try/catch.
 2. Check for `AbortSignal` cancellation first: throw `new RequestAbortedError()`.
-3. Check for connection errors (`ECONNREFUSED`): throw `new ConnectionFailedError()`.
-4. Parse upstream responses with `normalizeProviderError()` or `extractSafeErrorMessage()`.
-5. Pass configured API keys to `knownSecrets` so they are scrubbed before logging.
-6. In `stream()`, if a failure occurs mid-generation, yield `{ type: 'error', error, payload: toStreamErrorPayload(error) }` before terminating.
+3. Bound outbound requests with a deadline (clear the timer once response headers arrive) and throw `new RequestTimeoutError()` when it fires — do not rely on the runtime's default idle timeout.
+4. Check for connection errors (`ECONNREFUSED`): throw `new ConnectionFailedError()`.
+5. Parse upstream responses with `normalizeProviderError()` or `extractSafeErrorMessage()`.
+6. Pass configured API keys to `knownSecrets` so they are scrubbed before logging.
+7. In `stream()`, if a failure occurs mid-generation, yield `{ type: 'error', error, payload: toStreamErrorPayload(error) }` before terminating.
