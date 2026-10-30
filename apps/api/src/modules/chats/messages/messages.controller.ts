@@ -17,6 +17,7 @@ import {
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { ApiErrorResponseDto } from '../../../common/http/api-error.js';
 import type { PaginatedResponse } from '../../../common/pagination/paginated-response.dto.js';
@@ -114,7 +115,11 @@ export class MessagesController {
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
-    description: 'The parent chat does not exist, or the referenced agentId does not exist',
+    description: 'The parent chat does not exist',
+    type: ApiErrorResponseDto,
+  })
+  @ApiUnprocessableEntityResponse({
+    description: 'The referenced agentId does not exist',
     type: ApiErrorResponseDto,
   })
   @ApiConflictResponse({
