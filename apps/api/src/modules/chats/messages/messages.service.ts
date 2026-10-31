@@ -1,7 +1,7 @@
 import {
   ConflictException,
   Injectable,
-  NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import {
   createPaginatedResponse,
@@ -151,7 +151,7 @@ export class MessagesService {
    *    - Defensive handling: If the chat's owning agent was deleted, appending is still permitted
    *      because conversation history is append-only and the chat row itself exists.
    * 2. Agent attribution:
-   *    - If `agentId` is supplied, it must exist in `agents` table (404 AGENT_NOT_FOUND naming the field).
+   *    - If `agentId` is supplied, it must exist in `agents` table (422 AGENT_NOT_FOUND naming the field).
    *    - Team membership is intentionally not required, allowing guest agents, departed team members,
    *      and imported multi-agent transcripts.
    * 3. Atomic sequence computation:
@@ -170,8 +170,9 @@ export class MessagesService {
    * @param options - Fixed `id` and timestamp, for tests that assert on an
    * exact row. Honoured on the first attempt only, so a retry cannot reuse an
    * id the failed attempt may already have written.
-   * @throws NotFoundException (404) when the chat does not exist, or when
-   * `agentId` names an agent that does not.
+   * @throws NotFoundException (404) when the chat does not exist.
+   * @throws UnprocessableEntityException (422) with code `AGENT_NOT_FOUND`
+   * when `agentId` names an agent that does not.
    * @throws ConflictException (409) with code `MESSAGE_SEQUENCE_CONFLICT` when
    * the sequence could not be assigned within the retry budget.
    */
@@ -190,7 +191,7 @@ export class MessagesService {
         [dto.agentId],
       );
       if (!agent) {
-        throw new NotFoundException({
+        throw new UnprocessableEntityException({
           code: 'AGENT_NOT_FOUND',
           message: `Referenced agentId "${dto.agentId}" does not exist`,
         });

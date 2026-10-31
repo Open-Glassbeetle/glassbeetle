@@ -536,7 +536,7 @@ describe('Chat Messages Endpoints (e2e)', () => {
       expect(res.body.message).toContain('not found');
     });
 
-    it('returns 404 when referenced agentId does not exist naming the field', async () => {
+    it('returns 422 when referenced agentId does not exist naming the field', async () => {
       const chat = testApp.fixtures.createChat();
       const nonExistentAgentId = '018f3a9e-0000-7000-8000-000000000088';
 
@@ -544,9 +544,9 @@ describe('Chat Messages Endpoints (e2e)', () => {
         .request()
         .post(`/api/v1/chats/${chat.id}/messages`)
         .send({ content: 'Agent turn', agentId: nonExistentAgentId })
-        .expect(404);
+        .expect(422);
 
-      expect(res.body.statusCode).toBe(404);
+      expect(res.body.statusCode).toBe(422);
       expect(res.body.code).toBe('AGENT_NOT_FOUND');
       expect(res.body.message).toContain('agentId');
     });

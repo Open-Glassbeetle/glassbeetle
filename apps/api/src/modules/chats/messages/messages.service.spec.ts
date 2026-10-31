@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../../database/database.service.js';
@@ -534,7 +535,7 @@ describe('MessagesService', () => {
       }
     });
 
-    it('throws 404 NotFoundException naming agentId field when agent does not exist', async () => {
+    it('throws 422 UnprocessableEntityException naming agentId field when agent does not exist', async () => {
       const chat = fixtures.createChat();
       const nonExistentAgentId = '018f3a9e-0000-7000-8000-000000000088';
 
@@ -543,7 +544,7 @@ describe('MessagesService', () => {
           content: 'Message with bad agent',
           agentId: nonExistentAgentId,
         }),
-      ).rejects.toThrow(NotFoundException);
+      ).rejects.toThrow(UnprocessableEntityException);
 
       try {
         await service.create(chat.id, {

@@ -301,6 +301,12 @@ turns a client mistake into an opaque `500`.
 
 ## Error responses
 
+Use `404` when a resource named in the URL path does not exist. Use `422` when
+a request body references a resource that does not exist; the resource named
+by the path can still exist. For example, posting a message to an existing chat
+with an unknown `agentId` returns `422`, while posting to an unknown `chatId`
+returns `404`.
+
 Every error, from every endpoint, returns this envelope:
 
 ```json
