@@ -253,23 +253,32 @@ describe('Budget endpoints (e2e)', () => {
     });
 
     it("follows the user's time zone when it changes", async () => {
-      const utc = (await testApp.request().get('/api/v1/budget').expect(200))
-        .body;
+      // Freeze date mid-month so Auckland and UTC are guaranteed to be in the same calendar month
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-15T12:00:00Z'));
 
-      await testApp
-        .request()
-        .patch('/api/v1/user')
-        .send({ timezone: 'Pacific/Auckland' })
-        .expect(200);
+      try {
+        const utc = (await testApp.request().get('/api/v1/budget').expect(200))
+          .body;
 
-      const zoned = (await testApp.request().get('/api/v1/budget').expect(200))
-        .body;
+        await testApp
+          .request()
+          .patch('/api/v1/user')
+          .send({ timezone: 'Pacific/Auckland' })
+          .expect(200);
 
-      // Auckland is well ahead of UTC, so its month starts earlier in UTC terms.
-      expect(zoned.periodStart).not.toBe(utc.periodStart);
-      expect(new Date(zoned.periodStart).getTime()).toBeLessThan(
-        new Date(utc.periodStart).getTime(),
-      );
+        const zoned = (
+          await testApp.request().get('/api/v1/budget').expect(200)
+        ).body;
+
+        // Auckland is well ahead of UTC, so its month starts earlier in UTC terms.
+        expect(zoned.periodStart).not.toBe(utc.periodStart);
+        expect(new Date(zoned.periodStart).getTime()).toBeLessThan(
+          new Date(utc.periodStart).getTime(),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
