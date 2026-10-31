@@ -114,6 +114,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "dannyward630",
+      "name": "Danny Ward",
+      "avatar_url": "https://avatars.githubusercontent.com/u/71604164?v=4",
+      "profile": "https://github.com/dannyward630",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "commitType": "docs",
