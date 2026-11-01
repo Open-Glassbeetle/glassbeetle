@@ -1,14 +1,19 @@
 import { Module } from '@nestjs/common';
+import { ModelAdaptersModule } from '../../model-adapters/model-adapters.module.js';
+import { ProvidersModule } from '../providers/providers.module.js';
 import { InferenceService } from './inference.service.js';
 
 /**
- * Will own model invocation for chat completions.
+ * Owns model invocation and orchestration for chat completions.
  *
- * A placeholder: {@link InferenceService} has no implementation yet and is
- * not exported, so no other module can depend on it. Registered in
- * `AppModule` so the wiring exists when it does.
+ * Imports {@link ModelAdaptersModule} for adapter factory resolution and
+ * {@link ProvidersModule} for credentials decryption. Exports {@link InferenceService}
+ * for use by {@link "modules/chats/chats.module".ChatsModule}.
  */
 @Module({
-  providers: [InferenceService]
+  imports: [ModelAdaptersModule, ProvidersModule],
+  providers: [InferenceService],
+  exports: [InferenceService],
 })
 export class InferenceModule {}
+

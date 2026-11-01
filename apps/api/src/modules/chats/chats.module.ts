@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { InferenceModule } from '../inference/inference.module.js';
 import { ChatsController } from './chats.controller.js';
 import { ChatsService } from './chats.service.js';
 import { MessagesController } from './messages/messages.controller.js';
@@ -14,7 +15,9 @@ import { CompletionsController } from './completions/completions.controller.js';
  * history. Exports nothing, since no other feature reads chats.
  */
 @Module({
+  imports: [InferenceModule],
   controllers: [ChatsController, MessagesController, CompletionsController],
-  providers: [ChatsService, MessagesService]
+  providers: [ChatsService, MessagesService],
 })
 export class ChatsModule {}
+
