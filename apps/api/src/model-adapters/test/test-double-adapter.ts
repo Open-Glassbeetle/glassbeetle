@@ -260,23 +260,26 @@ export class TestDoubleAdapter implements ModelAdapter {
 
     const finishReason: FinishReason = canned?.finishReason ?? 'stop';
 
-    const usage: TokenUsage = canned?.usage ?? {
-      inputTokens: request.messages.reduce(
-        (sum, m) => sum + m.content.length / 4,
-        0,
-      ) | 0,
-      outputTokens: (defaultContent.length / 4) | 0,
-      totalTokens:
-        ((request.messages.reduce((sum, m) => sum + m.content.length / 4, 0) +
-          defaultContent.length / 4) |
-          0) || 10,
-    };
+    const usage: TokenUsage | undefined =
+      canned && 'usage' in canned
+        ? (canned.usage as TokenUsage | undefined)
+        : {
+            inputTokens: request.messages.reduce(
+              (sum, m) => sum + m.content.length / 4,
+              0,
+            ) | 0,
+            outputTokens: (defaultContent.length / 4) | 0,
+            totalTokens:
+              ((request.messages.reduce((sum, m) => sum + m.content.length / 4, 0) +
+                defaultContent.length / 4) |
+                0) || 10,
+          };
 
     return {
       content: defaultContent,
       reasoningContent: canned?.reasoningContent,
       finishReason,
-      usage,
+      usage: usage as TokenUsage,
       model,
       raw: canned?.raw ?? { provider: 'test-double' },
     };
