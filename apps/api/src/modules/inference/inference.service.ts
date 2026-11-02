@@ -11,14 +11,17 @@ import { DatabaseService } from '../../database/database.service.js';
 import { AdapterFactoryService } from '../../model-adapters/adapter-factory/adapter-factory.service.js';
 import {
   ModelAdapterError,
+  RequestAbortedError,
   normalizeProviderError,
   redactSecrets,
   sanitizeErrorCause,
+  toStreamErrorPayload,
 } from '../../model-adapters/errors/index.js';
 import type {
   AdapterMessage,
   CompletionRequest,
   CompletionResponse,
+  TokenUsage,
 } from '../../model-adapters/types/index.js';
 import { CredentialsService } from '../providers/credentials/credentials.service.js';
 import type {
@@ -32,7 +35,9 @@ import type { MessageRow } from '../chats/messages/dto/index.js';
 import type {
   CompletionResponseDto,
   CreateCompletionDto,
+  SseCompletionEvent,
 } from '../chats/completions/dto/index.js';
+
 
 /**
  * Options for executing a chat completion.
@@ -204,7 +209,448 @@ export class InferenceService {
   }
 
   /**
+   * Executes a streaming chat completion, yielding progressive Server-Sent Events.
+   *
+   * Responsibilities:
+   * 1. Resolves execution chain (Chat → Agent → Model → Provider → Credential).
+   *    Fails synchronously with standard 404/422 HTTP exceptions before sending SSE headers.
+   * 2. Atomically allocates the next sequence number and creates a message row with status='pending'.
+   * 3. Yields `message_start` event with message and sequence details.
+   * 4. Invokes `adapter.stream()`, transitioning to status='streaming' upon receiving first content chunk.
+   * 5. Periodically checkpoints partial content to SQLite (every 500ms or 200 characters).
+   * 6. On normal completion: updates row to status='complete', writes full content and token count,
+   *    records `usage_events`, emits `usage`, `message_complete`, and `done`.
+   * 7. On mid-stream failure: updates row to status='error' (preserving partial content), emits in-band
+   *    `error` event with wire-safe payload and `done`.
+   * 8. On client disconnect (signal.aborted): aborts upstream adapter, and finalizes the row:
+   *    retains partial content with status='complete' if content was received, or status='error' if not.
+   *
+   * @param chatId - Identifier of the chat to run.
+   * @param dto - Optional overrides for model, temperature, maxTokens, and stream.
+   * @param options - Execution options including cancellation signal.
+   * @returns Async generator yielding structured {@link SseCompletionEvent}s.
+   */
+  async *streamChat(
+    chatId: string,
+    dto?: CreateCompletionDto,
+    options?: CompleteChatOptions,
+  ): AsyncGenerator<SseCompletionEvent, void, unknown> {
+    // -----------------------------------------------------------------------
+    // 1. Resolve execution chain & validate runnability
+    // -----------------------------------------------------------------------
+    const { chat, agent, model, provider, apiKey } = this.resolveExecutionChain(
+      chatId,
+      dto?.modelId,
+    );
+
+    // Fail immediately if pre-aborted before execution began
+    if (options?.signal?.aborted) {
+      throw new RequestAbortedError(
+        'Request was aborted before execution',
+        provider.kind,
+      );
+    }
+
+    const adapter = this.adapterFactory.create({
+      providerId: provider.id,
+      providerKind: provider.kind as ProviderKind,
+      baseUrl: provider.base_url,
+      apiKey,
+      modelIdentifier: model.model_identifier,
+    });
+
+    if (!adapter.capabilities.supportsStreaming) {
+      throw new UnprocessableEntityException({
+        code: 'STREAMING_NOT_SUPPORTED',
+        message: `Model "${model.display_name}" does not support streaming completions`,
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. Resolve parameter precedence
+    // -----------------------------------------------------------------------
+    const effectiveTemperature =
+      dto?.temperature !== undefined && dto.temperature !== null
+        ? dto.temperature
+        : agent.temperature !== null
+          ? agent.temperature
+          : model.default_temperature ?? undefined;
+
+    const effectiveMaxTokens =
+      dto?.maxTokens !== undefined && dto.maxTokens !== null
+        ? dto.maxTokens
+        : agent.max_tokens !== null
+          ? agent.max_tokens
+          : model.default_max_tokens ?? undefined;
+
+    let effectiveModelParams: Record<string, unknown> | undefined;
+    if (agent.model_params) {
+      try {
+        effectiveModelParams = JSON.parse(agent.model_params);
+      } catch {
+        effectiveModelParams = undefined;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. Assemble prompt context
+    // -----------------------------------------------------------------------
+    const { systemPrompt, messages } = this.buildContext(chat, agent);
+
+    const completionRequest: CompletionRequest = {
+      model: model.model_identifier,
+      systemPrompt,
+      messages,
+      temperature: effectiveTemperature,
+      maxTokens: effectiveMaxTokens,
+      modelParams: effectiveModelParams,
+    };
+
+    // -----------------------------------------------------------------------
+    // 4. Atomically allocate sequence and insert pending row in SQLite
+    // -----------------------------------------------------------------------
+    let attempts = 0;
+    const maxRetries = 3;
+    let pendingRow: MessageRow | null = null;
+    const messageId = newId();
+    const createdAt = nowIso();
+
+    while (attempts < maxRetries) {
+      attempts++;
+      try {
+        pendingRow = this.db.transaction(() => {
+          const insertSql = `
+            INSERT INTO messages (
+              id,
+              chat_id,
+              sequence,
+              role,
+              agent_id,
+              content,
+              status,
+              token_count,
+              created_at
+            ) VALUES (
+              ?,
+              ?,
+              (SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE chat_id = ?),
+              'assistant',
+              ?,
+              '',
+              'pending',
+              NULL,
+              ?
+            )
+            RETURNING *
+          `;
+          const row = this.db.get<MessageRow>(insertSql, [
+            messageId,
+            chat.id,
+            chat.id,
+            agent.id,
+            createdAt,
+          ]);
+
+          this.db.run('UPDATE chats SET updated_at = ? WHERE id = ?', [
+            createdAt,
+            chat.id,
+          ]);
+
+          return row ?? null;
+        });
+
+        if (pendingRow) {
+          break;
+        }
+      } catch (error: any) {
+        const isUniqueConstraint =
+          error?.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+          (typeof error?.message === 'string' &&
+            error.message.includes(
+              'UNIQUE constraint failed: messages.chat_id, messages.sequence',
+            ));
+
+        if (isUniqueConstraint && attempts < maxRetries) {
+          continue;
+        }
+
+        this.logger.error(
+          `Failed to allocate sequence for streaming message in chat "${chat.id}": ${error?.message}`,
+        );
+        throw new InternalServerErrorException({
+          code: 'SEQUENCE_ALLOCATION_FAILED',
+          message: 'Failed to allocate sequence for chat message',
+        });
+      }
+    }
+
+    if (!pendingRow) {
+      throw new InternalServerErrorException({
+        code: 'SEQUENCE_ALLOCATION_FAILED',
+        message: 'Failed to allocate sequence for chat message',
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Emit message_start event
+    // -----------------------------------------------------------------------
+    yield {
+      type: 'message_start',
+      data: {
+        messageId: pendingRow.id,
+        chatId: chat.id,
+        sequence: pendingRow.sequence,
+        agentId: agent.id,
+        role: 'assistant',
+      },
+    };
+
+    // -----------------------------------------------------------------------
+    // 6. State tracking and checkpoint helper
+    // -----------------------------------------------------------------------
+    let accumulatedContent = '';
+    let lastFlushedContent = '';
+    let lastFlushTime = Date.now();
+    let currentStatus: 'pending' | 'streaming' | 'complete' | 'error' =
+      'pending';
+    let reportedUsage: TokenUsage | undefined;
+
+    const flushPartial = (
+      newStatus: 'streaming' | 'complete' | 'error',
+      finalOutputTokens?: number | null,
+    ) => {
+      const now = nowIso();
+      this.db.run(
+        `UPDATE messages
+         SET status = ?,
+             content = ?,
+             token_count = ?
+         WHERE id = ?`,
+        [
+          newStatus,
+          accumulatedContent,
+          finalOutputTokens !== undefined
+            ? finalOutputTokens
+            : (reportedUsage?.outputTokens ?? null),
+          pendingRow!.id,
+        ],
+      );
+      this.db.run('UPDATE chats SET updated_at = ? WHERE id = ?', [
+        now,
+        chat.id,
+      ]);
+      lastFlushedContent = accumulatedContent;
+      lastFlushTime = Date.now();
+      currentStatus = newStatus;
+    };
+
+    // -----------------------------------------------------------------------
+    // 7. Execute streaming generator
+    // -----------------------------------------------------------------------
+    try {
+      const stream = adapter.stream(completionRequest, {
+        signal: options?.signal,
+      });
+
+      for await (const event of stream) {
+        if (options?.signal?.aborted) {
+          break;
+        }
+
+        switch (event.type) {
+          case 'text-delta': {
+            accumulatedContent += event.delta;
+
+            if (currentStatus === 'pending') {
+              flushPartial('streaming');
+            } else {
+              const charsSinceFlush =
+                accumulatedContent.length - lastFlushedContent.length;
+              const timeSinceFlush = Date.now() - lastFlushTime;
+              if (charsSinceFlush >= 200 || timeSinceFlush >= 500) {
+                flushPartial('streaming');
+              }
+            }
+
+            yield {
+              type: 'token',
+              data: {
+                messageId: pendingRow.id,
+                text: event.delta,
+              },
+            };
+            break;
+          }
+
+          case 'thought-delta': {
+            yield {
+              type: 'thought',
+              data: {
+                messageId: pendingRow.id,
+                thought: event.delta,
+              },
+            };
+            break;
+          }
+
+          case 'usage': {
+            reportedUsage = event.usage;
+            break;
+          }
+
+          case 'complete': {
+            if (event.usage) {
+              reportedUsage = event.usage;
+            }
+            break;
+          }
+
+          case 'error': {
+            throw event.error;
+          }
+        }
+      }
+
+      // Check if client aborted while stream was ending
+      if (options?.signal?.aborted) {
+        if (accumulatedContent.length > 0) {
+          flushPartial('complete', reportedUsage?.outputTokens ?? null);
+        } else {
+          accumulatedContent = 'Generation interrupted';
+          flushPartial('error', null);
+        }
+        return;
+      }
+
+      // Normal completion
+      flushPartial('complete', reportedUsage?.outputTokens ?? null);
+
+      // Record usage event
+      const finalInputTokens = reportedUsage?.inputTokens ?? null;
+      const finalOutputTokens = reportedUsage?.outputTokens ?? null;
+
+      this.db.run(
+        `INSERT INTO usage_events (
+          id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id,
+          input_tokens, output_tokens, cost_usd, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newId(),
+          nowIso(),
+          'chat_completion',
+          agent.id,
+          provider.id,
+          model.id,
+          chat.id,
+          finalInputTokens,
+          finalOutputTokens,
+          null,
+          null,
+        ],
+      );
+
+      // Emit terminal usage event
+      if (reportedUsage) {
+        yield {
+          type: 'usage',
+          data: {
+            inputTokens: reportedUsage.inputTokens,
+            outputTokens: reportedUsage.outputTokens,
+            totalTokens: reportedUsage.totalTokens,
+            ...(reportedUsage.reasoningTokens !== undefined
+              ? { reasoningTokens: reportedUsage.reasoningTokens }
+              : {}),
+          },
+        };
+      }
+
+      // Emit message_complete event
+      yield {
+        type: 'message_complete',
+        data: {
+          messageId: pendingRow.id,
+          status: 'complete',
+          tokenCount: reportedUsage?.outputTokens ?? null,
+          usage: reportedUsage
+            ? {
+                inputTokens: reportedUsage.inputTokens,
+                outputTokens: reportedUsage.outputTokens,
+                totalTokens: reportedUsage.totalTokens,
+                reasoningTokens: reportedUsage.reasoningTokens,
+              }
+            : null,
+        },
+      };
+
+      // Emit done event
+      yield {
+        type: 'done',
+        data: '[DONE]',
+      };
+    } catch (error: unknown) {
+      const isAborted =
+        options?.signal?.aborted ||
+        (error instanceof ModelAdapterError &&
+          error.code === 'REQUEST_ABORTED') ||
+        (error instanceof Error &&
+          (error.name === 'AbortError' ||
+            error.message.toLowerCase().includes('abort')));
+
+      if (isAborted) {
+        if (accumulatedContent.length > 0) {
+          flushPartial('complete', reportedUsage?.outputTokens ?? null);
+        } else {
+          accumulatedContent = 'Generation interrupted';
+          flushPartial('error', null);
+        }
+        return;
+      }
+
+      let normalizedError: unknown = error;
+      if (apiKey) {
+        if (normalizedError instanceof ModelAdapterError) {
+          normalizedError.message = redactSecrets(normalizedError.message, [
+            apiKey,
+          ]);
+          if (normalizedError.cause) {
+            (normalizedError as { cause: unknown }).cause = sanitizeErrorCause(
+              normalizedError.cause,
+              [apiKey],
+            );
+          }
+        } else {
+          normalizedError = normalizeProviderError({
+            providerKind: provider.kind,
+            model: model.model_identifier,
+            cause: error,
+            knownSecrets: [apiKey],
+          });
+        }
+      } else if (!(normalizedError instanceof ModelAdapterError)) {
+        normalizedError = normalizeProviderError({
+          providerKind: provider.kind,
+          model: model.model_identifier,
+          cause: error,
+        });
+      }
+
+      flushPartial('error', reportedUsage?.outputTokens ?? null);
+
+      yield {
+        type: 'error',
+        data: toStreamErrorPayload(normalizedError),
+      };
+
+      yield {
+        type: 'done',
+        data: '[DONE]',
+      };
+    }
+  }
+
+  /**
    * Resolves the full execution chain from chat to provider credentials.
+
    *
    * Fails with distinct, actionable 422 errors at whichever link is invalid.
    */

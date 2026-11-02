@@ -228,5 +228,57 @@ describe('DatabaseService', () => {
     );
     expect(probe?.valid).toBe(1);
   });
+
+  it('sweeps messages stranded in pending and streaming states on startup to error', () => {
+    service.run(
+      `INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p1', 'Test Project', '2026-01-01', '2026-01-01')`,
+    );
+    service.run(
+      `INSERT INTO agents (id, name, created_at, updated_at) VALUES ('a1', 'Test Agent', '2026-01-01', '2026-01-01')`,
+    );
+    service.run(
+      `INSERT INTO chats (id, project_id, agent_id, title, created_at, updated_at) VALUES ('c1', 'p1', 'a1', 'Test Chat', '2026-01-01', '2026-01-01')`,
+    );
+
+
+    // 1. Pending message with empty content
+    service.run(
+      `INSERT INTO messages (id, chat_id, sequence, role, content, status, created_at)
+       VALUES ('m_pending', 'c1', 1, 'assistant', '', 'pending', '2026-01-01')`,
+    );
+
+    // 2. Streaming message with partial content
+    service.run(
+      `INSERT INTO messages (id, chat_id, sequence, role, content, status, created_at)
+       VALUES ('m_streaming', 'c1', 2, 'assistant', 'Partial generation text', 'streaming', '2026-01-01')`,
+    );
+
+    // 3. Complete message that should remain untouched
+    service.run(
+      `INSERT INTO messages (id, chat_id, sequence, role, content, status, created_at)
+       VALUES ('m_complete', 'c1', 3, 'assistant', 'Complete text', 'complete', '2026-01-01')`,
+    );
+
+    service.sweepStrandedMessages();
+
+    const pendingRow = service.get<{ status: string; content: string }>(
+      `SELECT status, content FROM messages WHERE id = 'm_pending'`,
+    );
+    expect(pendingRow?.status).toBe('error');
+    expect(pendingRow?.content).toBe('Generation interrupted unexpectedly');
+
+    const streamingRow = service.get<{ status: string; content: string }>(
+      `SELECT status, content FROM messages WHERE id = 'm_streaming'`,
+    );
+    expect(streamingRow?.status).toBe('error');
+    expect(streamingRow?.content).toBe('Partial generation text');
+
+    const completeRow = service.get<{ status: string; content: string }>(
+      `SELECT status, content FROM messages WHERE id = 'm_complete'`,
+    );
+    expect(completeRow?.status).toBe('complete');
+    expect(completeRow?.content).toBe('Complete text');
+  });
 });
+
 

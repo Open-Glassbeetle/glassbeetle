@@ -109,7 +109,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     this.assertJson1Supported();
     runMigrations(this.dbInstance);
+    this.sweepStrandedMessages();
   }
+
 
   /**
    * Verifies that SQLite JSON1 functions are available and functional.
@@ -143,9 +145,41 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Sweeps messages stranded in 'pending' or 'streaming' status from a previous
+   * ungraceful shutdown or process crash to 'error'.
+   *
+   * In a desktop application, a process crash or reboot during generation leaves
+   * rows in 'pending' or 'streaming'. Without recovery, these rows would stay
+   * forever stuck in an in-progress state in the user's chat history.
+   *
+   * @see `docs/realtime-transport.md` section 5.1
+   */
+  public sweepStrandedMessages(): void {
+    if (!this.dbInstance) {
+      return;
+    }
+
+    try {
+      this.dbInstance
+        .prepare(
+          `UPDATE messages
+           SET status = 'error',
+               content = CASE WHEN content = '' THEN 'Generation interrupted unexpectedly' ELSE content END
+           WHERE status IN ('pending', 'streaming')`,
+        )
+        .run();
+    } catch (error) {
+      this.logger.warn(
+        `Failed to sweep stranded messages on startup: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
    * Cleanly closes the database connection.
    */
   public close(): void {
+
     if (this.dbInstance?.open) {
       this.dbInstance.close();
     }
