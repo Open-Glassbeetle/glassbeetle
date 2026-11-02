@@ -164,9 +164,19 @@ export class ProviderModelsController {
     type: ApiErrorResponseDto,
   })
   @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Upstream rate limit exceeded',
+    type: ApiErrorResponseDto,
+  })
+  @ApiResponse({
     status: HttpStatus.BAD_GATEWAY,
     description:
-      'Provider was reached but returned an error or malformed response',
+      'Provider rejected the credential, could not be reached, or returned an error or malformed response',
+    type: ApiErrorResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    description: 'Provider is unavailable or overloaded',
     type: ApiErrorResponseDto,
   })
   @ApiResponse({

@@ -10,7 +10,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../../database/database.service.js';
 import { AdapterFactoryService } from '../../../model-adapters/adapter-factory/adapter-factory.service.js';
-import { RequestAbortedError } from '../../../model-adapters/errors/index.js';
+import {
+  AuthenticationError,
+  RequestAbortedError,
+} from '../../../model-adapters/errors/index.js';
 import { CredentialsService } from '../credentials/credentials.service.js';
 import { type ModelRow, type RegisterModelDto } from './dto/index.js';
 import { ModelsService } from './models.service.js';
@@ -376,7 +379,7 @@ describe('ModelsService', () => {
       );
     });
 
-    it('throws BadGatewayException when adapter throws upstream error', async () => {
+    it('normalises an untyped upstream error to a 502 UNKNOWN_ERROR adapter error', async () => {
       mockDb.get.mockReturnValueOnce({
         id: providerId,
         kind: 'ollama',
@@ -390,9 +393,37 @@ describe('ModelsService', () => {
           .mockRejectedValueOnce(new Error('Connection refused')),
       });
 
-      await expect(service.discover(providerId)).rejects.toThrow(
-        BadGatewayException,
-      );
+      await expect(service.discover(providerId)).rejects.toMatchObject({
+        code: 'UNKNOWN_ERROR',
+        statusCode: 502,
+        message: 'ollama error: Provider request failed.',
+      });
+    });
+
+    it('re-throws ModelAdapterError with the decrypted API key redacted', async () => {
+      const apiKey = 'sk-unit-secret-13579';
+      mockDb.get.mockReturnValueOnce({
+        id: providerId,
+        kind: 'openai',
+        base_url: null,
+      });
+      mockCredentialsService.getDecryptedCredential.mockReturnValueOnce(apiKey);
+      mockAdapterFactory.isSupported.mockReturnValueOnce(true);
+      mockAdapterFactory.create.mockReturnValueOnce({
+        capabilities: { supportsDiscovery: true },
+        discoverModels: vi
+          .fn()
+          .mockRejectedValueOnce(
+            new AuthenticationError(`key ${apiKey} was rejected`, 'openai'),
+          ),
+      });
+
+      const error = await service.discover(providerId).catch((e) => e);
+
+      expect(error).toBeInstanceOf(AuthenticationError);
+      expect(error.code).toBe('AUTHENTICATION_FAILED');
+      expect(error.message).not.toContain(apiKey);
+      expect(error.message).toContain('was rejected');
     });
 
     it('reconciles discovered models into empty table: inserts with source=discovered', async () => {
