@@ -23,7 +23,11 @@ import {
 import { DatabaseService } from '../../../database/database.service.js';
 import { AdapterFactoryService } from '../../../model-adapters/adapter-factory/adapter-factory.service.js';
 import {
+  ModelAdapterError,
+  normalizeProviderError,
+  redactSecrets,
   RequestAbortedError,
+  sanitizeErrorCause,
   UnsupportedCapabilityError,
   UnsupportedProviderKindError,
 } from '../../../model-adapters/errors/index.js';
@@ -268,7 +272,9 @@ export class ModelsService {
    * @throws BadRequestException (400) if required base_url or credentials are not configured.
    * @throws NotImplementedException (501) if provider kind lacks discovery support.
    * @throws GatewayTimeoutException (504) if provider call times out.
-   * @throws BadGatewayException (502) on upstream connection or response errors.
+   * @throws BadGatewayException (502) if the adapter returns malformed data.
+   * @throws ModelAdapterError on upstream failures (authentication, connection,
+   *   rate limit, unavailability, ...), mapped by HttpExceptionFilter.
    */
   async discover(
     providerId: string,
@@ -370,6 +376,9 @@ export class ModelsService {
         error instanceof RequestAbortedError ||
         (error as Error)?.name === 'AbortError'
       ) {
+        // This is the service's own deadline for the whole discovery call, not
+        // an adapter-reported timeout. It keeps `GATEWAY_TIMEOUT`, the code
+        // this endpoint has always used for it (and documents as 504).
         throw new GatewayTimeoutException({
           message: `Model discovery timed out after ${timeoutMs}ms for provider '${providerId}'`,
           code: 'GATEWAY_TIMEOUT',
@@ -397,9 +406,26 @@ export class ModelsService {
         `Model discovery failed upstream for provider '${providerId}' (${provider.kind}): ${safeMessage}`,
       );
 
-      throw new BadGatewayException({
-        message: `Failed to discover models from provider '${providerId}': upstream communication error`,
-        code: 'BAD_GATEWAY',
+      // Let typed adapter errors reach HttpExceptionFilter so the client gets
+      // the taxonomy's status, code and actionable message (see
+      // errors/README.md), with any decrypted API key redacted first.
+      if (error instanceof ModelAdapterError) {
+        if (apiKey) {
+          error.message = redactSecrets(error.message, [apiKey]);
+          if (error.cause) {
+            (error as { cause: unknown }).cause = sanitizeErrorCause(
+              error.cause,
+              [apiKey],
+            );
+          }
+        }
+        throw error;
+      }
+
+      throw normalizeProviderError({
+        providerKind: provider.kind,
+        cause: error,
+        knownSecrets: apiKey ? [apiKey] : undefined,
       });
     } finally {
       clearTimeout(timeoutId);

@@ -10,7 +10,10 @@ import {
 } from 'vitest';
 import { AdapterFactoryService } from '../src/model-adapters/adapter-factory/adapter-factory.service.js';
 import {
+  AuthenticationError,
+  ConnectionFailedError,
   ProviderUnavailableError,
+  RateLimitError,
   RequestAbortedError,
   UnsupportedCapabilityError,
 } from '../src/model-adapters/errors/index.js';
@@ -625,7 +628,7 @@ describe('Model discovery endpoint (POST /api/v1/providers/:providerId/models/di
       expect(rows).toHaveLength(0);
     });
 
-    it('returns 502 BAD_GATEWAY when provider is unreachable', async () => {
+    it('returns 502 CONNECTION_FAILED with the adapter message when the provider is unreachable', async () => {
       const provider = testApp.fixtures.createProvider({
         kind: 'ollama',
         base_url: 'http://localhost:11434',
@@ -635,8 +638,8 @@ describe('Model discovery endpoint (POST /api/v1/providers/:providerId/models/di
         'ollama',
         (config) =>
           new TestDoubleAdapter(config, {
-            simulateError: new ProviderUnavailableError(
-              'Connection refused: http://localhost:11434',
+            simulateError: new ConnectionFailedError(
+              'Ollama is not running at http://localhost:11434. Please ensure the Ollama daemon is started.',
               'ollama',
             ),
           }),
@@ -648,7 +651,94 @@ describe('Model discovery endpoint (POST /api/v1/providers/:providerId/models/di
         .expect(502);
 
       expect(res.body.statusCode).toBe(502);
-      expect(res.body.code).toBe('BAD_GATEWAY');
+      expect(res.body.code).toBe('CONNECTION_FAILED');
+      expect(res.body.message).toContain('http://localhost:11434');
+    });
+
+    it('returns 502 AUTHENTICATION_FAILED without leaking the key when the credential is rejected', async () => {
+      const secretApiKey = 'sk-live-rejected-discovery-key-24680';
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        base_url: 'https://api.openai.com',
+      });
+      await testApp
+        .request()
+        .put(`/api/v1/providers/${provider.id}/credential`)
+        .send({ apiKey: secretApiKey })
+        .expect(200);
+
+      adapterFactory.register(
+        'openai',
+        (config) =>
+          new TestDoubleAdapter(config, {
+            simulateError: new AuthenticationError(
+              `openai authentication failed: API key ${config.apiKey} was rejected.`,
+              'openai',
+            ),
+          }),
+      );
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/providers/${provider.id}/models/discover`)
+        .expect(502);
+
+      expect(res.body.code).toBe('AUTHENTICATION_FAILED');
+      expect(res.body.message).toContain('rejected');
+      expect(JSON.stringify(res.body)).not.toContain(secretApiKey);
+    });
+
+    it('returns 429 RATE_LIMIT_EXCEEDED with Retry-After when upstream rate limits', async () => {
+      const provider = testApp.fixtures.createProvider({
+        kind: 'ollama',
+        base_url: 'http://localhost:11434',
+      });
+
+      adapterFactory.register(
+        'ollama',
+        (config) =>
+          new TestDoubleAdapter(config, {
+            simulateError: new RateLimitError(
+              'ollama rate limit exceeded.',
+              'ollama',
+              { retryAfterSeconds: 30 },
+            ),
+          }),
+      );
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/providers/${provider.id}/models/discover`)
+        .expect(429);
+
+      expect(res.body.code).toBe('RATE_LIMIT_EXCEEDED');
+      expect(res.headers['retry-after']).toBe('30');
+    });
+
+    it('returns 503 PROVIDER_UNAVAILABLE when the provider is overloaded', async () => {
+      const provider = testApp.fixtures.createProvider({
+        kind: 'ollama',
+        base_url: 'http://localhost:11434',
+      });
+
+      adapterFactory.register(
+        'ollama',
+        (config) =>
+          new TestDoubleAdapter(config, {
+            simulateError: new ProviderUnavailableError(
+              'Provider service is unavailable or overloaded.',
+              'ollama',
+            ),
+          }),
+      );
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/providers/${provider.id}/models/discover`)
+        .expect(503);
+
+      expect(res.body.statusCode).toBe(503);
+      expect(res.body.code).toBe('PROVIDER_UNAVAILABLE');
     });
   });
 
