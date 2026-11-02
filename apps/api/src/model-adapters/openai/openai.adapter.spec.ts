@@ -726,6 +726,75 @@ describe('OpenAiAdapter', () => {
       expect(emitted[2].type).toBe('complete');
     });
 
+    // Regression for #232: the event accumulator must survive across reads.
+    function chunkedStream(chunks: string[]): ReadableStream<Uint8Array> {
+      const encoder = new TextEncoder();
+      let i = 0;
+      return new ReadableStream({
+        pull(controller) {
+          if (i < chunks.length) {
+            controller.enqueue(encoder.encode(chunks[i++]));
+          } else {
+            controller.close();
+          }
+        },
+      });
+    }
+
+    async function collectOpenAi(chunks: string[]): Promise<any[]> {
+      const adapter = new OpenAiAdapter(defaultOpenAiConfig);
+      fetchMock.mockResolvedValueOnce(
+        new Response(chunkedStream(chunks), { status: 200 }),
+      );
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) {
+        emitted.push(event);
+      }
+      return emitted;
+    }
+
+    it('keeps an event whose blank-line terminator arrives in the next read', async () => {
+      const unsplit = await collectOpenAi([
+        `data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n`,
+      ]);
+      const split = await collectOpenAi([
+        `data: {"choices":[{"delta":{"content":"Hello"}}]}\n`,
+        '\ndata: [DONE]\n\n',
+      ]);
+
+      expect(split[0]).toEqual({ type: 'text-delta', delta: 'Hello' });
+      expect(split).toEqual(unsplit);
+    });
+
+    it('still parses a payload split mid-JSON across reads', async () => {
+      const emitted = await collectOpenAi([
+        'data: {"choices":[{"delta":{"con',
+        'tent":"Hello"}}]}\n\ndata: [DONE]\n\n',
+      ]);
+
+      expect(emitted[0]).toEqual({ type: 'text-delta', delta: 'Hello' });
+    });
+
+    it('emits the final event when the body ends before its blank line', async () => {
+      const emitted = await collectOpenAi([
+        `data: {"choices":[{"delta":{"content":"Hello"}}]}\n`,
+      ]);
+
+      expect(emitted[0]).toEqual({ type: 'text-delta', delta: 'Hello' });
+      expect(emitted[emitted.length - 1].type).toBe('complete');
+    });
+
+    it('joins a multi-line data event split across reads with a newline', async () => {
+      const emitted = await collectOpenAi([
+        'data: {"choices":\n',
+        'data: [{"delta":{"content":"Joined"}}]}\n\ndata: [DONE]\n\n',
+      ]);
+
+      expect(emitted[0]).toEqual({ type: 'text-delta', delta: 'Joined' });
+    });
+
     it('aborts cleanly mid-stream when signal is triggered', async () => {
       const adapter = new OpenAiAdapter(defaultOpenAiConfig);
       const controller = new AbortController();
