@@ -9,6 +9,7 @@ import { TestFixtures } from '../../../test/harness/fixtures.js';
 import { AdapterFactoryService } from '../../model-adapters/adapter-factory/adapter-factory.service.js';
 import { TestDoubleAdapter } from '../../model-adapters/test/test-double-adapter.js';
 import {
+  ContextLengthExceededError,
   RateLimitError,
   RequestAbortedError,
 } from '../../model-adapters/errors/index.js';
@@ -364,6 +365,93 @@ describe('InferenceService', () => {
       expect(req.messages[0].content).toBe('What framework should I use for testing?');
       expect(req.messages[1].content).toBe('Vitest is great with NestJS.');
       expect(req.messages[2].content).toBe('Tell me more about it.');
+    });
+
+    it('incorporates agent personality into system prompt between prompt template and instructions', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const model = fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const prompt = fixtures.createSystemPrompt({
+        content: 'You are an AI assistant.',
+      });
+      const agent = fixtures.createAgent({
+        model_id: model.id,
+        system_prompt_id: prompt.id,
+        personality: 'Speaks only in haiku.',
+        instructions: 'Always answer briefly.',
+      });
+      const chat = fixtures.createChat({ agent_id: agent.id });
+
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Hello there',
+      });
+
+      await service.completeChat(chat.id, {});
+
+      expect(testDouble.completedRequests).toHaveLength(1);
+      const req = testDouble.completedRequests[0];
+      expect(req.systemPrompt).toBe(
+        'You are an AI assistant.\n\nSpeaks only in haiku.\n\nAlways answer briefly.',
+      );
+    });
+
+    it('refuses execution with ContextLengthExceededError when history exceeds model context window', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const model = fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+        context_window: 25, // Small context window
+      });
+      const agent = fixtures.createAgent({
+        model_id: model.id,
+        instructions: 'Answer questions.',
+      });
+      const chat = fixtures.createChat({ agent_id: agent.id });
+
+      // Add a long turn exceeding 25 tokens
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'This is a long message that easily exceeds twenty-five tokens threshold for fitting.',
+      });
+
+      await expect(service.completeChat(chat.id, {})).rejects.toThrow(
+        ContextLengthExceededError,
+      );
+    });
+
+    it('allows inspecting constructed context without executing completion via inspectContext', () => {
+      const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const model = fixtures.createModel({ provider_id: provider.id, enabled: 1, context_window: 10000 });
+      const prompt = fixtures.createSystemPrompt({ content: 'Inspectable template.' });
+      const agent = fixtures.createAgent({
+        model_id: model.id,
+        system_prompt_id: prompt.id,
+        personality: 'Friendly',
+        instructions: 'Format in markdown',
+      });
+      const chat = fixtures.createChat({ agent_id: agent.id, context_summary: 'Prior summary' });
+
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'How does inspection work?',
+        status: 'complete',
+      });
+
+      const inspected = service.inspectContext(chat.id);
+
+      expect(inspected.systemPrompt).toContain('Inspectable template.');
+      expect(inspected.systemPrompt).toContain('Friendly');
+      expect(inspected.systemPrompt).toContain('Format in markdown');
+      expect(inspected.systemPrompt).toContain('Context summary:\nPrior summary');
+      expect(inspected.messages).toHaveLength(1);
+      expect(inspected.tokenEstimate.fitsContextWindow).toBe(true);
+      expect(testDouble.completedRequests).toHaveLength(0); // Zero provider calls made
     });
   });
 
