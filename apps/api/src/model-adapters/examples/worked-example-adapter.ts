@@ -1,9 +1,12 @@
 import {
   AuthenticationError,
+  AuthorizationError,
+  ModelAdapterError,
   ModelNotFoundError,
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
 } from '../errors/model-adapter-error.js';
 import type { ModelAdapter } from '../model-adapter.interface.js';
 import type {
@@ -17,6 +20,14 @@ import type {
   StreamEvent,
 } from '../types/index.js';
 
+/** Default outbound request timeout in milliseconds. */
+export const EXAMPLE_DEFAULT_TIMEOUT_MS = 30_000;
+
+export interface ExampleAdapterOptions {
+  /** Request timeout in milliseconds (defaults to {@link EXAMPLE_DEFAULT_TIMEOUT_MS}). */
+  readonly timeoutMs?: number;
+}
+
 /**
  * Worked example demonstrating how a real vendor adapter (e.g. OpenAI or Anthropic compatible)
  * is implemented against the {@link ModelAdapter} interface using native `fetch`.
@@ -25,8 +36,9 @@ import type {
  * 1. **No External SDKs**: Uses standard global `fetch` and web streams.
  * 2. **Credential Privacy**: The decrypted API key is scoped privately and never logged or exposed.
  * 3. **System Prompt Normalisation**: Translates top-level `systemPrompt` into the vendor's protocol.
- * 4. **Cancellation**: Forwards `options.signal` directly to `fetch`.
- * 5. **Normalised Error Mapping**: Maps HTTP 401, 404, 429, 5xx to {@link model-adapters/errors/model-adapter-error.ModelAdapterError} subclasses.
+ * 4. **Cancellation**: Forwards `options.signal` and applies a bounded request timeout.
+ * 5. **Normalised Error Mapping**: Maps HTTP 401, 403, 404, 429, 5xx to {@link ModelAdapterError} subclasses
+ *    without re-wrapping them as {@link ProviderUnavailableError}.
  */
 export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
   readonly capabilities: ModelCapabilities = {
@@ -39,12 +51,14 @@ export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly defaultModel: string;
+  private readonly timeoutMs: number;
 
-  constructor(config: AdapterConfig) {
+  constructor(config: AdapterConfig, options?: ExampleAdapterOptions) {
     // Fallback to official endpoint if no custom baseUrl provided
     this.baseUrl = (config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
     this.apiKey = config.apiKey;
     this.defaultModel = config.modelIdentifier || 'gpt-4o';
+    this.timeoutMs = options?.timeoutMs ?? EXAMPLE_DEFAULT_TIMEOUT_MS;
   }
 
   /**
@@ -175,10 +189,15 @@ export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
     };
   }
 
+  /**
+   * Safely executes an HTTP fetch with a bounded timeout and cancellation.
+   * Typed {@link ModelAdapterError} subclasses from {@link handleErrorResponse}
+   * are rethrown as-is (not wrapped as {@link ProviderUnavailableError}).
+   */
   private async executeFetch(
     path: string,
     body: unknown,
-    options?: CompletionOptions,
+    options?: CompletionOptions | DiscoveryOptions,
     method = 'POST',
   ): Promise<Response> {
     const headers: Record<string, string> = {
@@ -190,12 +209,29 @@ export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
       headers.Authorization = `Bearer ${this.apiKey}`;
     }
 
+    const signal = options?.signal;
+    const controller = new AbortController();
+    let timedOut = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    if (signal) {
+      if (signal.aborted) {
+        throw new RequestAbortedError('Request was aborted', 'openai_compatible');
+      }
+      signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeoutMs);
+
     try {
       const res = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: options?.signal,
+        ...(body != null ? { body: JSON.stringify(body) } : {}),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -204,14 +240,34 @@ export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
 
       return res;
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new RequestAbortedError('Request was aborted', 'openai_compatible');
+      if (err instanceof ModelAdapterError) {
+        throw err;
       }
+
+      if (timedOut) {
+        throw new RequestTimeoutError(
+          `Request timed out after ${this.timeoutMs}ms`,
+          'openai_compatible',
+          err,
+        );
+      }
+
+      if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        throw new RequestAbortedError('Request was aborted', 'openai_compatible', {
+          cause: err,
+        });
+      }
+
+      const rawMsg = err instanceof Error ? err.message : String(err);
       throw new ProviderUnavailableError(
-        `Failed to reach provider: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to reach provider: ${this.sanitizeCredentials(rawMsg)}`,
         'openai_compatible',
         err,
       );
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 
@@ -226,17 +282,27 @@ export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
       // Use fallback error message
     }
 
+    const safeMsg = this.sanitizeCredentials(errorMsg);
+
     switch (res.status) {
       case 401:
+        throw new AuthenticationError(safeMsg, 'openai_compatible');
       case 403:
-        throw new AuthenticationError(errorMsg, 'openai_compatible');
+        throw new AuthorizationError(safeMsg, 'openai_compatible');
       case 404:
         throw new ModelNotFoundError(this.defaultModel, 'openai_compatible');
       case 429:
-        throw new RateLimitError(errorMsg, 'openai_compatible');
+        throw new RateLimitError(safeMsg, 'openai_compatible');
       default:
-        throw new ProviderUnavailableError(errorMsg, 'openai_compatible');
+        throw new ProviderUnavailableError(safeMsg, 'openai_compatible');
     }
+  }
+
+  private sanitizeCredentials(message: string): string {
+    if (!this.apiKey || this.apiKey.length === 0) {
+      return message;
+    }
+    return message.split(this.apiKey).join('[REDACTED]');
   }
 
   private mapFinishReason(reason?: string): 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'other' {
