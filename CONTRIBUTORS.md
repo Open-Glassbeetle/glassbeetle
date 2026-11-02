@@ -25,7 +25,7 @@ the `question` label.
 ## Contributors ✨
 
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-12-orange.svg?style=flat-square)](#contributors-)
+[![All Contributors](https://img.shields.io/badge/all_contributors-13-orange.svg?style=flat-square)](#contributors-)
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 Maintained by the [all-contributors](https://allcontributors.org) bot. Emoji
@@ -52,6 +52,7 @@ each one means.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/bfs2021"><img src="https://avatars.githubusercontent.com/u/101915083?v=4?s=100" width="100px;" alt="zgy"/><br /><sub><b>zgy</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=bfs2021" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="http://www.developerjillur.me"><img src="https://avatars.githubusercontent.com/u/22579419?v=4?s=100" width="100px;" alt="Jillur Rahman"/><br /><sub><b>Jillur Rahman</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=developerjillur" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/dannyward630"><img src="https://avatars.githubusercontent.com/u/71604164?v=4?s=100" width="100px;" alt="Danny Ward"/><br /><sub><b>Danny Ward</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=dannyward630" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/ShahadatTest"><img src="https://avatars.githubusercontent.com/u/179203101?v=4?s=100" width="100px;" alt="ShahadatTest"/><br /><sub><b>ShahadatTest</b></sub></a><br /><a href="https://github.com/Open-Glassbeetle/glassbeetle/commits?author=ShahadatTest" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
