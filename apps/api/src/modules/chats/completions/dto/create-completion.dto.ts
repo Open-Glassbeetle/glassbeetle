@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -10,7 +11,7 @@ import {
 } from 'class-validator';
 
 /**
- * Optional override payload for non-streaming chat completions.
+ * Optional override payload for chat completions (streaming or non-streaming).
  *
  * If fields are omitted, parameters default according to the documented precedence order:
  * 1. Request body overrides (this DTO)
@@ -18,6 +19,16 @@ import {
  * 3. Model defaults (`models.default_temperature`, `models.default_max_tokens`)
  */
 export class CreateCompletionDto {
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'Whether to stream output progressively as Server-Sent Events (SSE). Defaults to false.',
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'stream must be a boolean' })
+  stream?: boolean;
+
   @ApiPropertyOptional({
     type: String,
     description:
@@ -55,3 +66,4 @@ export class CreateCompletionDto {
   @Min(1, { message: 'maxTokens must be at least 1' })
   maxTokens?: number;
 }
+

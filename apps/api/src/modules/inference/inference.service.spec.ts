@@ -545,4 +545,314 @@ describe('InferenceService', () => {
       );
     });
   });
+
+  describe('streamChat', () => {
+    function setupChatEnvironment() {
+      const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const model = fixtures.createModel({
+        provider_id: provider.id,
+        model_identifier: 'gpt-4o',
+        enabled: 1,
+      });
+      const agent = fixtures.createAgent({ model_id: model.id });
+      const chat = fixtures.createChat({ agent_id: agent.id });
+      return { provider, model, agent, chat };
+    }
+
+    it('drives the message row through pending -> streaming -> complete and records usage', async () => {
+      const { chat } = setupChatEnvironment();
+
+      const events: any[] = [];
+      let messageId: string | undefined;
+
+      const generator = service.streamChat(chat.id, {});
+
+      for await (const event of generator) {
+        events.push(event);
+
+        if (event.type === 'message_start') {
+          messageId = event.data.messageId;
+          // State Machine Verification: row must be observable in 'pending' state
+          const pendingRow = db.get<any>(
+            'SELECT * FROM messages WHERE id = ?',
+            [messageId],
+          );
+          expect(pendingRow).toBeDefined();
+          expect(pendingRow.status).toBe('pending');
+          expect(pendingRow.content).toBe('');
+          expect(pendingRow.sequence).toBe(1);
+          expect(pendingRow.role).toBe('assistant');
+        } else if (event.type === 'token' && events.filter((e) => e.type === 'token').length === 1) {
+          // State Machine Verification: on first token, row must transition to 'streaming'
+          const streamingRow = db.get<any>(
+            'SELECT * FROM messages WHERE id = ?',
+            [messageId],
+          );
+          expect(streamingRow.status).toBe('streaming');
+          expect(streamingRow.content).toBe(event.data.text);
+        }
+      }
+
+      // Assert emitted event sequence
+      expect(events.map((e) => e.type)).toEqual([
+        'message_start',
+        ...events.filter((e) => e.type === 'token').map(() => 'token'),
+        'usage',
+        'message_complete',
+        'done',
+      ]);
+
+      const completeEvent = events.find((e) => e.type === 'message_complete');
+      expect(completeEvent.data.status).toBe('complete');
+      expect(completeEvent.data.tokenCount).toBe(8);
+      expect(completeEvent.data.usage).toEqual({
+        inputTokens: 15,
+        outputTokens: 8,
+        totalTokens: 23,
+      });
+
+      const doneEvent = events.find((e) => e.type === 'done');
+      expect(doneEvent.data).toBe('[DONE]');
+
+      // Final row state in database
+      const finalRow = db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        messageId,
+      ]);
+      expect(finalRow.status).toBe('complete');
+      expect(finalRow.content).toBe('Hello! I am ready to help.');
+      expect(finalRow.token_count).toBe(8);
+
+      // Usage event recorded
+      const usageRow = db.get<any>(
+        'SELECT * FROM usage_events WHERE chat_id = ?',
+        [chat.id],
+      );
+      expect(usageRow).toBeDefined();
+      expect(usageRow.event_type).toBe('chat_completion');
+      expect(usageRow.input_tokens).toBe(15);
+      expect(usageRow.output_tokens).toBe(8);
+    });
+
+    it('rejects unrunnable chat before stream starts and creates no message rows', async () => {
+      const team = fixtures.createTeam({ name: 'Alpha Team' });
+      const chat = fixtures.createChat({
+        title: 'Team Chat',
+        team_id: team.id,
+        agent_id: null,
+      });
+
+      const generator = service.streamChat(chat.id, {});
+
+      await expect(generator.next()).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+
+      const messageCount = db.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM messages WHERE chat_id = ?',
+        [chat.id],
+      );
+      expect(messageCount?.count).toBe(0);
+    });
+
+    it('rejects models that do not support streaming before allocating sequence', async () => {
+      const nonStreamingAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        { capabilities: { supportsStreaming: false } },
+      );
+      adapterFactory.register('openai', () => nonStreamingAdapter);
+
+      const { chat } = setupChatEnvironment();
+      const generator = service.streamChat(chat.id, {});
+
+      await expect(generator.next()).rejects.toThrow(
+        expect.objectContaining({
+          response: expect.objectContaining({
+            code: 'STREAMING_NOT_SUPPORTED',
+          }),
+        }),
+      );
+
+      const messageCount = db.get<{ count: number }>(
+        'SELECT COUNT(*) as count FROM messages WHERE chat_id = ?',
+        [chat.id],
+      );
+      expect(messageCount?.count).toBe(0);
+    });
+
+    it('delivers in-band error event and preserves partial content on mid-stream failure', async () => {
+      const failingAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          cannedResponse: {
+            content: 'Part1-Part2-Part3-Part4',
+          },
+          streamChunkSize: 6, // Emits 'Part1-', 'Part2-', ...
+          failAfterChunks: 2, // Fails after emitting 2 chunks ('Part1-Part2-')
+          simulateError: new RateLimitError(
+            'Provider rate limit reached mid-stream',
+            'openai',
+          ),
+        },
+      );
+      adapterFactory.register('openai', () => failingAdapter);
+
+      const { chat } = setupChatEnvironment();
+      const events: any[] = [];
+
+      for await (const event of service.streamChat(chat.id, {})) {
+        events.push(event);
+      }
+
+      expect(events[0].type).toBe('message_start');
+      const tokenEvents = events.filter((e) => e.type === 'token');
+      expect(tokenEvents).toHaveLength(2);
+
+      const errorEvent = events.find((e) => e.type === 'error');
+      expect(errorEvent).toBeDefined();
+      expect(errorEvent.data.code).toBe('RATE_LIMIT_EXCEEDED');
+      expect(errorEvent.data.message).toBe('Provider rate limit reached mid-stream');
+
+      const doneEvent = events.find((e) => e.type === 'done');
+      expect(doneEvent).toBeDefined();
+
+      // Check DB row: status must be error, and partial content preserved!
+      const messageId = events[0].data.messageId;
+      const errorRow = db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        messageId,
+      ]);
+      expect(errorRow.status).toBe('error');
+      expect(errorRow.content).toBe('Part1-Part2-');
+    });
+
+    it('aborts upstream request on client disconnect and finalizes row with partial content', async () => {
+      const ac = new AbortController();
+      let chunksReceived = 0;
+
+      const { chat } = setupChatEnvironment();
+      const generator = service.streamChat(chat.id, {}, { signal: ac.signal });
+
+      let messageId: string | undefined;
+      for await (const event of generator) {
+        if (event.type === 'message_start') {
+          messageId = event.data.messageId;
+        } else if (event.type === 'token') {
+          chunksReceived++;
+          // Abort after first chunk received
+          if (chunksReceived === 1) {
+            ac.abort(new Error('Client aborted'));
+          }
+        }
+      }
+
+      expect(chunksReceived).toBe(1);
+      expect(messageId).toBeDefined();
+
+      // Row finalized with complete status and partial content retained
+      const row = db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        messageId,
+      ]);
+      expect(row.status).toBe('complete');
+      expect(row.content.length).toBeGreaterThan(0);
+    });
+
+    it('leaves row in error state with interrupted message when client disconnects before content', async () => {
+      const ac = new AbortController();
+      const { chat } = setupChatEnvironment();
+
+      // Create an adapter that waits before yielding first chunk
+      const delayedAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          streamDelayMs: 50,
+          cannedResponse: { content: 'Slow generation' },
+        },
+      );
+      adapterFactory.register('openai', () => delayedAdapter);
+
+      const generator = service.streamChat(chat.id, {}, { signal: ac.signal });
+
+      let messageId: string | undefined;
+      for await (const event of generator) {
+        if (event.type === 'message_start') {
+          messageId = event.data.messageId;
+          // Abort before any tokens arrive
+          ac.abort(new Error('Immediate client disconnect'));
+        }
+      }
+
+      const row = db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        messageId,
+      ]);
+      expect(row.status).toBe('error');
+      expect(row.content).toBe('Generation interrupted');
+    });
+
+    it('checkpoints partial content to SQLite periodically when 200 chars threshold is reached', async () => {
+      // 5 chunks of 50 chars = 250 chars total
+      const longText = 'A'.repeat(50) + 'B'.repeat(50) + 'C'.repeat(50) + 'D'.repeat(50) + 'E'.repeat(50);
+      const longAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          cannedResponse: { content: longText },
+          streamChunkSize: 50,
+        },
+      );
+      adapterFactory.register('openai', () => longAdapter);
+
+      const { chat } = setupChatEnvironment();
+      let messageId: string | undefined;
+      const observedFlushes: string[] = [];
+
+      for await (const event of service.streamChat(chat.id, {})) {
+        if (event.type === 'message_start') {
+          messageId = event.data.messageId;
+        } else if (event.type === 'token') {
+          const row = db.get<any>('SELECT content FROM messages WHERE id = ?', [
+            messageId,
+          ]);
+          observedFlushes.push(row.content);
+        }
+      }
+
+      // Chunk 0 (50 chars) was flushed on transition from pending to streaming
+      expect(observedFlushes[0]).toBe('A'.repeat(50));
+      // Chunks 1, 2, 3 were buffered in memory and NOT written to SQLite
+      expect(observedFlushes[1]).toBe('A'.repeat(50));
+      expect(observedFlushes[2]).toBe('A'.repeat(50));
+      expect(observedFlushes[3]).toBe('A'.repeat(50));
+      // At chunk 4, 200 chars had accumulated since last flush (50 + 200 = 250), so it flushed
+      expect(observedFlushes[4]).toBe(longText);
+    });
+
+    it('ensures provider credential is never leaked in stream events or errors', async () => {
+      const secretKey = 'sk-super-secret-key-999';
+      mockCredentialsService.getDecryptedCredential.mockReturnValue(secretKey);
+
+      const leakingAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          simulateError: new RateLimitError(
+            `Rate limit exceeded with key ${secretKey}`,
+            'openai',
+          ),
+        },
+      );
+      adapterFactory.register('openai', () => leakingAdapter);
+
+      const { chat } = setupChatEnvironment();
+      const events: any[] = [];
+
+      for await (const event of service.streamChat(chat.id, {})) {
+        events.push(event);
+      }
+
+      const serializedEvents = JSON.stringify(events);
+      expect(serializedEvents).not.toContain(secretKey);
+
+      const errorEvent = events.find((e) => e.type === 'error');
+      expect(errorEvent.data.message).not.toContain(secretKey);
+      expect(errorEvent.data.message).toContain('[REDACTED]');
+    });
+  });
 });
+
