@@ -14,6 +14,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiResponse,
   ApiTags,
   ApiUnprocessableEntityResponse,
@@ -24,6 +25,7 @@ import { InferenceService } from '../../inference/inference.service.js';
 import {
   CompletionResponseDto,
   CreateCompletionDto,
+  formatSseEvent,
 } from './dto/index.js';
 
 /**
@@ -40,19 +42,26 @@ export class CompletionsController {
   constructor(private readonly inferenceService: InferenceService) {}
 
   /**
-   * `POST /chats/:chatId/completions` — execute non-streaming completion.
+   * `POST /chats/:chatId/completions` — execute streaming or non-streaming chat completion.
    *
    * Assembles chat history and agent system prompts, invokes the upstream provider
    * adapter, atomically assigns sequence to the assistant response, advances chat
    * updated_at, and records token usage metrics.
+   *
+   * Streaming vs non-streaming is determined by the request:
+   * - Setting `"stream": true` in the request body (or sending `Accept: text/event-stream`)
+   *   streams incremental events over Server-Sent Events (SSE).
+   * - Otherwise, returns the complete persisted assistant reply as a JSON object.
    */
   @Post('completions')
   @HttpCode(HttpStatus.OK)
+  @ApiProduces('application/json', 'text/event-stream')
   @ApiOperation({
-    summary: 'Generate chat completion (non-streaming)',
+    summary: 'Generate chat completion (streaming or non-streaming)',
     description:
       'Assembles context for the chat, invokes the configured agent model via provider adapter, ' +
-      'persists the assistant reply in conversation order, advances updated_at, and records token usage.',
+      'persists the assistant reply in conversation order, advances updated_at, and records token usage. ' +
+      'Clients request streaming by setting "stream": true in the request body or sending "Accept: text/event-stream".',
   })
   @ApiParam({
     name: 'chatId',
@@ -61,7 +70,9 @@ export class CompletionsController {
   })
   @ApiOkResponse({
     type: CompletionResponseDto,
-    description: 'Completion succeeded and assistant message was persisted.',
+    description:
+      'Completion succeeded. Returns persisted assistant message for non-streaming completions, ' +
+      'or streams Server-Sent Events (SSE) when stream=true or Accept: text/event-stream is requested.',
   })
   @ApiBadRequestResponse({
     type: ApiErrorResponseDto,
@@ -84,7 +95,8 @@ export class CompletionsController {
   @ApiResponse({
     status: HttpStatus.BAD_GATEWAY,
     type: ApiErrorResponseDto,
-    description: 'Upstream provider authentication, authorization, or network failure.',
+    description:
+      'Upstream provider authentication, authorization, or network failure.',
   })
   @ApiResponse({
     status: HttpStatus.GATEWAY_TIMEOUT,
@@ -96,7 +108,7 @@ export class CompletionsController {
     @Body() dto: CreateCompletionDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<CompletionResponseDto> {
+  ): Promise<CompletionResponseDto | void> {
     const abortController = new AbortController();
 
     // Propagate existing AbortSignal if present on the request (e.g. from tests or middleware)
@@ -123,15 +135,62 @@ export class CompletionsController {
     req.on('close', onClose);
     res.on('close', onClose);
 
+    const isStreaming =
+      dto?.stream === true ||
+      Boolean(req?.headers?.accept?.includes('text/event-stream'));
+
+
+    if (!isStreaming) {
+      try {
+        return await this.inferenceService.completeChat(
+          chatId,
+          dto ?? {},
+          { signal: abortController.signal },
+        );
+      } finally {
+        req.off('close', onClose);
+        res.off('close', onClose);
+      }
+    }
+
+    let headersSent = false;
     try {
-      return await this.inferenceService.completeChat(
+      const stream = this.inferenceService.streamChat(
         chatId,
         dto ?? {},
         { signal: abortController.signal },
       );
+
+      for await (const event of stream) {
+        if (!headersSent) {
+          res.status(HttpStatus.OK);
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache, no-transform');
+          res.setHeader('Connection', 'keep-alive');
+          res.setHeader('X-Accel-Buffering', 'no');
+          res.flushHeaders?.();
+          headersSent = true;
+        }
+
+        if (res.writableEnded) {
+          break;
+        }
+
+        const formatted = formatSseEvent(event);
+        const canContinue = res.write(formatted);
+        if (!canContinue && !res.writableEnded) {
+          await new Promise<void>((resolve) => {
+            res.once('drain', resolve);
+          });
+        }
+      }
     } finally {
       req.off('close', onClose);
       res.off('close', onClose);
+      if (headersSent && !res.writableEnded) {
+        res.end();
+      }
     }
   }
 }
+

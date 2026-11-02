@@ -127,5 +127,194 @@ describe('CompletionsController', () => {
       expect(capturedSignal?.aborted).toBe(true);
       await promise;
     });
+
+    it('streams SSE events when dto.stream is true', async () => {
+      const chatId = 'chat-001';
+      const dto: CreateCompletionDto = { stream: true };
+
+      const mockEvents = [
+        {
+          type: 'message_start' as const,
+          data: {
+            messageId: 'msg-001',
+            chatId,
+            sequence: 2,
+            agentId: 'agent-001',
+            role: 'assistant' as const,
+          },
+        },
+        {
+          type: 'token' as const,
+          data: { messageId: 'msg-001', text: 'Hello ' },
+        },
+        {
+          type: 'token' as const,
+          data: { messageId: 'msg-001', text: 'world!' },
+        },
+        {
+          type: 'message_complete' as const,
+          data: {
+            messageId: 'msg-001',
+            status: 'complete' as const,
+            tokenCount: 2,
+          },
+        },
+        {
+          type: 'done' as const,
+          data: '[DONE]' as const,
+        },
+      ];
+
+      async function* mockStream() {
+        for (const evt of mockEvents) {
+          yield evt;
+        }
+      }
+
+      (mockInferenceService as any).streamChat = vi.fn().mockReturnValue(mockStream());
+
+      const req = new EventEmitter() as unknown as Request;
+      (req as any).headers = {};
+
+      const writtenChunks: string[] = [];
+      const headers: Record<string, string> = {};
+      const res = new EventEmitter() as unknown as Response;
+      (res as any).writableEnded = false;
+      (res as any).status = vi.fn().mockReturnValue(res);
+      (res as any).setHeader = vi.fn((key: string, val: string) => {
+        headers[key] = val;
+      });
+      (res as any).flushHeaders = vi.fn();
+      (res as any).write = vi.fn((chunk: string) => {
+        writtenChunks.push(chunk);
+        return true;
+      });
+      (res as any).end = vi.fn(() => {
+        (res as any).writableEnded = true;
+      });
+
+      await controller.createCompletion(chatId, dto, req, res);
+
+      expect((res as any).setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'text/event-stream',
+      );
+      expect((res as any).setHeader).toHaveBeenCalledWith(
+        'Cache-Control',
+        'no-cache, no-transform',
+      );
+      expect(writtenChunks).toHaveLength(5);
+      expect(writtenChunks[0]).toBe(
+        'event: message_start\ndata: {"messageId":"msg-001","chatId":"chat-001","sequence":2,"agentId":"agent-001","role":"assistant"}\n\n',
+      );
+      expect(writtenChunks[1]).toBe(
+        'event: token\ndata: {"messageId":"msg-001","text":"Hello "}\n\n',
+      );
+      expect(writtenChunks[4]).toBe('event: done\ndata: [DONE]\n\n');
+      expect((res as any).end).toHaveBeenCalled();
+    });
+
+    it('streams SSE events when Accept header includes text/event-stream', async () => {
+      const chatId = 'chat-001';
+      const dto: CreateCompletionDto = {};
+
+      async function* mockStream() {
+        yield {
+          type: 'message_start' as const,
+          data: {
+            messageId: 'msg-001',
+            chatId,
+            sequence: 2,
+            agentId: 'agent-001',
+            role: 'assistant' as const,
+          },
+        };
+        yield {
+          type: 'done' as const,
+          data: '[DONE]' as const,
+        };
+      }
+
+      (mockInferenceService as any).streamChat = vi.fn().mockReturnValue(mockStream());
+
+      const req = new EventEmitter() as unknown as Request;
+      (req as any).headers = { accept: 'text/event-stream, */*' };
+
+      const res = new EventEmitter() as unknown as Response;
+      (res as any).writableEnded = false;
+      (res as any).status = vi.fn().mockReturnValue(res);
+      (res as any).setHeader = vi.fn();
+      (res as any).flushHeaders = vi.fn();
+      (res as any).write = vi.fn().mockReturnValue(true);
+      (res as any).end = vi.fn(() => {
+        (res as any).writableEnded = true;
+      });
+
+      await controller.createCompletion(chatId, dto, req, res);
+
+      expect((mockInferenceService as any).streamChat).toHaveBeenCalledWith(
+        chatId,
+        dto,
+        expect.anything(),
+      );
+      expect((res as any).setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'text/event-stream',
+      );
+    });
+
+    it('pauses streaming on backpressure until drain event fires', async () => {
+      const chatId = 'chat-001';
+      const dto: CreateCompletionDto = { stream: true };
+
+      let drainResolved = false;
+
+      async function* mockStream() {
+        yield {
+          type: 'token' as const,
+          data: { messageId: 'm1', text: 'chunk1' },
+        };
+        // This second chunk should only be yielded after drain fires
+        expect(drainResolved).toBe(true);
+        yield {
+          type: 'token' as const,
+          data: { messageId: 'm1', text: 'chunk2' },
+        };
+      }
+
+      (mockInferenceService as any).streamChat = vi.fn().mockReturnValue(mockStream());
+
+      const req = new EventEmitter() as unknown as Request;
+      (req as any).headers = {};
+
+      const res = new EventEmitter() as unknown as Response;
+      (res as any).writableEnded = false;
+      (res as any).status = vi.fn().mockReturnValue(res);
+      (res as any).setHeader = vi.fn();
+      (res as any).flushHeaders = vi.fn();
+
+      let writeCount = 0;
+      (res as any).write = vi.fn(() => {
+        writeCount++;
+        if (writeCount === 1) {
+          // Simulate buffer full on first write
+          setTimeout(() => {
+            drainResolved = true;
+            res.emit('drain');
+          }, 30);
+          return false;
+        }
+        return true;
+      });
+      (res as any).end = vi.fn(() => {
+        (res as any).writableEnded = true;
+      });
+
+      await controller.createCompletion(chatId, dto, req, res);
+
+      expect(writeCount).toBe(2);
+      expect((res as any).end).toHaveBeenCalled();
+    });
   });
 });
+
