@@ -534,6 +534,66 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
         content: 'Can you show me?',
       });
     });
+
+    it('returns assembled context for inspection via GET /api/v1/chats/:chatId/context without invoking provider', async () => {
+      const env = await setupValidEnvironment();
+      const prompt = testApp.fixtures.createSystemPrompt({
+        content: 'You are a debugging assistant.',
+      });
+
+      testApp.db.run(
+        'UPDATE agents SET system_prompt_id = ?, personality = ?, instructions = ? WHERE id = ?',
+        [prompt.id, 'Helpful and patient.', 'Always provide examples.', env.agent.id],
+      );
+
+      testApp.db.run(
+        'UPDATE chats SET context_summary = ? WHERE id = ?',
+        ['Earlier discussed testing setup.', env.chat.id],
+      );
+
+      testApp.fixtures.createMessage({
+        chat_id: env.chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Show me an inspection example.',
+      });
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/chats/${env.chat.id}/context`)
+        .expect(200);
+
+      expect(res.body.systemPrompt).toContain('You are a debugging assistant.');
+      expect(res.body.systemPrompt).toContain('Helpful and patient.');
+      expect(res.body.systemPrompt).toContain('Always provide examples.');
+      expect(res.body.systemPrompt).toContain('Context summary:\nEarlier discussed testing setup.');
+
+      expect(res.body.systemDetails).toBeDefined();
+      expect(res.body.systemDetails.promptTemplate).toBe('You are a debugging assistant.');
+      expect(res.body.systemDetails.personality).toBe('Helpful and patient.');
+      expect(res.body.systemDetails.instructions).toBe('Always provide examples.');
+      expect(res.body.systemDetails.contextSummary).toBe('Earlier discussed testing setup.');
+
+      expect(res.body.messages).toHaveLength(1);
+      expect(res.body.messages[0]).toEqual({
+        role: 'user',
+        content: 'Show me an inspection example.',
+      });
+
+      expect(res.body.tokenEstimate).toBeDefined();
+      expect(res.body.tokenEstimate.fitsContextWindow).toBe(true);
+
+      // Verify zero calls made to model provider
+      expect(env.testDouble.completedRequests).toHaveLength(0);
+
+      // Alias route GET /api/v1/chats/:chatId/completions/context also responds identically
+      const aliasRes = await testApp
+        .request()
+        .get(`/api/v1/chats/${env.chat.id}/completions/context`)
+        .expect(200);
+
+      expect(aliasRes.body.systemPrompt).toBe(res.body.systemPrompt);
+    });
   });
 
   // =========================================================================

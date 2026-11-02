@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -191,6 +192,33 @@ export class CompletionsController {
         res.end();
       }
     }
+  }
+
+  /**
+   * `GET /chats/:chatId/context` & `GET /chats/:chatId/completions/context`
+   *
+   * Inspects the constructed conversation context without invoking upstream model providers.
+   * Exposes system prompt layers, filtered message history, token estimations, and window fitting metadata.
+   */
+  @Get(['context', 'completions/context'])
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Inspect assembled conversation context',
+    description:
+      'Assembles and returns the full conversation context that would be sent to the model, ' +
+      'including system prompt breakdown, personality, instructions, context summary, ' +
+      'message history filtering, and token estimation without executing completion.',
+  })
+  @ApiParam({ name: 'chatId', description: 'Chat identifier' })
+  @ApiOkResponse({
+    description: 'Assembled context for inspection and debugging',
+  })
+  @ApiNotFoundResponse({
+    type: ApiErrorResponseDto,
+    description: 'Chat or assigned agent not found',
+  })
+  inspectContext(@Param('chatId') chatId: string) {
+    return this.inferenceService.inspectContext(chatId);
   }
 }
 

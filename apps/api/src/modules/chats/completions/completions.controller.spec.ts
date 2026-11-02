@@ -10,11 +10,13 @@ describe('CompletionsController', () => {
   let controller: CompletionsController;
   let mockInferenceService: {
     completeChat: ReturnType<typeof vi.fn>;
+    inspectContext: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
     mockInferenceService = {
       completeChat: vi.fn(),
+      inspectContext: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -314,6 +316,22 @@ describe('CompletionsController', () => {
 
       expect(writeCount).toBe(2);
       expect((res as any).end).toHaveBeenCalled();
+    });
+  });
+
+  describe('inspectContext', () => {
+    it('delegates to inferenceService.inspectContext with chatId', () => {
+      const chatId = 'chat-001';
+      const mockAssembled = {
+        systemPrompt: 'System',
+        messages: [],
+      };
+      mockInferenceService.inspectContext.mockReturnValue(mockAssembled);
+
+      const result = controller.inspectContext(chatId);
+
+      expect(mockInferenceService.inspectContext).toHaveBeenCalledWith(chatId);
+      expect(result).toBe(mockAssembled);
     });
   });
 });

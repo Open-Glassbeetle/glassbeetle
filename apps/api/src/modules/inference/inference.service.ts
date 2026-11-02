@@ -37,6 +37,8 @@ import type {
   CreateCompletionDto,
   SseCompletionEvent,
 } from '../chats/completions/dto/index.js';
+import { ContextConstructionService } from './context-construction.service.js';
+import type { AssembledContext } from './context-construction.types.js';
 
 
 /**
@@ -88,6 +90,9 @@ export class InferenceService {
     private readonly db: DatabaseService,
     private readonly adapterFactory: AdapterFactoryService,
     private readonly credentialsService: CredentialsService,
+    private readonly contextConstructionService: ContextConstructionService = new ContextConstructionService(
+      db,
+    ),
   ) {}
 
   /**
@@ -143,9 +148,9 @@ export class InferenceService {
     }
 
     // -----------------------------------------------------------------------
-    // 3. Assemble prompt context (Seam for context construction issue #xx)
+    // 3. Assemble prompt context (delegated to ContextConstructionService)
     // -----------------------------------------------------------------------
-    const { systemPrompt, messages } = this.buildContext(chat, agent);
+    const { systemPrompt, messages } = this.buildContext(chat, agent, model);
 
     const completionRequest: CompletionRequest = {
       model: model.model_identifier,
@@ -293,9 +298,9 @@ export class InferenceService {
     }
 
     // -----------------------------------------------------------------------
-    // 3. Assemble prompt context
+    // 3. Assemble prompt context (delegated to ContextConstructionService)
     // -----------------------------------------------------------------------
-    const { systemPrompt, messages } = this.buildContext(chat, agent);
+    const { systemPrompt, messages } = this.buildContext(chat, agent, model);
 
     const completionRequest: CompletionRequest = {
       model: model.model_identifier,
@@ -774,53 +779,38 @@ export class InferenceService {
   }
 
   /**
-   * Assembles the conversation context into a normalised {@link CompletionRequest} structure.
+   * Assembles the conversation context into a normalised structure.
    *
-   * Seam for future context construction / compaction integration (#xx).
+   * Delegates to {@link ContextConstructionService} to combine system prompt layers,
+   * filter in-flight/errored messages, and fit to the model context window.
    */
   private buildContext(
     chat: ChatRow,
     agent: AgentRow,
+    model?: ModelRow | null,
   ): {
     systemPrompt?: string;
     messages: AdapterMessage[];
   } {
-    // Construct system prompt from template, agent instructions, and context summary
-    const promptSections: string[] = [];
-
-    if (agent.system_prompt_id) {
-      const sp = this.db.get<{ content: string }>(
-        'SELECT content FROM system_prompts WHERE id = ?',
-        [agent.system_prompt_id],
-      );
-      if (sp?.content?.trim()) {
-        promptSections.push(sp.content.trim());
-      }
-    }
-
-    if (agent.instructions?.trim()) {
-      promptSections.push(agent.instructions.trim());
-    }
-
-    if (chat.context_summary?.trim()) {
-      promptSections.push(`Context summary:\n${chat.context_summary.trim()}`);
-    }
-
-    const systemPrompt =
-      promptSections.length > 0 ? promptSections.join('\n\n') : undefined;
-
-    // Fetch message history in sequence order
-    const messageRows = this.db.all<MessageRow>(
-      'SELECT * FROM messages WHERE chat_id = ? ORDER BY sequence ASC',
-      [chat.id],
+    const assembled = this.contextConstructionService.buildForChat(
+      chat,
+      agent,
+      model,
     );
+    return {
+      systemPrompt: assembled.systemPrompt,
+      messages: assembled.messages,
+    };
+  }
 
-    const messages: AdapterMessage[] = messageRows.map((row) => ({
-      role: row.role,
-      content: row.content,
-    }));
-
-    return { systemPrompt, messages };
+  /**
+   * Inspects the constructed conversation context for a chat without invoking any model provider.
+   *
+   * @param chatId - Chat identifier.
+   * @returns Detailed inspectable breakdown of system prompt, messages, tokens, and exclusions.
+   */
+  inspectContext(chatId: string): AssembledContext {
+    return this.contextConstructionService.buildByChatId(chatId);
   }
 
   /**
