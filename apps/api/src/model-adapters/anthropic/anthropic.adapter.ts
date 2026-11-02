@@ -194,6 +194,11 @@ export class AnthropicAdapter implements ModelAdapter {
     let completed = false;
 
     let buffer = '';
+    // The event being assembled lives beside `buffer`, not inside the read
+    // loop: a `data:` line and its terminating blank line can arrive in
+    // different reads, and the parked payload must survive the gap.
+    let currentEvent = '';
+    const currentDataLines: string[] = [];
 
     try {
       while (true) {
@@ -210,9 +215,6 @@ export class AnthropicAdapter implements ModelAdapter {
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() ?? '';
-
-        let currentEvent = '';
-        const currentDataLines: string[] = [];
 
         for (const line of lines) {
           if (line.trim().length === 0) {
@@ -259,9 +261,21 @@ export class AnthropicAdapter implements ModelAdapter {
         }
       }
 
-      // Process any trailing line in buffer
-      if (buffer.trim().length > 0) {
-        const events = this.parseSseEvent(buffer, '', {
+      // The body can end without the blank line that terminates the last
+      // event, or without a trailing newline at all. Fold the leftover line
+      // into the pending event (stripping its field name) and flush it.
+      const trailing = buffer.trim();
+      if (trailing.startsWith('event:')) {
+        currentEvent = trailing.slice(6).trim();
+      } else if (trailing.startsWith('data:')) {
+        currentDataLines.push(trailing.slice(5).trimStart());
+      } else if (trailing.length > 0 && !trailing.startsWith(':')) {
+        currentDataLines.push(trailing);
+      }
+
+      if (currentDataLines.length > 0) {
+        const dataStr = currentDataLines.join('\n');
+        const events = this.parseSseEvent(dataStr, currentEvent, {
           onModel: (m) => {
             model = m;
           },

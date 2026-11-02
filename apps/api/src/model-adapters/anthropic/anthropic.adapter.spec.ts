@@ -837,6 +837,86 @@ describe('AnthropicAdapter', () => {
       expect(emitted.some((e) => e.type === 'complete')).toBe(true);
     });
 
+    // Regression for #232: the event accumulator must survive across reads.
+    function chunkedStream(chunks: string[]): ReadableStream<Uint8Array> {
+      const encoder = new TextEncoder();
+      let i = 0;
+      return new ReadableStream({
+        pull(controller) {
+          if (i < chunks.length) {
+            controller.enqueue(encoder.encode(chunks[i++]));
+          } else {
+            controller.close();
+          }
+        },
+      });
+    }
+
+    async function collectAnthropic(chunks: string[]): Promise<any[]> {
+      const adapter = new AnthropicAdapter(defaultConfig);
+      fetchMock.mockResolvedValueOnce(
+        new Response(chunkedStream(chunks), { status: 200 }),
+      );
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) {
+        emitted.push(event);
+      }
+      return emitted;
+    }
+
+    it('keeps an event whose blank-line terminator arrives in the next read', async () => {
+      const unsplit = await collectAnthropic([
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n\nevent: message_stop\ndata: {}\n\n',
+      ]);
+      const split = await collectAnthropic([
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n',
+        '\nevent: message_stop\ndata: {}\n\n',
+      ]);
+
+      expect(split).toContainEqual({ type: 'text-delta', delta: 'Hello' });
+      expect(split).toEqual(unsplit);
+    });
+
+    it('keeps the event name when it arrives in a different read than its data', async () => {
+      const emitted = await collectAnthropic([
+        'event: content_block_delta\n',
+        'data: {"index":0,"delta":{"type":"text_delta","text":"Named"}}\n\n',
+        'event: message_stop\ndata: {}\n\n',
+      ]);
+
+      expect(emitted).toContainEqual({ type: 'text-delta', delta: 'Named' });
+    });
+
+    it('emits the final event when the body ends without a trailing newline', async () => {
+      const emitted = await collectAnthropic([
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+      ]);
+
+      expect(emitted[0]).toEqual({ type: 'text-delta', delta: 'Hello' });
+      expect(emitted[emitted.length - 1].type).toBe('complete');
+    });
+
+    it('emits the final event when the body ends before its blank line', async () => {
+      const emitted = await collectAnthropic([
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n',
+      ]);
+
+      expect(emitted[0]).toEqual({ type: 'text-delta', delta: 'Hello' });
+      expect(emitted[emitted.length - 1].type).toBe('complete');
+    });
+
+    it('joins a multi-line data event split across reads with a newline', async () => {
+      const emitted = await collectAnthropic([
+        'event: content_block_delta\ndata: {"type":"content_block_delta",\n',
+        'data: "index":0,"delta":{"type":"text_delta","text":"Joined"}}\n\n',
+        'event: message_stop\ndata: {}\n\n',
+      ]);
+
+      expect(emitted).toContainEqual({ type: 'text-delta', delta: 'Joined' });
+    });
+
     it('rejects stream() with RequestTimeoutError when headers never arrive', async () => {
       const adapter = new AnthropicAdapter(defaultConfig, { timeoutMs: 50 });
 

@@ -689,6 +689,57 @@ describe('GoogleAdapter', () => {
       expect(errEvent.error.message).toContain('blocked by safety filters (SAFETY)');
     });
 
+    // Regression for #232: the event accumulator must survive across reads.
+    function chunkedStream(chunks: string[]): ReadableStream<Uint8Array> {
+      const encoder = new TextEncoder();
+      let i = 0;
+      return new ReadableStream({
+        pull(controller) {
+          if (i < chunks.length) {
+            controller.enqueue(encoder.encode(chunks[i++]));
+          } else {
+            controller.close();
+          }
+        },
+      });
+    }
+
+    async function collectGoogle(chunks: string[]): Promise<any[]> {
+      const adapter = new GoogleAdapter(defaultGoogleConfig);
+      fetchMock.mockResolvedValueOnce(
+        new Response(chunkedStream(chunks), { status: 200 }),
+      );
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) {
+        emitted.push(event);
+      }
+      return emitted;
+    }
+
+    it('keeps an event whose blank-line terminator arrives in the next read', async () => {
+      const unsplit = await collectGoogle([
+        'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}], "role": "model"}, "index": 0}]}\n\ndata: {"candidates": [{"content": {"parts": [{"text": "!"}], "role": "model"}, "finishReason": "STOP", "index": 0}]}\n\n',
+      ]);
+      const split = await collectGoogle([
+        'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}], "role": "model"}, "index": 0}]}\n',
+        '\ndata: {"candidates": [{"content": {"parts": [{"text": "!"}], "role": "model"}, "finishReason": "STOP", "index": 0}]}\n\n',
+      ]);
+
+      expect(split[0]).toEqual({ type: 'text-delta', delta: 'Hello' });
+      expect(split).toEqual(unsplit);
+    });
+
+    it('emits the final event when the body ends before its blank line', async () => {
+      const emitted = await collectGoogle([
+        'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}], "role": "model"}, "index": 0}]}\n',
+      ]);
+
+      expect(emitted[0]).toEqual({ type: 'text-delta', delta: 'Hello' });
+      expect(emitted[emitted.length - 1].type).toBe('complete');
+    });
+
     it('aborts mid-stream cleanly when cancellation signal is triggered', async () => {
       const adapter = new GoogleAdapter(defaultGoogleConfig);
       const abortController = new AbortController();

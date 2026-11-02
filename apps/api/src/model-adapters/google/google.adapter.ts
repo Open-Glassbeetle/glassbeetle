@@ -287,6 +287,10 @@ export class GoogleAdapter implements ModelAdapter {
     let outputTokens = 0;
     let completed = false;
     let buffer = '';
+    // The event being assembled lives beside `buffer`, not inside the read
+    // loop: a `data:` line and its terminating blank line can arrive in
+    // different reads, and the parked payload must survive the gap.
+    const currentDataLines: string[] = [];
 
     try {
       while (true) {
@@ -303,8 +307,6 @@ export class GoogleAdapter implements ModelAdapter {
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() ?? '';
-
-        const currentDataLines: string[] = [];
 
         for (const line of lines) {
           if (line.trim().length === 0) {
@@ -351,12 +353,18 @@ export class GoogleAdapter implements ModelAdapter {
         }
       }
 
-      // Handle any trailing buffer
-      if (buffer.trim().length > 0) {
-        const trailingData = buffer.startsWith('data:')
-          ? buffer.slice(5).trimStart()
-          : buffer.trim();
+      // The body can end without the blank line that terminates the last
+      // event, or without a trailing newline at all. Fold the leftover line
+      // into the pending event and flush it.
+      const trailing = buffer.trim();
+      if (trailing.startsWith('data:')) {
+        currentDataLines.push(trailing.slice(5).trimStart());
+      } else if (trailing.length > 0 && !trailing.startsWith(':')) {
+        currentDataLines.push(trailing);
+      }
 
+      const trailingData = currentDataLines.join('\n').trim();
+      if (trailingData.length > 0) {
         const events = this.parseSseChunk(trailingData, {
           onModel: (m) => {
             model = m;
