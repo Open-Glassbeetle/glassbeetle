@@ -476,16 +476,17 @@ describe('Agents endpoints (e2e)', () => {
       expect(typeof response.body.timestamp).toBe('string');
     });
 
-    it('safely handles an ID containing SQL metacharacters and returns 404', async () => {
+    it('rejects an ID containing SQL metacharacters with 400 before any lookup', async () => {
       const injectionAttempt = "nonexistent' OR '1'='1";
 
       const response = await testApp
         .request()
         .get(`/api/v1/agents/${encodeURIComponent(injectionAttempt)}`)
-        .expect(404);
+        .expect(400);
 
-      expect(response.body.statusCode).toBe(404);
-      expect(response.body.code).toBe('AGENT_NOT_FOUND');
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.code).toBe('INVALID_IDENTIFIER');
+      expect(response.body.message).not.toContain(injectionAttempt);
     });
 
     it('returns an agent with null modelId and null systemPromptId normally with 200', async () => {

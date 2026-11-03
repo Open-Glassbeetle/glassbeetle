@@ -6,6 +6,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -89,6 +90,7 @@ export class CreateAgentDto {
   })
   @IsOptional()
   @IsString({ message: 'systemPromptId must be a string' })
+  @IsUUID('7', { message: 'systemPromptId must be a UUIDv7' })
   systemPromptId?: string | null;
 
   @ApiPropertyOptional({
@@ -99,6 +101,7 @@ export class CreateAgentDto {
   })
   @IsOptional()
   @IsString({ message: 'modelId must be a string' })
+  @IsUUID('7', { message: 'modelId must be a UUIDv7' })
   modelId?: string | null;
 
   @ApiPropertyOptional({

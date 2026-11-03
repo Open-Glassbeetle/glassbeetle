@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
+import { IsUuidV7OrNullLiteral } from '../../../common/identifiers/index.js';
 import { PaginationQueryDto } from '../../../common/pagination/pagination-query.dto.js';
 
 /**
@@ -24,7 +25,7 @@ export class ListAgentsQueryDto extends PaginationQueryDto {
     example: '018f3a9e-0000-7000-8000-000000000002',
   })
   @IsOptional()
-  @IsString()
+  @IsUuidV7OrNullLiteral()
   modelId?: string;
 
   @ApiPropertyOptional({
@@ -33,7 +34,7 @@ export class ListAgentsQueryDto extends PaginationQueryDto {
     example: '018f3a9e-0000-7000-8000-000000000001',
   })
   @IsOptional()
-  @IsString()
+  @IsUuidV7OrNullLiteral()
   systemPromptId?: string;
 
   @ApiPropertyOptional({

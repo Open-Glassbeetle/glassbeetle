@@ -53,6 +53,14 @@ timestamp, so ids sort lexicographically in creation order — which makes
 `ORDER BY id` a usable, stable pagination tiebreaker without needing an index on
 `created_at`. A random UUIDv4 could not do that.
 
+Identifiers are validated at the edge. A path parameter that is not a UUIDv7
+(a v4 UUID included) answers `400 INVALID_IDENTIFIER` before any lookup, and the
+message names the parameter without echoing the value. An id field in a body or
+query string that is not a UUIDv7 is a `400` from `ValidationPipe`, listed in
+`details`. A well-formed id that names nothing is still a `404` (or `422` for a
+body reference). Use `ParseUuidV7Pipe` from `apps/api/src/common/identifiers/`
+on every `@Param` that takes an id.
+
 **Timestamps** are ISO-8601 UTC with millisecond precision
 (`2026-09-21T09:30:52.123Z`), generated in TypeScript rather than in SQL. This
 matches what `data/backups/seed.sql` already writes, and it compares correctly

@@ -606,7 +606,7 @@ describe('Shared Memories Endpoints (e2e)', () => {
     it('returns 404 when memory does not exist', async () => {
       await testApp
         .request()
-        .get('/api/v1/memories/non-existent-memory-id')
+        .get('/api/v1/memories/018f3a9e-0000-7000-8000-000000000903')
         .expect(404);
     });
 
@@ -785,7 +785,7 @@ describe('Shared Memories Endpoints (e2e)', () => {
     it('returns 404 when memory does not exist', async () => {
       await testApp
         .request()
-        .patch('/api/v1/memories/unknown-memory')
+        .patch('/api/v1/memories/018f3a9e-0000-7000-8000-000000000903')
         .send({ content: 'Will fail' })
         .expect(404);
     });
@@ -951,7 +951,7 @@ describe('Shared Memories Endpoints (e2e)', () => {
     it('returns 404 when memory does not exist', async () => {
       await testApp
         .request()
-        .delete('/api/v1/memories/non-existent-memory')
+        .delete('/api/v1/memories/018f3a9e-0000-7000-8000-000000000903')
         .expect(404);
     });
 

@@ -2,6 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './harness/index.js';
 
 describe('Agent Memories Endpoints (e2e)', () => {
+  /** Well-formed UUIDv7 ids that name nothing. */
+  const UNKNOWN_AGENT_ID = '018f3a9e-0000-7000-8000-000000000901';
+  const UNKNOWN_MEMORY_ID = '018f3a9e-0000-7000-8000-000000000903';
+
   let testApp: TestApp;
 
   beforeAll(async () => {
@@ -20,7 +24,7 @@ describe('Agent Memories Endpoints (e2e)', () => {
     it('returns 404 when agent does not exist', async () => {
       const res = await testApp
         .request()
-        .get('/api/v1/agents/unknown-agent-id/memories')
+        .get(`/api/v1/agents/${UNKNOWN_AGENT_ID}/memories`)
         .expect(404);
 
       expect(res.body.statusCode).toBe(404);
@@ -379,7 +383,7 @@ describe('Agent Memories Endpoints (e2e)', () => {
     it('returns 404 when agent does not exist', async () => {
       const res = await testApp
         .request()
-        .post('/api/v1/agents/unknown-agent-id/memories')
+        .post(`/api/v1/agents/${UNKNOWN_AGENT_ID}/memories`)
         .send({ content: 'Will fail' })
         .expect(404);
 
@@ -617,7 +621,7 @@ describe('Agent Memories Endpoints (e2e)', () => {
     it('returns 404 when agent does not exist', async () => {
       const res = await testApp
         .request()
-        .get('/api/v1/agents/unknown-agent/memories/mem-1')
+        .get(`/api/v1/agents/${UNKNOWN_AGENT_ID}/memories/${UNKNOWN_MEMORY_ID}`)
         .expect(404);
 
       expect(res.body.statusCode).toBe(404);
@@ -629,7 +633,7 @@ describe('Agent Memories Endpoints (e2e)', () => {
 
       await testApp
         .request()
-        .get(`/api/v1/agents/${agent.id}/memories/non-existent-memory-id`)
+        .get(`/api/v1/agents/${agent.id}/memories/${UNKNOWN_MEMORY_ID}`)
         .expect(404);
     });
 
@@ -768,7 +772,9 @@ describe('Agent Memories Endpoints (e2e)', () => {
     it('returns 404 when agent does not exist', async () => {
       await testApp
         .request()
-        .patch('/api/v1/agents/unknown-agent/memories/mem-1')
+        .patch(
+          `/api/v1/agents/${UNKNOWN_AGENT_ID}/memories/${UNKNOWN_MEMORY_ID}`,
+        )
         .send({ content: 'Will fail' })
         .expect(404);
     });
@@ -778,7 +784,7 @@ describe('Agent Memories Endpoints (e2e)', () => {
 
       await testApp
         .request()
-        .patch(`/api/v1/agents/${agent.id}/memories/unknown-memory`)
+        .patch(`/api/v1/agents/${agent.id}/memories/${UNKNOWN_MEMORY_ID}`)
         .send({ content: 'Will fail' })
         .expect(404);
     });
@@ -964,7 +970,9 @@ describe('Agent Memories Endpoints (e2e)', () => {
     it('returns 404 when agent does not exist', async () => {
       await testApp
         .request()
-        .delete('/api/v1/agents/unknown-agent/memories/mem-1')
+        .delete(
+          `/api/v1/agents/${UNKNOWN_AGENT_ID}/memories/${UNKNOWN_MEMORY_ID}`,
+        )
         .expect(404);
     });
 
@@ -973,7 +981,7 @@ describe('Agent Memories Endpoints (e2e)', () => {
 
       await testApp
         .request()
-        .delete(`/api/v1/agents/${agent.id}/memories/unknown-memory`)
+        .delete(`/api/v1/agents/${agent.id}/memories/${UNKNOWN_MEMORY_ID}`)
         .expect(404);
     });
 
@@ -1076,7 +1084,7 @@ describe('Agent Memories Endpoints (e2e)', () => {
     it('returns 404 when agent does not exist', async () => {
       const res = await testApp
         .request()
-        .delete('/api/v1/agents/unknown-agent-id/memories?confirm=true')
+        .delete(`/api/v1/agents/${UNKNOWN_AGENT_ID}/memories?confirm=true`)
         .expect(404);
 
       expect(res.body.statusCode).toBe(404);

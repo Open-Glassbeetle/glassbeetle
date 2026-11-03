@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { ApiErrorResponseDto } from '../../../common/http/api-error.js';
+import { ParseUuidV7Pipe } from '../../../common/identifiers/index.js';
 import type { PaginatedResponse } from '../../../common/pagination/paginated-response.dto.js';
 import {
   BulkDeleteQueryDto,
@@ -119,7 +120,7 @@ export class SharedMemoriesController {
    */
   @Get(':memoryId')
   async findOne(
-    @Param('memoryId') memoryId: string,
+    @Param('memoryId', ParseUuidV7Pipe) memoryId: string,
   ): Promise<SharedMemoryResponseDto> {
     return this.sharedMemoriesService.findOne(memoryId);
   }
@@ -129,7 +130,7 @@ export class SharedMemoriesController {
    */
   @Patch(':memoryId')
   async update(
-    @Param('memoryId') memoryId: string,
+    @Param('memoryId', ParseUuidV7Pipe) memoryId: string,
     @Body() dto: UpdateSharedMemoryDto,
   ): Promise<SharedMemoryResponseDto> {
     return this.sharedMemoriesService.update(memoryId, dto);
@@ -140,7 +141,9 @@ export class SharedMemoriesController {
    */
   @Delete(':memoryId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param('memoryId') memoryId: string): Promise<void> {
+  async remove(
+    @Param('memoryId', ParseUuidV7Pipe) memoryId: string,
+  ): Promise<void> {
     await this.sharedMemoriesService.remove(memoryId);
   }
 }
