@@ -22,6 +22,7 @@ export interface ChatRow {
   readonly agent_id: string | null;
   readonly team_id: string | null;
   readonly context_summary: string | null;
+  readonly compacted_before_sequence?: number | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -77,6 +78,7 @@ export function mapCreateChatDtoToRow(
     agent_id: dto.agentId ?? null,
     team_id: dto.teamId ?? null,
     context_summary: null,
+    compacted_before_sequence: null,
     created_at: timestamp,
     updated_at: timestamp,
   };

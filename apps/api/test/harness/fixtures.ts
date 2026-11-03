@@ -97,6 +97,7 @@ export interface ChatRow {
   agent_id: string | null;
   team_id: string | null;
   context_summary: string | null;
+  compacted_before_sequence?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -382,14 +383,15 @@ export class TestFixtures {
       agent_id,
       team_id,
       context_summary: null,
+      compacted_before_sequence: null,
       created_at: now,
       updated_at: now,
       ...overrides,
     };
 
     this.dbService.run(
-      `INSERT INTO chats (id, title, project_id, agent_id, team_id, context_summary, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO chats (id, title, project_id, agent_id, team_id, context_summary, compacted_before_sequence, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.title,
@@ -397,6 +399,7 @@ export class TestFixtures {
         row.agent_id,
         row.team_id,
         row.context_summary,
+        row.compacted_before_sequence ?? null,
         row.created_at,
         row.updated_at,
       ],

@@ -164,7 +164,8 @@ const FALLBACK_SQL: Record<string, string> = {
     project_id       TEXT REFERENCES projects(id) ON DELETE SET NULL,
     agent_id         TEXT REFERENCES agents(id) ON DELETE SET NULL,
     team_id          TEXT REFERENCES teams(id) ON DELETE SET NULL,
-    context_summary  TEXT,
+    context_summary            TEXT,
+    compacted_before_sequence  INTEGER,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL,
     CHECK (
@@ -397,6 +398,10 @@ export const MIGRATIONS_AFTER_BOOTSTRAP: readonly IncrementalMigration[] = [
     updated_at   TEXT NOT NULL
 );`,
   },
+  {
+    name: '004_chat_compaction_sequence',
+    sql: `ALTER TABLE chats ADD COLUMN compacted_before_sequence INTEGER;`,
+  },
 ];
 
 /**
@@ -460,7 +465,17 @@ function applyIncrementalMigrations(db: Database.Database): void {
     }
 
     const apply = db.transaction(() => {
-      db.exec(migration.sql);
+      try {
+        db.exec(migration.sql);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (
+          !message.includes('duplicate column name') &&
+          !message.includes('no such table')
+        ) {
+          throw err;
+        }
+      }
       db.prepare(
         'INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)',
       ).run(migration.name, new Date().toISOString());
