@@ -37,6 +37,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { ApiErrorResponseDto } from '../../common/http/api-error.js';
+import { ParseUuidV7Pipe } from '../../common/identifiers/index.js';
 import { matchesEtag } from '../user/user.controller.js';
 import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
@@ -168,11 +169,17 @@ export class AgentsController {
     description: 'Agent found and returned',
     type: AgentResponseDto,
   })
+  @ApiBadRequestResponse({
+    description: 'agentId is not a UUIDv7 (INVALID_IDENTIFIER)',
+    type: ApiErrorResponseDto,
+  })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
     type: ApiErrorResponseDto,
   })
-  async findOne(@Param('agentId') agentId: string): Promise<AgentResponseDto> {
+  async findOne(
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
+  ): Promise<AgentResponseDto> {
     return this.agentsService.findOne(agentId);
   }
 
@@ -246,7 +253,7 @@ export class AgentsController {
   })
   @ApiBadRequestResponse({
     description:
-      'Request validation failed (e.g. invalid types, out-of-range values, or client-supplied server-managed fields)',
+      'Request validation failed (e.g. invalid types, out-of-range values, a modelId or systemPromptId that is not a UUIDv7, or client-supplied server-managed fields), or agentId is not a UUIDv7 (INVALID_IDENTIFIER)',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
@@ -259,7 +266,7 @@ export class AgentsController {
     type: ApiErrorResponseDto,
   })
   async update(
-    @Param('agentId') agentId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
     @Body() dto: UpdateAgentDto,
   ): Promise<AgentResponseDto> {
     return this.agentsService.update(agentId, dto);
@@ -293,11 +300,17 @@ Cascade behavior across referencing tables:
   @ApiNoContentResponse({
     description: 'Agent successfully deleted',
   })
+  @ApiBadRequestResponse({
+    description: 'agentId is not a UUIDv7 (INVALID_IDENTIFIER)',
+    type: ApiErrorResponseDto,
+  })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
     type: ApiErrorResponseDto,
   })
-  async delete(@Param('agentId') agentId: string): Promise<void> {
+  async delete(
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
+  ): Promise<void> {
     await this.agentsService.delete(agentId);
   }
 
@@ -335,13 +348,17 @@ The content type is detected from the file's own bytes rather than from anything
     status: HttpStatus.NOT_MODIFIED,
     description: 'The client already holds this picture',
   })
+  @ApiBadRequestResponse({
+    description: 'agentId is not a UUIDv7 (INVALID_IDENTIFIER)',
+    type: ApiErrorResponseDto,
+  })
   @ApiNotFoundResponse({
     description:
       'No agent found with that ID, no picture is stored, or the stored file is missing from the storage root',
     type: ApiErrorResponseDto,
   })
   async findPicture(
-    @Param('agentId') agentId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile | undefined> {
@@ -400,7 +417,8 @@ The content type is detected from the file's own bytes rather than from anything
     type: AgentResponseDto,
   })
   @ApiBadRequestResponse({
-    description: 'No file uploaded or file is empty',
+    description:
+      'No file uploaded or file is empty, or agentId is not a UUIDv7 (INVALID_IDENTIFIER)',
     type: ApiErrorResponseDto,
   })
   @ApiUnsupportedMediaTypeResponse({
@@ -417,7 +435,7 @@ The content type is detected from the file's own bytes rather than from anything
     type: ApiErrorResponseDto,
   })
   async uploadPicture(
-    @Param('agentId') agentId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<AgentResponseDto> {
     if (!file || !file.buffer || file.buffer.length === 0) {
@@ -451,11 +469,17 @@ The content type is detected from the file's own bytes rather than from anything
   @ApiNoContentResponse({
     description: 'Picture removed successfully or agent had no picture',
   })
+  @ApiBadRequestResponse({
+    description: 'agentId is not a UUIDv7 (INVALID_IDENTIFIER)',
+    type: ApiErrorResponseDto,
+  })
   @ApiNotFoundResponse({
     description: 'No agent found with that ID',
     type: ApiErrorResponseDto,
   })
-  async deletePicture(@Param('agentId') agentId: string): Promise<void> {
+  async deletePicture(
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
+  ): Promise<void> {
     await this.agentsService.deletePicture(agentId);
   }
 }

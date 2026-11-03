@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { ApiErrorResponseDto } from '../../../common/http/api-error.js';
+import { ParseUuidV7Pipe } from '../../../common/identifiers/index.js';
 import type { PaginatedResponse } from '../../../common/pagination/paginated-response.dto.js';
 import { AgentMemoriesService } from './agent-memories.service.js';
 import {
@@ -60,7 +61,7 @@ export class AgentMemoriesController {
    */
   @Get()
   async findAll(
-    @Param('agentId') agentId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
     @Query() query: ListAgentMemoriesQueryDto,
   ): Promise<PaginatedResponse<AgentMemoryResponseDto>> {
     return this.agentMemoriesService.findAll(agentId, query);
@@ -75,7 +76,7 @@ export class AgentMemoriesController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Param('agentId') agentId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
     @Body() dto: CreateAgentMemoryDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AgentMemoryResponseDto> {
@@ -129,7 +130,7 @@ export class AgentMemoriesController {
     type: ApiErrorResponseDto,
   })
   async removeAll(
-    @Param('agentId') agentId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
     @Query() _query: BulkDeleteQueryDto,
   ): Promise<BulkDeleteResponseDto> {
     return this.agentMemoriesService.removeAll(agentId);
@@ -143,8 +144,8 @@ export class AgentMemoriesController {
    */
   @Get(':memoryId')
   async findOne(
-    @Param('agentId') agentId: string,
-    @Param('memoryId') memoryId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
+    @Param('memoryId', ParseUuidV7Pipe) memoryId: string,
   ): Promise<AgentMemoryResponseDto> {
     return this.agentMemoriesService.findOne(agentId, memoryId);
   }
@@ -154,8 +155,8 @@ export class AgentMemoriesController {
    */
   @Patch(':memoryId')
   async update(
-    @Param('agentId') agentId: string,
-    @Param('memoryId') memoryId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
+    @Param('memoryId', ParseUuidV7Pipe) memoryId: string,
     @Body() dto: UpdateAgentMemoryDto,
   ): Promise<AgentMemoryResponseDto> {
     return this.agentMemoriesService.update(agentId, memoryId, dto);
@@ -167,8 +168,8 @@ export class AgentMemoriesController {
   @Delete(':memoryId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
-    @Param('agentId') agentId: string,
-    @Param('memoryId') memoryId: string,
+    @Param('agentId', ParseUuidV7Pipe) agentId: string,
+    @Param('memoryId', ParseUuidV7Pipe) memoryId: string,
   ): Promise<void> {
     await this.agentMemoriesService.remove(agentId, memoryId);
   }

@@ -925,6 +925,7 @@ describe('Memory Integration & Resource Boundary Suite (e2e)', () => {
   describe('Not-Found Paths', () => {
     it('returns 404 for non-existent agentId across all agent memory endpoints', async () => {
       const fakeAgentId = '018f3a9e-0000-7000-8000-000000000999';
+      const fakeMemoryId = '018f3a9e-0000-7000-8000-000000000888';
 
       await testApp
         .request()
@@ -939,18 +940,18 @@ describe('Memory Integration & Resource Boundary Suite (e2e)', () => {
 
       await testApp
         .request()
-        .get(`/api/v1/agents/${fakeAgentId}/memories/any-id`)
+        .get(`/api/v1/agents/${fakeAgentId}/memories/${fakeMemoryId}`)
         .expect(404);
 
       await testApp
         .request()
-        .patch(`/api/v1/agents/${fakeAgentId}/memories/any-id`)
+        .patch(`/api/v1/agents/${fakeAgentId}/memories/${fakeMemoryId}`)
         .send({ content: 'Update' })
         .expect(404);
 
       await testApp
         .request()
-        .delete(`/api/v1/agents/${fakeAgentId}/memories/any-id`)
+        .delete(`/api/v1/agents/${fakeAgentId}/memories/${fakeMemoryId}`)
         .expect(404);
 
       await testApp
