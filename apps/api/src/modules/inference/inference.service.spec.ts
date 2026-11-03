@@ -2009,5 +2009,451 @@ describe('InferenceService', () => {
       expect(bobMsg.status).toBe('error');
       expect(bobMsg.content).toBe('Bob partial ');
     });
+
+    describe('Phase 2: Designated Coordinator (Router Agent)', () => {
+      it('answers directly when coordinator does not delegate', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const coordinator = fixtures.createAgent({
+          name: 'Triage Lead',
+          model_id: model.id,
+        });
+        const specialist = fixtures.createAgent({
+          name: 'DB Specialist',
+          model_id: model.id,
+        });
+
+        const team = fixtures.createTeam({
+          name: 'Routed Team',
+          strategy: 'coordinator',
+        });
+        fixtures.createTeamMember(team.id, coordinator.id, {
+          is_coordinator: 1,
+          role: 'Coordinator',
+        });
+        fixtures.createTeamMember(team.id, specialist.id, {
+          is_coordinator: 0,
+          role: 'Specialist',
+        });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Hello, what is your team for?',
+        });
+
+        testDouble.complete = vi.fn().mockResolvedValue({
+          content: 'I can answer directly: we build software systems.',
+          finishReason: 'stop',
+          usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+        });
+
+        const response = await service.completeChat(chat.id, {});
+        expect(response.messages).toHaveLength(1);
+        expect(response.messages![0].agentId).toBe(coordinator.id);
+        expect(response.content).toBe(
+          'I can answer directly: we build software systems.',
+        );
+      });
+
+      it('delegates to specialist when coordinator outputs [DELEGATE: <Name>]', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const coordinator = fixtures.createAgent({
+          name: 'Triage Lead',
+          model_id: model.id,
+        });
+        const specialist = fixtures.createAgent({
+          name: 'DB Specialist',
+          model_id: model.id,
+        });
+
+        const team = fixtures.createTeam({
+          name: 'Routed Team',
+          strategy: 'coordinator',
+        });
+        fixtures.createTeamMember(team.id, coordinator.id, {
+          is_coordinator: 1,
+          role: 'Coordinator',
+        });
+        fixtures.createTeamMember(team.id, specialist.id, {
+          is_coordinator: 0,
+          role: 'Specialist',
+        });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Optimize our PostgreSQL query',
+        });
+
+        const completeCalls: any[] = [];
+        testDouble.complete = vi.fn().mockImplementation(async (req) => {
+          completeCalls.push(req);
+          if (completeCalls.length === 1) {
+            return {
+              content:
+                '[DELEGATE: DB Specialist] Please provide index recommendations for PostgreSQL.',
+              finishReason: 'stop',
+              usage: { inputTokens: 25, outputTokens: 15, totalTokens: 40 },
+            };
+          }
+          return {
+            content: 'Add a compound B-tree index on (user_id, created_at).',
+            finishReason: 'stop',
+            usage: { inputTokens: 40, outputTokens: 12, totalTokens: 52 },
+          };
+        });
+
+        const response = await service.completeChat(chat.id, {});
+        expect(response.messages).toHaveLength(2);
+        expect(response.messages![0].agentId).toBe(coordinator.id);
+        expect(response.messages![1].agentId).toBe(specialist.id);
+        expect(response.content).toBe(
+          'Add a compound B-tree index on (user_id, created_at).',
+        );
+
+        // Specialist sees coordinator's turn in context
+        const specialistRequest = completeCalls[1];
+        const peerMessage = specialistRequest.messages.find((m: any) =>
+          m.content.includes('[DELEGATE: DB Specialist]'),
+        );
+        expect(peerMessage).toBeDefined();
+      });
+
+      it('streams coordinator delegation to specialist with sequential message events', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const coordinator = fixtures.createAgent({
+          name: 'Triage Lead',
+          model_id: model.id,
+        });
+        const specialist = fixtures.createAgent({
+          name: 'DB Specialist',
+          model_id: model.id,
+        });
+
+        const team = fixtures.createTeam({
+          name: 'Routed Team',
+          strategy: 'coordinator',
+        });
+        fixtures.createTeamMember(team.id, coordinator.id, {
+          is_coordinator: 1,
+          role: 'Coordinator',
+        });
+        fixtures.createTeamMember(team.id, specialist.id, {
+          is_coordinator: 0,
+          role: 'Specialist',
+        });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Analyze DB',
+        });
+
+        let streamCall = 0;
+        testDouble.stream = vi.fn().mockImplementation(async function* () {
+          streamCall++;
+          if (streamCall === 1) {
+            yield {
+              type: 'text-delta',
+              delta: '[DELEGATE: DB Specialist] Routing to DB Specialist.',
+            };
+            yield {
+              type: 'usage',
+              usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 },
+            };
+            yield { type: 'complete', finishReason: 'stop' };
+          } else {
+            yield {
+              type: 'text-delta',
+              delta: 'DB Specialist analysis complete.',
+            };
+            yield {
+              type: 'usage',
+              usage: { inputTokens: 20, outputTokens: 6, totalTokens: 26 },
+            };
+            yield { type: 'complete', finishReason: 'stop' };
+          }
+        });
+
+        const generator = service.streamChat(chat.id, { stream: true });
+        const events: any[] = [];
+        for await (const event of generator) {
+          events.push(event);
+        }
+
+        const starts = events.filter((e) => e.type === 'message_start');
+        expect(starts).toHaveLength(2);
+        expect(starts[0].data.agentId).toBe(coordinator.id);
+        expect(starts[1].data.agentId).toBe(specialist.id);
+
+        const completes = events.filter((e) => e.type === 'message_complete');
+        expect(completes).toHaveLength(2);
+
+        const usage = events.find((e) => e.type === 'usage');
+        expect(usage).toBeDefined();
+        expect(usage.data.totalTokens).toBe(44); // 18 + 26
+        expect(events[events.length - 1].type).toBe('done');
+      });
+    });
+
+    describe('Phase 3: Broadcast (Parallel / Independent Context)', () => {
+      it('executes broadcast ensuring context isolation between concurrent replies', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const agentA = fixtures.createAgent({
+          name: 'Persp A',
+          model_id: model.id,
+        });
+        const agentB = fixtures.createAgent({
+          name: 'Persp B',
+          model_id: model.id,
+        });
+
+        const team = fixtures.createTeam({
+          name: 'Broadcast Team',
+          strategy: 'broadcast',
+        });
+        fixtures.createTeamMember(team.id, agentA.id, { position: 1 });
+        fixtures.createTeamMember(team.id, agentB.id, { position: 2 });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Brainstorm ideas',
+        });
+
+        const completeCalls: any[] = [];
+        testDouble.complete = vi.fn().mockImplementation(async (req) => {
+          completeCalls.push(req);
+          return {
+            content: `Opinion from ${req.model}`,
+            finishReason: 'stop',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          };
+        });
+
+        const response = await service.completeChat(chat.id, {});
+        expect(response.messages).toHaveLength(2);
+        expect(response.messages![0].agentId).toBe(agentA.id);
+        expect(response.messages![1].agentId).toBe(agentB.id);
+
+        // Crucial Broadcast Invariant: Agent B must NOT see Agent A's reply in its messages context
+        const agentBRequest = completeCalls[1];
+        const agentAMessageSeenByB = agentBRequest.messages.find((m: any) =>
+          m.content.includes('Opinion from'),
+        );
+        expect(agentAMessageSeenByB).toBeUndefined();
+      });
+
+      it('streams broadcast responses independently with aggregated token usage', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const agentA = fixtures.createAgent({ name: 'A', model_id: model.id });
+        const agentB = fixtures.createAgent({ name: 'B', model_id: model.id });
+
+        const team = fixtures.createTeam({
+          name: 'Broadcast Team',
+          strategy: 'broadcast',
+        });
+        fixtures.createTeamMember(team.id, agentA.id, { position: 1 });
+        fixtures.createTeamMember(team.id, agentB.id, { position: 2 });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Compare',
+        });
+
+        testDouble.stream = vi.fn().mockImplementation(async function* () {
+          yield { type: 'text-delta', delta: 'Broadcast reply' };
+          yield {
+            type: 'usage',
+            usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+          };
+          yield { type: 'complete', finishReason: 'stop' };
+        });
+
+        const generator = service.streamChat(chat.id, { stream: true });
+        const events: any[] = [];
+        for await (const event of generator) {
+          events.push(event);
+        }
+
+        const starts = events.filter((e) => e.type === 'message_start');
+        expect(starts).toHaveLength(2);
+        expect(starts[0].data.agentId).toBe(agentA.id);
+        expect(starts[1].data.agentId).toBe(agentB.id);
+
+        const usage = events.find((e) => e.type === 'usage');
+        expect(usage).toBeDefined();
+        expect(usage.data.totalTokens).toBe(24); // 12 * 2
+        expect(events[events.length - 1].type).toBe('done');
+      });
+    });
+
+    describe('Phase 4: Autonomous Dynamic Handoff', () => {
+      it('executes dynamic multi-agent handoff loop terminating on [DONE]', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+        const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+
+        const team = fixtures.createTeam({
+          name: 'Dynamic Team',
+          strategy: 'autonomous',
+          max_turns_per_interaction: 5,
+        });
+        fixtures.createTeamMember(team.id, alice.id, {
+          is_coordinator: 1,
+          position: 1,
+        });
+        fixtures.createTeamMember(team.id, bob.id, {
+          is_coordinator: 0,
+          position: 2,
+        });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Collaborate on design',
+        });
+
+        let callCount = 0;
+        testDouble.complete = vi.fn().mockImplementation(async () => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              content: 'Alice drafted initial design. [NEXT: @Bob]',
+              finishReason: 'stop',
+              usage: { inputTokens: 15, outputTokens: 10, totalTokens: 25 },
+            };
+          }
+          return {
+            content: 'Bob approved design. [DONE]',
+            finishReason: 'stop',
+            usage: { inputTokens: 28, outputTokens: 8, totalTokens: 36 },
+          };
+        });
+
+        const response = await service.completeChat(chat.id, {});
+        expect(response.messages).toHaveLength(2);
+        expect(response.messages![0].agentId).toBe(alice.id);
+        expect(response.messages![1].agentId).toBe(bob.id);
+        expect(response.content).toBe('Bob approved design. [DONE]');
+      });
+
+      it('enforces hard turn cap to prevent runaway autonomous loops', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const ping = fixtures.createAgent({ name: 'Ping', model_id: model.id });
+        const pong = fixtures.createAgent({ name: 'Pong', model_id: model.id });
+
+        const team = fixtures.createTeam({
+          name: 'Looping Team',
+          strategy: 'autonomous',
+          max_turns_per_interaction: 3,
+        });
+        fixtures.createTeamMember(team.id, ping.id, { position: 1 });
+        fixtures.createTeamMember(team.id, pong.id, { position: 2 });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Keep playing ping pong',
+        });
+
+        let turn = 0;
+        testDouble.complete = vi.fn().mockImplementation(async () => {
+          turn++;
+          return {
+            content: turn % 2 === 1 ? 'Ping! [NEXT: @Pong]' : 'Pong! [NEXT: @Ping]',
+            finishReason: 'stop',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          };
+        });
+
+        const response = await service.completeChat(chat.id, { maxTurns: 3 });
+        // Hard capped at 3 turns
+        expect(response.messages).toHaveLength(3);
+        expect(response.messages![0].agentId).toBe(ping.id);
+        expect(response.messages![1].agentId).toBe(pong.id);
+        expect(response.messages![2].agentId).toBe(ping.id);
+      });
+
+      it('streams autonomous dynamic handoff correctly terminating on [DONE]', async () => {
+        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const model = fixtures.createModel(provider.id);
+        const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+        const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+
+        const team = fixtures.createTeam({
+          name: 'Dynamic Team',
+          strategy: 'autonomous',
+        });
+        fixtures.createTeamMember(team.id, alice.id, { position: 1 });
+        fixtures.createTeamMember(team.id, bob.id, { position: 2 });
+
+        const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 1,
+          role: 'user',
+          content: 'Start dynamic discussion',
+        });
+
+        let streamTurn = 0;
+        testDouble.stream = vi.fn().mockImplementation(async function* () {
+          streamTurn++;
+          if (streamTurn === 1) {
+            yield { type: 'text-delta', delta: 'Alice starts. [NEXT: @Bob]' };
+            yield {
+              type: 'usage',
+              usage: { inputTokens: 10, outputTokens: 7, totalTokens: 17 },
+            };
+            yield { type: 'complete', finishReason: 'stop' };
+          } else {
+            yield { type: 'text-delta', delta: 'Bob concludes. [DONE]' };
+            yield {
+              type: 'usage',
+              usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+            };
+            yield { type: 'complete', finishReason: 'stop' };
+          }
+        });
+
+        const generator = service.streamChat(chat.id, { stream: true });
+        const events: any[] = [];
+        for await (const event of generator) {
+          events.push(event);
+        }
+
+        const starts = events.filter((e) => e.type === 'message_start');
+        expect(starts).toHaveLength(2);
+        expect(starts[0].data.agentId).toBe(alice.id);
+        expect(starts[1].data.agentId).toBe(bob.id);
+
+        const usage = events.find((e) => e.type === 'usage');
+        expect(usage).toBeDefined();
+        expect(usage.data.totalTokens).toBe(42); // 17 + 25
+        expect(events[events.length - 1].type).toBe('done');
+      });
+    });
   });
 });
