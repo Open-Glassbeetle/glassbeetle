@@ -31,5 +31,7 @@ describes work that has not shipped.
 
 - [Semantic memory](rfc-semantic-memory.md): Read before building retrieval
   or prompt injection; these approaches are proposed, not implemented.
+- [Multi-agent team chat orchestration](rfc-multi-agent-team-chat.md): Read before
+  implementing completions, streaming, or context construction for team chats.
 
 When adding a document under `docs/`, add an entry here so readers can find it.
