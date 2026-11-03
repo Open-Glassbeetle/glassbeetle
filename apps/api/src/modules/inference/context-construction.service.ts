@@ -259,6 +259,22 @@ export function buildContextPure(input: BuildContextInput): AssembledContext {
       continue;
     }
 
+    // Rule: Max sequence boundary (used for broadcast team turns to ensure peer isolation)
+    if (
+      typeof input.maxSequence === 'number' &&
+      msg.sequence > input.maxSequence
+    ) {
+      excludedMessages.push({
+        id: msg.id,
+        sequence: msg.sequence,
+        role: msg.role,
+        status: msg.status,
+        reason: 'max_sequence_boundary',
+        detail: `Message sequence ${msg.sequence} excluded because it exceeds max sequence boundary ${input.maxSequence}.`,
+      });
+      continue;
+    }
+
     // Normalize role and map to AdapterMessage
     const validRole = (
       ['user', 'assistant', 'system', 'tool'].includes(msg.role)
@@ -533,6 +549,7 @@ export class ContextConstructionService {
       memorySeam: options?.memorySeam,
       isTeamChat,
       currentAgentId: agent.id,
+      maxSequence: options?.maxSequence,
     });
   }
 
