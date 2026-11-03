@@ -10,12 +10,14 @@ describe('CompletionsController', () => {
   let controller: CompletionsController;
   let mockInferenceService: {
     completeChat: ReturnType<typeof vi.fn>;
+    compactChat: ReturnType<typeof vi.fn>;
     inspectContext: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
     mockInferenceService = {
       completeChat: vi.fn(),
+      compactChat: vi.fn(),
       inspectContext: vi.fn(),
     };
 
@@ -332,6 +334,95 @@ describe('CompletionsController', () => {
 
       expect(mockInferenceService.inspectContext).toHaveBeenCalledWith(chatId);
       expect(result).toBe(mockAssembled);
+    });
+  });
+
+  describe('compactChat', () => {
+    it('delegates to inferenceService.compactChat with chatId, dto, and AbortSignal', async () => {
+      const chatId = 'chat-001';
+      const dto = { preserveRecentCount: 2 };
+      const mockResult = {
+        id: chatId,
+        title: 'Test Chat',
+        projectId: null,
+        agentId: 'agent-001',
+        teamId: null,
+        contextSummary: 'Compacted summary of turns 1-4',
+        compactedBeforeSequence: 5,
+        compactedMessagesCount: 4,
+        createdAt: '2026-10-15T12:00:00.000Z',
+        updatedAt: '2026-10-15T12:05:00.000Z',
+      };
+
+      mockInferenceService.compactChat.mockResolvedValueOnce(mockResult);
+
+      const req = new EventEmitter() as unknown as Request;
+      const res = new EventEmitter() as unknown as Response;
+      (res as unknown as { writableEnded: boolean }).writableEnded = false;
+
+      const result = await controller.compactChat(chatId, dto, req, res);
+
+      expect(result).toBe(mockResult);
+      expect(mockInferenceService.compactChat).toHaveBeenCalledWith(
+        chatId,
+        dto,
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+        }),
+      );
+    });
+
+    it('propagates pre-aborted signal from req', async () => {
+      const chatId = 'chat-001';
+      const ac = new AbortController();
+      ac.abort(new Error('Pre-aborted'));
+
+      mockInferenceService.compactChat.mockImplementation(
+        async (_chatId, _dto, options) => {
+          expect(options.signal?.aborted).toBe(true);
+          throw new Error('Aborted');
+        },
+      );
+
+      const req = new EventEmitter() as unknown as Request;
+      (req as unknown as { signal: AbortSignal }).signal = ac.signal;
+      const res = new EventEmitter() as unknown as Response;
+      (res as unknown as { writableEnded: boolean }).writableEnded = false;
+
+      await expect(
+        controller.compactChat(chatId, undefined, req, res),
+      ).rejects.toThrow('Aborted');
+    });
+
+    it('aborts signal on premature client close', async () => {
+      const chatId = 'chat-001';
+      let capturedSignal: AbortSignal | undefined;
+
+      mockInferenceService.compactChat.mockImplementation(
+        async (_chatId, _dto, options) => {
+          capturedSignal = options.signal;
+          return new Promise((resolve) => setTimeout(resolve, 50));
+        },
+      );
+
+      const req = new EventEmitter() as unknown as Request;
+      const res = new EventEmitter() as unknown as Response;
+      (res as unknown as { writableEnded: boolean }).writableEnded = false;
+
+      const compactPromise = controller.compactChat(
+        chatId,
+        undefined,
+        req,
+        res,
+      );
+
+      // Simulate client disconnect mid-flight
+      res.emit('close');
+
+      await compactPromise;
+
+      expect(capturedSignal?.aborted).toBe(true);
+      expect(capturedSignal?.reason?.message).toBe('Client disconnected');
     });
   });
 });

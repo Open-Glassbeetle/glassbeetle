@@ -24,6 +24,8 @@ import type { Request, Response } from 'express';
 import { ApiErrorResponseDto } from '../../../common/http/api-error.js';
 import { InferenceService } from '../../inference/inference.service.js';
 import {
+  CompactChatDto,
+  CompactChatResponseDto,
   CompletionResponseDto,
   CreateCompletionDto,
   formatSseEvent,
@@ -219,6 +221,122 @@ export class CompletionsController {
   })
   inspectContext(@Param('chatId') chatId: string) {
     return this.inferenceService.inspectContext(chatId);
+  }
+
+  /**
+   * `POST /chats/:chatId/compact` — compact conversation history into context summary.
+   *
+   * Summarises conversation history into `chats.context_summary` so a long conversation
+   * can continue without exceeding the model's context window.
+   *
+   * ### Retention Policy:
+   * Summarised messages are **retained** in the database in full. Compaction is a
+   * context-window optimisation, not a data-retention policy. A user does not lose their
+   * conversation history to make a model call fit: messages remain permanently readable
+   * through `GET /chats/:chatId/messages`.
+   *
+   * ### Compaction Point Tracking:
+   * The compaction boundary is tracked via `chats.compacted_before_sequence`, recording
+   * the exact sequence up to which messages were summarised. Context construction uses
+   * this sequence to prune superseded turns from the model prompt, preventing duplicate
+   * messages and ensuring no messages arriving during or after compaction are lost.
+   *
+   * ### Recent History Preservation:
+   * Recent history is preserved uncompacted (default: 2 messages, overridable via
+   * `preserveRecentCount`). Preserving immediate turns maintains conversational continuity.
+   *
+   * ### Repeated Compaction:
+   * Compacting an already-compacted chat folds the previous `context_summary` together with
+   * newer turns into an updated unified summary rather than discarding prior history.
+   */
+  @Post('compact')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Compact conversation history into a context summary',
+    description:
+      'Summarises conversation history into chats.context_summary so long conversations ' +
+      'can continue without exceeding model context limits. Retains existing messages in the database ' +
+      'so full conversation history remains readable, while tracking the compaction point so context ' +
+      'construction includes each message exactly once. Folds prior summary into new summary on repeated compactions.',
+  })
+  @ApiParam({
+    name: 'chatId',
+    type: String,
+    description: 'Unique identifier of the chat to compact.',
+  })
+  @ApiOkResponse({
+    type: CompactChatResponseDto,
+    description:
+      'Compaction succeeded. Returns updated chat representation and compaction coverage metrics.',
+  })
+  @ApiBadRequestResponse({
+    type: ApiErrorResponseDto,
+    description:
+      'Invalid options supplied in request body (e.g. negative preserveRecentCount or no messages eligible to compact).',
+  })
+  @ApiNotFoundResponse({
+    type: ApiErrorResponseDto,
+    description: 'Chat does not exist.',
+  })
+  @ApiUnprocessableEntityResponse({
+    type: ApiErrorResponseDto,
+    description:
+      'Chat is not runnable (team chat, no agent, agent missing model, disabled model/provider, or missing credential).',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    type: ApiErrorResponseDto,
+    description: 'Upstream rate limit exceeded.',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_GATEWAY,
+    type: ApiErrorResponseDto,
+    description:
+      'Upstream provider authentication, authorization, or network failure.',
+  })
+  @ApiResponse({
+    status: HttpStatus.GATEWAY_TIMEOUT,
+    type: ApiErrorResponseDto,
+    description: 'Upstream provider request timed out.',
+  })
+  async compactChat(
+    @Param('chatId') chatId: string,
+    @Body() dto: CompactChatDto | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<CompactChatResponseDto> {
+    const abortController = new AbortController();
+
+    const reqWithSignal = req as { signal?: AbortSignal };
+    if (reqWithSignal?.signal) {
+      if (reqWithSignal.signal.aborted) {
+        abortController.abort(reqWithSignal.signal.reason);
+      } else {
+        reqWithSignal.signal.addEventListener(
+          'abort',
+          () => abortController.abort(reqWithSignal.signal?.reason),
+          { once: true },
+        );
+      }
+    }
+
+    const onClose = () => {
+      if (!res.writableEnded && !abortController.signal.aborted) {
+        abortController.abort(new Error('Client disconnected'));
+      }
+    };
+
+    req?.on?.('close', onClose);
+    res?.on?.('close', onClose);
+
+    try {
+      return await this.inferenceService.compactChat(chatId, dto, {
+        signal: abortController.signal,
+      });
+    } finally {
+      req?.off?.('close', onClose);
+      res?.off?.('close', onClose);
+    }
   }
 }
 
