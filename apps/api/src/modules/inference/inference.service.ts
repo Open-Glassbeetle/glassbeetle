@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -33,10 +34,16 @@ import type { AgentRow } from '../agents/dto/agent.mapper.js';
 import type { ChatRow } from '../chats/dto/chat.mapper.js';
 import type { MessageRow } from '../chats/messages/dto/index.js';
 import type {
+  CompactChatDto,
+  CompactChatResponseDto,
   CompletionResponseDto,
   CreateCompletionDto,
   SseCompletionEvent,
 } from '../chats/completions/dto/index.js';
+import {
+  COMPACTION_SYSTEM_PROMPT,
+  buildCompactionUserPrompt,
+} from './compaction-prompts.js';
 import { ContextConstructionService } from './context-construction.service.js';
 import type { AssembledContext } from './context-construction.types.js';
 
@@ -811,6 +818,223 @@ export class InferenceService {
    */
   inspectContext(chatId: string): AssembledContext {
     return this.contextConstructionService.buildByChatId(chatId);
+  }
+
+  /**
+   * Summarises conversation history into `chats.context_summary` and advances `chats.updated_at`.
+   *
+   * Responsibilities:
+   * 1. Resolves execution chain (Chat → Agent → Model → Provider → Credential).
+   *    Fails with distinct, actionable 404/422 HTTP exceptions if unrunnable.
+   * 2. Reads message history in sequence order.
+   * 3. Calculates compaction boundary based on `preserveRecentCount` (default: 2).
+   *    Preserving recent turns retains immediate conversational thread verbatim.
+   * 4. Folds any existing `chats.context_summary` together with new messages into a new summary.
+   * 5. Atomically writes summary and `compacted_before_sequence` to `chats`.
+   *    Messages are retained in SQLite — full history remains readable via messages endpoint.
+   * 6. Records token metrics in `usage_events` under `event_type = 'chat_compaction'`.
+   *
+   * @param chatId - Identifier of the chat to compact.
+   * @param dto - Optional overrides for model and number of recent messages to preserve.
+   * @param options - Execution options including cancellation signal.
+   * @returns Updated chat representation with compaction metadata.
+   */
+  async compactChat(
+    chatId: string,
+    dto?: CompactChatDto,
+    options?: CompleteChatOptions,
+  ): Promise<CompactChatResponseDto> {
+    const preserveRecentCount = dto?.preserveRecentCount ?? 2;
+    if (preserveRecentCount < 0) {
+      throw new BadRequestException({
+        code: 'INVALID_OPTIONS',
+        message:
+          'preserveRecentCount must be an integer greater than or equal to 0',
+      });
+    }
+
+    // 1. Resolve execution chain & validate runnability
+    const { chat, agent, model, provider, apiKey } = this.resolveExecutionChain(
+      chatId,
+      dto?.modelId,
+    );
+
+    // 2. Fetch all messages in sequence order
+    const allMessages = this.db.all<MessageRow>(
+      `SELECT id, chat_id, sequence, role, agent_id, content, status, token_count, created_at
+       FROM messages
+       WHERE chat_id = ?
+       ORDER BY sequence ASC`,
+      [chat.id],
+    );
+
+    // 3. Determine uncompacted messages:
+    // If chat.compacted_before_sequence exists, messages with sequence >= compacted_before_sequence are uncompacted.
+    // If no prior compaction point exists, all messages are candidates.
+    const uncompactedMessages = chat.compacted_before_sequence
+      ? allMessages.filter(
+          (m) => m.sequence >= chat.compacted_before_sequence!,
+        )
+      : allMessages;
+
+    // 4. Verify there are enough messages to compact
+    if (uncompactedMessages.length <= preserveRecentCount) {
+      throw new BadRequestException({
+        code: 'NO_MESSAGES_TO_COMPACT',
+        message: `Chat has no messages eligible for compaction (found ${uncompactedMessages.length} uncompacted messages, but preserveRecentCount is ${preserveRecentCount})`,
+      });
+    }
+
+    // 5. Partition messages:
+    // messagesToCompact: turns to fold into the summary
+    // messagesToPreserve: recent turns left verbatim
+    const messagesToCompact = uncompactedMessages.slice(
+      0,
+      uncompactedMessages.length - preserveRecentCount,
+    );
+
+    // Filter valid complete turns with non-empty content for the summarizer prompt
+    const validMessagesToPrompt = messagesToCompact.filter(
+      (m) =>
+        m.status === 'complete' && m.content && m.content.trim().length > 0,
+    );
+
+    if (validMessagesToPrompt.length === 0) {
+      throw new BadRequestException({
+        code: 'NO_MESSAGES_TO_COMPACT',
+        message:
+          'No complete messages with content are available for compaction',
+      });
+    }
+
+    // Crucial: The compaction boundary is computed from the history actually sent to the model!
+    // Highest sequence sent + 1. Any message arriving while summarisation is in flight
+    // will have sequence > maxSequenceSent, so it will naturally fall >= newCompactedBeforeSequence.
+    const maxSequenceSent =
+      messagesToCompact[messagesToCompact.length - 1].sequence;
+    const newCompactedBeforeSequence = maxSequenceSent + 1;
+
+    // 6. Build summarisation request
+    const userPrompt = buildCompactionUserPrompt({
+      existingSummary: chat.context_summary,
+      messages: validMessagesToPrompt.map((m) => ({
+        sequence: m.sequence,
+        role: m.role,
+        content: m.content,
+      })),
+    });
+
+    const completionRequest: CompletionRequest = {
+      model: model.model_identifier,
+      systemPrompt: COMPACTION_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: userPrompt,
+        },
+      ],
+      temperature: 0.2,
+      maxTokens: 1024,
+    };
+
+    // 7. Invoke provider adapter
+    const adapter = this.adapterFactory.create({
+      providerId: provider.id,
+      providerKind: provider.kind as ProviderKind,
+      baseUrl: provider.base_url,
+      apiKey,
+      modelIdentifier: model.model_identifier,
+    });
+
+    let completionResponse: CompletionResponse;
+    try {
+      completionResponse = await adapter.complete(completionRequest, {
+        signal: options?.signal,
+      });
+    } catch (error: unknown) {
+      if (error instanceof ModelAdapterError) {
+        if (apiKey) {
+          error.message = redactSecrets(error.message, [apiKey]);
+          if (error.cause) {
+            (error as { cause: unknown }).cause = sanitizeErrorCause(
+              error.cause,
+              [apiKey],
+            );
+          }
+        }
+        throw error;
+      }
+
+      throw normalizeProviderError({
+        providerKind: provider.kind,
+        model: model.model_identifier,
+        cause: error,
+        knownSecrets: apiKey ? [apiKey] : undefined,
+      });
+    }
+
+    const newSummary = completionResponse.content.trim();
+    const now = nowIso();
+
+    // 8. Atomically update chat and record usage
+    this.db.transaction(() => {
+      this.db.run(
+        `UPDATE chats
+         SET context_summary = ?,
+             compacted_before_sequence = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        [newSummary, newCompactedBeforeSequence, now, chat.id],
+      );
+
+      if (completionResponse.usage) {
+        this.db.run(
+          `INSERT INTO usage_events (
+            id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id,
+            input_tokens, output_tokens, cost_usd, metadata
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            newId(),
+            now,
+            'chat_compaction',
+            agent.id,
+            provider.id,
+            model.id,
+            chat.id,
+            completionResponse.usage.inputTokens ?? null,
+            completionResponse.usage.outputTokens ?? null,
+            null,
+            null,
+          ],
+        );
+      }
+    });
+
+    // 9. Fetch updated chat row and calculate total compacted messages count
+    const updatedChat = this.db.get<ChatRow>(
+      'SELECT * FROM chats WHERE id = ?',
+      [chat.id],
+    )!;
+
+    // Total messages now covered: all messages in the chat prior to the compaction boundary
+    const totalCompactedCount =
+      this.db.get<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM messages WHERE chat_id = ? AND sequence < ?',
+        [chat.id, newCompactedBeforeSequence],
+      )?.count ?? messagesToCompact.length;
+
+    return {
+      id: updatedChat.id,
+      title: updatedChat.title ?? null,
+      projectId: updatedChat.project_id ?? null,
+      agentId: updatedChat.agent_id ?? null,
+      teamId: updatedChat.team_id ?? null,
+      contextSummary: updatedChat.context_summary ?? null,
+      compactedBeforeSequence: updatedChat.compacted_before_sequence ?? null,
+      compactedMessagesCount: totalCompactedCount,
+      createdAt: updatedChat.created_at,
+      updatedAt: updatedChat.updated_at,
+    };
   }
 
   /**

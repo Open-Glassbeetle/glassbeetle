@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   InternalServerErrorException,
   NotFoundException,
   UnprocessableEntityException,
@@ -940,6 +941,526 @@ describe('InferenceService', () => {
       const errorEvent = events.find((e) => e.type === 'error');
       expect(errorEvent.data.message).not.toContain(secretKey);
       expect(errorEvent.data.message).toContain('[REDACTED]');
+    });
+  });
+
+  describe('compactChat', () => {
+    function setupCompactionChat() {
+      const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const model = fixtures.createModel({
+        provider_id: provider.id,
+        model_identifier: 'gpt-4o',
+        enabled: 1,
+      });
+      const agent = fixtures.createAgent({ model_id: model.id });
+      const chat = fixtures.createChat({ agent_id: agent.id });
+      return { provider, model, agent, chat };
+    }
+
+    it('produces a summary, stores in context_summary, advances updated_at, and records usage', async () => {
+      const { chat } = setupCompactionChat();
+
+      for (let i = 1; i <= 4; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: i % 2 === 1 ? 'user' : 'assistant',
+          content: `Message ${i}`,
+        });
+      }
+
+      const cannedSummary = 'Summary of conversation turns 1 and 2.';
+      const customAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          cannedResponse: {
+            content: cannedSummary,
+            finishReason: 'stop',
+            usage: { inputTokens: 40, outputTokens: 15, totalTokens: 55 },
+          },
+        },
+      );
+      adapterFactory.register('openai', () => customAdapter);
+
+      const response = await service.compactChat(chat.id, {
+        preserveRecentCount: 2,
+      });
+
+      expect(response.contextSummary).toBe(cannedSummary);
+      expect(response.compactedBeforeSequence).toBe(3);
+      expect(response.compactedMessagesCount).toBe(2);
+      expect(new Date(response.updatedAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(chat.created_at).getTime(),
+      );
+
+      // Verify database state
+      const row = db.get<{
+        context_summary: string;
+        compacted_before_sequence: number;
+        updated_at: string;
+      }>(
+        'SELECT context_summary, compacted_before_sequence, updated_at FROM chats WHERE id = ?',
+        [chat.id],
+      );
+      expect(row.context_summary).toBe(cannedSummary);
+      expect(row.compacted_before_sequence).toBe(3);
+
+      // Verify adapter prompt received expected turns (1 and 2, not 3 and 4)
+      const lastReq = customAdapter.completedRequests[0];
+      expect(lastReq.messages[0].content).toContain('[Sequence 1 | user]:\nMessage 1');
+      expect(lastReq.messages[0].content).toContain('[Sequence 2 | assistant]:\nMessage 2');
+      expect(lastReq.messages[0].content).not.toContain('Message 3');
+      expect(lastReq.messages[0].content).not.toContain('Message 4');
+
+      // Verify usage_events entry
+      const usageRow = db.get<{
+        event_type: string;
+        input_tokens: number;
+        output_tokens: number;
+      }>('SELECT * FROM usage_events WHERE chat_id = ? AND event_type = ?', [
+        chat.id,
+        'chat_compaction',
+      ]);
+      expect(usageRow).toBeDefined();
+      expect(usageRow.input_tokens).toBe(40);
+      expect(usageRow.output_tokens).toBe(15);
+    });
+
+    it('preserves recent messages per default (2) and overridable count', async () => {
+      const { chat } = setupCompactionChat();
+
+      for (let i = 1; i <= 6; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: i % 2 === 1 ? 'user' : 'assistant',
+          content: `Content ${i}`,
+        });
+      }
+
+      // Default preserve count (2): compacts turns 1-4, preserves 5-6
+      const defaultRes = await service.compactChat(chat.id);
+      expect(defaultRes.compactedBeforeSequence).toBe(5);
+      expect(defaultRes.compactedMessagesCount).toBe(4);
+
+      // Reset chat compaction boundary and test preserveRecentCount = 0
+      db.run(
+        'UPDATE chats SET context_summary = NULL, compacted_before_sequence = NULL WHERE id = ?',
+        [chat.id],
+      );
+
+      const allCompactedRes = await service.compactChat(chat.id, {
+        preserveRecentCount: 0,
+      });
+      expect(allCompactedRes.compactedBeforeSequence).toBe(7);
+      expect(allCompactedRes.compactedMessagesCount).toBe(6);
+    });
+
+    it('compacting twice folds the existing summary in rather than discarding it', async () => {
+      const { chat } = setupCompactionChat();
+
+      for (let i = 1; i <= 4; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: i % 2 === 1 ? 'user' : 'assistant',
+          content: `Step ${i}`,
+        });
+      }
+
+      let callCount = 0;
+      const customAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          cannedResponse: {
+            content: 'Initial Summary',
+            finishReason: 'stop',
+          },
+        },
+      );
+      // Spy on complete to change responses across calls
+      const origComplete = customAdapter.complete.bind(customAdapter);
+      customAdapter.complete = async (req, opts) => {
+        callCount++;
+        const res = await origComplete(req, opts);
+        if (callCount === 2) {
+          return {
+            ...res,
+            content: 'Combined Unified Summary',
+          };
+        }
+        return res;
+      };
+      adapterFactory.register('openai', () => customAdapter);
+
+      // Compaction 1: turns 1-2 compacted, 3-4 preserved
+      const firstRes = await service.compactChat(chat.id, {
+        preserveRecentCount: 2,
+      });
+      expect(firstRes.contextSummary).toBe('Initial Summary');
+      expect(firstRes.compactedBeforeSequence).toBe(3);
+      expect(firstRes.compactedMessagesCount).toBe(2);
+
+      // Add messages 5 and 6
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 5,
+        role: 'user',
+        content: 'Step 5',
+      });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 6,
+        role: 'assistant',
+        content: 'Step 6',
+      });
+
+      // Compaction 2: uncompacted are 3, 4, 5, 6; preserve 2 (5, 6) -> compacts 3, 4
+      const secondRes = await service.compactChat(chat.id, {
+        preserveRecentCount: 2,
+      });
+
+      expect(secondRes.contextSummary).toBe('Combined Unified Summary');
+      expect(secondRes.compactedBeforeSequence).toBe(5);
+      expect(secondRes.compactedMessagesCount).toBe(4);
+
+      // Assert the second request included the prior summary and the new turns
+      const secondReq = customAdapter.completedRequests[1];
+      expect(secondReq.messages[0].content).toContain('<prior_summary>');
+      expect(secondReq.messages[0].content).toContain('Initial Summary');
+      expect(secondReq.messages[0].content).toContain('<new_turns>');
+      expect(secondReq.messages[0].content).toContain('[Sequence 3 | user]:\nStep 3');
+      expect(secondReq.messages[0].content).toContain('[Sequence 4 | assistant]:\nStep 4');
+    });
+
+    it('records compaction point so context construction covers every message exactly once with no duplication and no gap', async () => {
+      const { chat } = setupCompactionChat();
+
+      for (let i = 1; i <= 5; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: i % 2 === 1 ? 'user' : 'assistant',
+          content: `Turn ${i} details`,
+        });
+      }
+
+      await service.compactChat(chat.id, { preserveRecentCount: 2 });
+
+      // Inspect assembled context through context construction
+      const assembled = service.inspectContext(chat.id);
+
+      // Summary is placed in system context
+      expect(assembled.systemPrompt).toContain('Context summary:\nHello! I am ready to help.');
+
+      // Active messages contain exactly turns 4 and 5 (uncompacted)
+      expect(assembled.messages).toHaveLength(2);
+      expect(assembled.messages[0].content).toBe('Turn 4 details');
+      expect(assembled.messages[1].content).toBe('Turn 5 details');
+
+      // Superseded messages (1, 2, 3) are tracked in excludedMessages as compacted_history
+      expect(assembled.excludedMessages).toHaveLength(3);
+      expect(assembled.excludedMessages.map((m) => m.sequence)).toEqual([1, 2, 3]);
+      expect(assembled.excludedMessages[0].reason).toBe('compacted_history');
+      expect(assembled.excludedMessages[1].reason).toBe('compacted_history');
+      expect(assembled.excludedMessages[2].reason).toBe('compacted_history');
+
+      // Assert complete coverage: every message 1..5 is represented either in summary or active turns
+      const allAccountedSequences = [
+        ...assembled.excludedMessages.map((m) => m.sequence),
+        ...assembled.messageDetails.map((m) => m.sequence),
+      ].sort((a, b) => a - b);
+      expect(allAccountedSequences).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('ensures message posted while compaction is in flight is not silently lost', async () => {
+      const { chat } = setupCompactionChat();
+
+      for (let i = 1; i <= 4; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: i % 2 === 1 ? 'user' : 'assistant',
+          content: `Pre-existing turn ${i}`,
+        });
+      }
+
+      const customAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          cannedResponse: {
+            content: 'Summary of turns 1-2',
+            finishReason: 'stop',
+          },
+        },
+      );
+
+      // Simulate a concurrent message arriving while provider summarisation is in flight
+      customAdapter.complete = async () => {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: 5,
+          role: 'user',
+          content: 'Concurrent message arriving mid-flight',
+        });
+        return {
+          content: 'Summary of turns 1-2',
+          finishReason: 'stop',
+        };
+      };
+      adapterFactory.register('openai', () => customAdapter);
+
+      const result = await service.compactChat(chat.id, {
+        preserveRecentCount: 2,
+      });
+
+      // Boundary is sequence 3 (maxSequenceSent was 2, so 2 + 1 = 3)
+      expect(result.compactedBeforeSequence).toBe(3);
+
+      // Verify concurrent message 5 is in SQLite
+      const message5 = db.get<{ content: string }>(
+        'SELECT content FROM messages WHERE chat_id = ? AND sequence = 5',
+        [chat.id],
+      );
+      expect(message5.content).toBe('Concurrent message arriving mid-flight');
+
+      // Verify inspectContext includes message 5 in active messages
+      const assembled = service.inspectContext(chat.id);
+      const activeContents = assembled.messages.map((m) => m.content);
+      expect(activeContents).toContain('Pre-existing turn 3');
+      expect(activeContents).toContain('Pre-existing turn 4');
+      expect(activeContents).toContain('Concurrent message arriving mid-flight');
+      expect(activeContents).not.toContain('Pre-existing turn 1');
+      expect(activeContents).not.toContain('Pre-existing turn 2');
+    });
+
+    it('retains all summarised messages in SQLite so full history remains readable', async () => {
+      const { chat } = setupCompactionChat();
+
+      for (let i = 1; i <= 4; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: 'user',
+          content: `Permanent message ${i}`,
+        });
+      }
+
+      await service.compactChat(chat.id, { preserveRecentCount: 2 });
+
+      // Assert all 4 messages still exist in the messages table
+      const rows = db.all<{ sequence: number; content: string }>(
+        'SELECT sequence, content FROM messages WHERE chat_id = ? ORDER BY sequence ASC',
+        [chat.id],
+      );
+      expect(rows).toHaveLength(4);
+      expect(rows.map((r) => r.sequence)).toEqual([1, 2, 3, 4]);
+      expect(rows[0].content).toBe('Permanent message 1');
+      expect(rows[1].content).toBe('Permanent message 2');
+    });
+
+    it('rejects with distinct error for each resolution chain failure', async () => {
+      // 1. Unknown chat (404)
+      await expect(
+        service.compactChat('non-existent-chat-id'),
+      ).rejects.toThrow(NotFoundException);
+
+      // 2. Team chat (422)
+      const team = fixtures.createTeam();
+      const teamChat = fixtures.createChat({
+        team_id: team.id,
+        agent_id: null,
+      });
+      await expect(service.compactChat(teamChat.id)).rejects.toThrow(
+        new UnprocessableEntityException({
+          code: 'TEAM_CHAT_NOT_SUPPORTED',
+          message: 'Multi-agent team chats are not yet supported for completion',
+        }),
+      );
+
+      // 3. Chat has no agent (422)
+      const agent = fixtures.createAgent();
+      const noAgentChat = fixtures.createChat({ agent_id: agent.id });
+      db.run('PRAGMA ignore_check_constraints = ON;');
+      db.run('UPDATE chats SET agent_id = NULL WHERE id = ?', [noAgentChat.id]);
+      db.run('PRAGMA ignore_check_constraints = OFF;');
+      await expect(service.compactChat(noAgentChat.id)).rejects.toThrow(
+        new UnprocessableEntityException({
+          code: 'CHAT_HAS_NO_AGENT',
+          message: 'Chat has no assigned agent to execute completions',
+        }),
+      );
+
+      // 4. Agent has no model (422)
+      const agentWithoutModel = fixtures.createAgent({ model_id: null });
+      const chatWithoutModel = fixtures.createChat({
+        agent_id: agentWithoutModel.id,
+      });
+      await expect(service.compactChat(chatWithoutModel.id)).rejects.toThrow(
+        new UnprocessableEntityException({
+          code: 'AGENT_HAS_NO_MODEL',
+          message: `Agent "${agentWithoutModel.name}" has no model configured`,
+        }),
+      );
+
+      // 5. Disabled model (422)
+      const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const disabledModel = fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 0,
+      });
+      const agentWithDisabledModel = fixtures.createAgent({
+        model_id: disabledModel.id,
+      });
+      const chatWithDisabledModel = fixtures.createChat({
+        agent_id: agentWithDisabledModel.id,
+      });
+      await expect(service.compactChat(chatWithDisabledModel.id)).rejects.toThrow(
+        new UnprocessableEntityException({
+          code: 'MODEL_DISABLED',
+          message: `Model "${disabledModel.display_name}" is disabled`,
+        }),
+      );
+
+      // 6. Disabled provider (422)
+      const disabledProvider = fixtures.createProvider({
+        kind: 'openai',
+        enabled: 0,
+      });
+      const activeModel = fixtures.createModel({
+        provider_id: disabledProvider.id,
+        enabled: 1,
+      });
+      const agentWithDisabledProvider = fixtures.createAgent({
+        model_id: activeModel.id,
+      });
+      const chatWithDisabledProvider = fixtures.createChat({
+        agent_id: agentWithDisabledProvider.id,
+      });
+      await expect(
+        service.compactChat(chatWithDisabledProvider.id),
+      ).rejects.toThrow(
+        new UnprocessableEntityException({
+          code: 'PROVIDER_DISABLED',
+          message: `Provider "${disabledProvider.name}" is disabled`,
+        }),
+      );
+
+      // 7. Missing credential for hosted provider (422)
+      mockCredentialsService.getDecryptedCredential.mockReturnValue(null);
+      const activeProvider = fixtures.createProvider({
+        kind: 'openai',
+        is_local: 0,
+        enabled: 1,
+      });
+      const validModel = fixtures.createModel({
+        provider_id: activeProvider.id,
+        enabled: 1,
+      });
+      const agentMissingCred = fixtures.createAgent({
+        model_id: validModel.id,
+      });
+      const chatMissingCred = fixtures.createChat({
+        agent_id: agentMissingCred.id,
+      });
+      await expect(service.compactChat(chatMissingCred.id)).rejects.toThrow(
+        new UnprocessableEntityException({
+          code: 'CREDENTIAL_MISSING',
+          message: `Provider "${activeProvider.name}" requires an API credential that is not configured`,
+        }),
+      );
+    });
+
+    it('supports modelId override', async () => {
+      const { provider, chat } = setupCompactionChat();
+      const overrideModel = fixtures.createModel({
+        provider_id: provider.id,
+        model_identifier: 'gpt-4o-mini',
+        enabled: 1,
+      });
+
+      for (let i = 1; i <= 4; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: 'user',
+          content: `Msg ${i}`,
+        });
+      }
+
+      await service.compactChat(chat.id, {
+        modelId: overrideModel.id,
+        preserveRecentCount: 2,
+      });
+
+      expect(testDouble.completedRequests[0].model).toBe('gpt-4o-mini');
+    });
+
+    it('rejects invalid options with 400 BadRequestException', async () => {
+      const { chat } = setupCompactionChat();
+
+      // Negative preserveRecentCount
+      await expect(
+        service.compactChat(chat.id, { preserveRecentCount: -1 }),
+      ).rejects.toThrow(BadRequestException);
+
+      // No uncompacted messages
+      await expect(
+        service.compactChat(chat.id, { preserveRecentCount: 2 }),
+      ).rejects.toThrow(BadRequestException);
+
+      // Chat with 2 messages, preserveRecentCount = 2 (not enough to compact)
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Hi',
+      });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 2,
+        role: 'assistant',
+        content: 'Hello',
+      });
+
+      await expect(
+        service.compactChat(chat.id, { preserveRecentCount: 2 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('maps provider errors and redacts credentials', async () => {
+      const { chat } = setupCompactionChat();
+      const secretKey = 'sk-super-secret-key-4242';
+      mockCredentialsService.getDecryptedCredential.mockReturnValue(secretKey);
+
+      for (let i = 1; i <= 4; i++) {
+        fixtures.createMessage({
+          chat_id: chat.id,
+          sequence: i,
+          role: 'user',
+          content: `Test msg ${i}`,
+        });
+      }
+
+      const failingAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          simulateError: new RateLimitError(
+            `Rate limit exceeded for key ${secretKey}`,
+            'openai',
+          ),
+        },
+      );
+      adapterFactory.register('openai', () => failingAdapter);
+
+      await expect(service.compactChat(chat.id)).rejects.toSatisfy(
+        (err: any) => {
+          expect(err.statusCode).toBe(429);
+          expect(err.message).not.toContain(secretKey);
+          expect(err.message).toContain('[REDACTED]');
+          return true;
+        },
+      );
     });
   });
 });

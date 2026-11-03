@@ -31,6 +31,7 @@ interface ChatRow {
   agent_id: string | null;
   team_id: string | null;
   context_summary: string | null;
+  compacted_before_sequence?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -463,7 +464,8 @@ export class ContextConstructionService {
       messages,
       contextWindow,
       fittingStrategy: options?.fittingStrategy ?? 'refuse',
-      compactedBeforeSequence: options?.compactedBeforeSequence,
+      compactedBeforeSequence:
+        options?.compactedBeforeSequence ?? chat.compacted_before_sequence,
       memorySeam: options?.memorySeam,
     });
   }
