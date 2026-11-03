@@ -49,12 +49,21 @@ describe('InferenceService', () => {
 
     adapterFactory = new AdapterFactoryService();
     adapterFactory.register(
-      ['anthropic', 'openai', 'google', 'ollama', 'lmstudio', 'openai_compatible'],
+      [
+        'anthropic',
+        'openai',
+        'google',
+        'ollama',
+        'lmstudio',
+        'openai_compatible',
+      ],
       () => testDouble,
     );
 
     mockCredentialsService = {
-      getDecryptedCredential: vi.fn().mockReturnValue('sk-test-secret-key-12345'),
+      getDecryptedCredential: vi
+        .fn()
+        .mockReturnValue('sk-test-secret-key-12345'),
     };
 
     service = new InferenceService(
@@ -75,7 +84,7 @@ describe('InferenceService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('throws UnprocessableEntityException when chat is owned by a team', async () => {
+    it('throws UnprocessableEntityException when chat is owned by a team with no active members', async () => {
       const team = fixtures.createTeam({ name: 'Alpha Team' });
       const chat = fixtures.createChat({
         title: 'Team Chat',
@@ -85,8 +94,8 @@ describe('InferenceService', () => {
 
       await expect(service.completeChat(chat.id, {})).rejects.toThrow(
         new UnprocessableEntityException({
-          code: 'TEAM_CHAT_NOT_SUPPORTED',
-          message: 'Multi-agent team chats are not yet supported for completion',
+          code: 'TEAM_HAS_NO_MEMBERS',
+          message: 'Team has no active members to execute completions',
         }),
       );
     });
@@ -357,20 +366,29 @@ describe('InferenceService', () => {
       const req = testDouble.completedRequests[0];
 
       // System prompt + instructions + context summary
-      expect(req.systemPrompt).toContain('You are a helpful and concise assistant.');
+      expect(req.systemPrompt).toContain(
+        'You are a helpful and concise assistant.',
+      );
       expect(req.systemPrompt).toContain('Never mention internal identifiers.');
-      expect(req.systemPrompt).toContain('Context summary:\nThe user is building a web app in NestJS.');
+      expect(req.systemPrompt).toContain(
+        'Context summary:\nThe user is building a web app in NestJS.',
+      );
 
       // Messages should contain history in sequence order
       expect(req.messages).toHaveLength(3);
-      expect(req.messages[0].content).toBe('What framework should I use for testing?');
+      expect(req.messages[0].content).toBe(
+        'What framework should I use for testing?',
+      );
       expect(req.messages[1].content).toBe('Vitest is great with NestJS.');
       expect(req.messages[2].content).toBe('Tell me more about it.');
     });
 
     it('incorporates agent personality into system prompt between prompt template and instructions', async () => {
       const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
-      const model = fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const prompt = fixtures.createSystemPrompt({
         content: 'You are an AI assistant.',
       });
@@ -416,7 +434,8 @@ describe('InferenceService', () => {
         chat_id: chat.id,
         sequence: 1,
         role: 'user',
-        content: 'This is a long message that easily exceeds twenty-five tokens threshold for fitting.',
+        content:
+          'This is a long message that easily exceeds twenty-five tokens threshold for fitting.',
       });
 
       await expect(service.completeChat(chat.id, {})).rejects.toThrow(
@@ -426,15 +445,24 @@ describe('InferenceService', () => {
 
     it('allows inspecting constructed context without executing completion via inspectContext', () => {
       const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
-      const model = fixtures.createModel({ provider_id: provider.id, enabled: 1, context_window: 10000 });
-      const prompt = fixtures.createSystemPrompt({ content: 'Inspectable template.' });
+      const model = fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+        context_window: 10000,
+      });
+      const prompt = fixtures.createSystemPrompt({
+        content: 'Inspectable template.',
+      });
       const agent = fixtures.createAgent({
         model_id: model.id,
         system_prompt_id: prompt.id,
         personality: 'Friendly',
         instructions: 'Format in markdown',
       });
-      const chat = fixtures.createChat({ agent_id: agent.id, context_summary: 'Prior summary' });
+      const chat = fixtures.createChat({
+        agent_id: agent.id,
+        context_summary: 'Prior summary',
+      });
 
       fixtures.createMessage({
         chat_id: chat.id,
@@ -449,7 +477,9 @@ describe('InferenceService', () => {
       expect(inspected.systemPrompt).toContain('Inspectable template.');
       expect(inspected.systemPrompt).toContain('Friendly');
       expect(inspected.systemPrompt).toContain('Format in markdown');
-      expect(inspected.systemPrompt).toContain('Context summary:\nPrior summary');
+      expect(inspected.systemPrompt).toContain(
+        'Context summary:\nPrior summary',
+      );
       expect(inspected.messages).toHaveLength(1);
       expect(inspected.tokenEstimate.fitsContextWindow).toBe(true);
       expect(testDouble.completedRequests).toHaveLength(0); // Zero provider calls made
@@ -497,10 +527,9 @@ describe('InferenceService', () => {
       });
 
       // Verify database row
-      const savedMsg = db.get<any>(
-        'SELECT * FROM messages WHERE id = ?',
-        [result.id],
-      );
+      const savedMsg = db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        result.id,
+      ]);
       expect(savedMsg).toBeDefined();
       expect(savedMsg.chat_id).toBe(chat.id);
       expect(savedMsg.sequence).toBe(2);
@@ -509,10 +538,9 @@ describe('InferenceService', () => {
       expect(savedMsg.token_count).toBe(8);
 
       // Verify chat updated_at advanced
-      const updatedChat = db.get<any>(
-        'SELECT * FROM chats WHERE id = ?',
-        [chat.id],
-      );
+      const updatedChat = db.get<any>('SELECT * FROM chats WHERE id = ?', [
+        chat.id,
+      ]);
       expect(updatedChat.updated_at).not.toBe('2026-01-01T00:00:00.000Z');
 
       // Verify usage_events record
@@ -557,10 +585,9 @@ describe('InferenceService', () => {
       expect(result.tokenCount).toBeNull();
       expect(result.usage).toBeNull();
 
-      const savedMsg = db.get<any>(
-        'SELECT * FROM messages WHERE id = ?',
-        [result.id],
-      );
+      const savedMsg = db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        result.id,
+      ]);
       expect(savedMsg.token_count).toBeNull();
     });
   });
@@ -671,7 +698,10 @@ describe('InferenceService', () => {
           expect(pendingRow.content).toBe('');
           expect(pendingRow.sequence).toBe(1);
           expect(pendingRow.role).toBe('assistant');
-        } else if (event.type === 'token' && events.filter((e) => e.type === 'token').length === 1) {
+        } else if (
+          event.type === 'token' &&
+          events.filter((e) => e.type === 'token').length === 1
+        ) {
           // State Machine Verification: on first token, row must transition to 'streaming'
           const streamingRow = db.get<any>(
             'SELECT * FROM messages WHERE id = ?',
@@ -799,7 +829,9 @@ describe('InferenceService', () => {
       const errorEvent = events.find((e) => e.type === 'error');
       expect(errorEvent).toBeDefined();
       expect(errorEvent.data.code).toBe('RATE_LIMIT_EXCEEDED');
-      expect(errorEvent.data.message).toBe('Provider rate limit reached mid-stream');
+      expect(errorEvent.data.message).toBe(
+        'Provider rate limit reached mid-stream',
+      );
 
       const doneEvent = events.find((e) => e.type === 'done');
       expect(doneEvent).toBeDefined();
@@ -878,7 +910,12 @@ describe('InferenceService', () => {
 
     it('checkpoints partial content to SQLite periodically when 200 chars threshold is reached', async () => {
       // 5 chunks of 50 chars = 250 chars total
-      const longText = 'A'.repeat(50) + 'B'.repeat(50) + 'C'.repeat(50) + 'D'.repeat(50) + 'E'.repeat(50);
+      const longText =
+        'A'.repeat(50) +
+        'B'.repeat(50) +
+        'C'.repeat(50) +
+        'D'.repeat(50) +
+        'E'.repeat(50);
       const longAdapter = new TestDoubleAdapter(
         { providerKind: 'openai' },
         {
@@ -1007,8 +1044,12 @@ describe('InferenceService', () => {
 
       // Verify adapter prompt received expected turns (1 and 2, not 3 and 4)
       const lastReq = customAdapter.completedRequests[0];
-      expect(lastReq.messages[0].content).toContain('[Sequence 1 | user]:\nMessage 1');
-      expect(lastReq.messages[0].content).toContain('[Sequence 2 | assistant]:\nMessage 2');
+      expect(lastReq.messages[0].content).toContain(
+        '[Sequence 1 | user]:\nMessage 1',
+      );
+      expect(lastReq.messages[0].content).toContain(
+        '[Sequence 2 | assistant]:\nMessage 2',
+      );
       expect(lastReq.messages[0].content).not.toContain('Message 3');
       expect(lastReq.messages[0].content).not.toContain('Message 4');
 
@@ -1129,8 +1170,12 @@ describe('InferenceService', () => {
       expect(secondReq.messages[0].content).toContain('<prior_summary>');
       expect(secondReq.messages[0].content).toContain('Initial Summary');
       expect(secondReq.messages[0].content).toContain('<new_turns>');
-      expect(secondReq.messages[0].content).toContain('[Sequence 3 | user]:\nStep 3');
-      expect(secondReq.messages[0].content).toContain('[Sequence 4 | assistant]:\nStep 4');
+      expect(secondReq.messages[0].content).toContain(
+        '[Sequence 3 | user]:\nStep 3',
+      );
+      expect(secondReq.messages[0].content).toContain(
+        '[Sequence 4 | assistant]:\nStep 4',
+      );
     });
 
     it('records compaction point so context construction covers every message exactly once with no duplication and no gap', async () => {
@@ -1151,7 +1196,9 @@ describe('InferenceService', () => {
       const assembled = service.inspectContext(chat.id);
 
       // Summary is placed in system context
-      expect(assembled.systemPrompt).toContain('Context summary:\nHello! I am ready to help.');
+      expect(assembled.systemPrompt).toContain(
+        'Context summary:\nHello! I am ready to help.',
+      );
 
       // Active messages contain exactly turns 4 and 5 (uncompacted)
       expect(assembled.messages).toHaveLength(2);
@@ -1160,7 +1207,9 @@ describe('InferenceService', () => {
 
       // Superseded messages (1, 2, 3) are tracked in excludedMessages as compacted_history
       expect(assembled.excludedMessages).toHaveLength(3);
-      expect(assembled.excludedMessages.map((m) => m.sequence)).toEqual([1, 2, 3]);
+      expect(assembled.excludedMessages.map((m) => m.sequence)).toEqual([
+        1, 2, 3,
+      ]);
       expect(assembled.excludedMessages[0].reason).toBe('compacted_history');
       expect(assembled.excludedMessages[1].reason).toBe('compacted_history');
       expect(assembled.excludedMessages[2].reason).toBe('compacted_history');
@@ -1229,7 +1278,9 @@ describe('InferenceService', () => {
       const activeContents = assembled.messages.map((m) => m.content);
       expect(activeContents).toContain('Pre-existing turn 3');
       expect(activeContents).toContain('Pre-existing turn 4');
-      expect(activeContents).toContain('Concurrent message arriving mid-flight');
+      expect(activeContents).toContain(
+        'Concurrent message arriving mid-flight',
+      );
       expect(activeContents).not.toContain('Pre-existing turn 1');
       expect(activeContents).not.toContain('Pre-existing turn 2');
     });
@@ -1261,11 +1312,11 @@ describe('InferenceService', () => {
 
     it('rejects with distinct error for each resolution chain failure', async () => {
       // 1. Unknown chat (404)
-      await expect(
-        service.compactChat('non-existent-chat-id'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.compactChat('non-existent-chat-id')).rejects.toThrow(
+        NotFoundException,
+      );
 
-      // 2. Team chat (422)
+      // 2. Team chat with no members (422)
       const team = fixtures.createTeam();
       const teamChat = fixtures.createChat({
         team_id: team.id,
@@ -1273,8 +1324,8 @@ describe('InferenceService', () => {
       });
       await expect(service.compactChat(teamChat.id)).rejects.toThrow(
         new UnprocessableEntityException({
-          code: 'TEAM_CHAT_NOT_SUPPORTED',
-          message: 'Multi-agent team chats are not yet supported for completion',
+          code: 'TEAM_HAS_NO_MEMBERS',
+          message: 'Team has no active members to execute completions',
         }),
       );
 
@@ -1315,7 +1366,9 @@ describe('InferenceService', () => {
       const chatWithDisabledModel = fixtures.createChat({
         agent_id: agentWithDisabledModel.id,
       });
-      await expect(service.compactChat(chatWithDisabledModel.id)).rejects.toThrow(
+      await expect(
+        service.compactChat(chatWithDisabledModel.id),
+      ).rejects.toThrow(
         new UnprocessableEntityException({
           code: 'MODEL_DISABLED',
           message: `Model "${disabledModel.display_name}" is disabled`,
@@ -1463,5 +1516,498 @@ describe('InferenceService', () => {
       );
     });
   });
-});
 
+  // =========================================================================
+  // Multi-Agent Team Chat Orchestration (RFC 67)
+  // =========================================================================
+  describe('multi-agent team chat orchestration (RFC 67)', () => {
+    it('executes team members sequentially in position ascending order', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id, {
+        context_window: 128000,
+        default_temperature: 0.7,
+      });
+
+      const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+      const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+      const charlie = fixtures.createAgent({
+        name: 'Charlie',
+        model_id: model.id,
+      });
+
+      const team = fixtures.createTeam({ name: 'Engineering Team' });
+      fixtures.createTeamMember(team.id, alice.id, {
+        position: 1,
+        role: 'Architect',
+      });
+      fixtures.createTeamMember(team.id, bob.id, {
+        position: 2,
+        role: 'Implementer',
+      });
+      fixtures.createTeamMember(team.id, charlie.id, {
+        position: 3,
+        role: 'Reviewer',
+      });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Build the notification system',
+        status: 'complete',
+      });
+
+      let callCount = 0;
+      testDouble.complete = vi.fn().mockImplementation(async () => {
+        callCount++;
+        return {
+          content: `Reply from agent ${callCount}`,
+          finishReason: 'stop',
+          usage: {
+            inputTokens: 10 * callCount,
+            outputTokens: 5,
+            totalTokens: 10 * callCount + 5,
+          },
+        };
+      });
+
+      const response = await service.completeChat(chat.id, {});
+
+      expect(callCount).toBe(3);
+      expect(response.messages).toHaveLength(3);
+      expect(response.messages![0].agentId).toBe(alice.id);
+      expect(response.messages![0].content).toBe('Reply from agent 1');
+      expect(response.messages![0].sequence).toBe(2);
+
+      expect(response.messages![1].agentId).toBe(bob.id);
+      expect(response.messages![1].content).toBe('Reply from agent 2');
+      expect(response.messages![1].sequence).toBe(3);
+
+      expect(response.messages![2].agentId).toBe(charlie.id);
+      expect(response.messages![2].content).toBe('Reply from agent 3');
+      expect(response.messages![2].sequence).toBe(4);
+
+      // Top-level response reflects final message
+      expect(response.id).toBe(response.messages![2].id);
+      expect(response.agentId).toBe(charlie.id);
+
+      // Usage events recorded for each member
+      const usageRows = db.all<{ agent_id: string }>(
+        'SELECT agent_id FROM usage_events WHERE chat_id = ? ORDER BY occurred_at ASC',
+        [chat.id],
+      );
+      expect(usageRows).toHaveLength(3);
+      expect(usageRows[0].agent_id).toBe(alice.id);
+      expect(usageRows[1].agent_id).toBe(bob.id);
+      expect(usageRows[2].agent_id).toBe(charlie.id);
+    });
+
+    it('respects deterministic tie-breaking (position ASC NULLS LAST, created_at ASC, agent_id ASC)', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+
+      const agentA = fixtures.createAgent({
+        name: 'Agent A',
+        model_id: model.id,
+      });
+      const agentB = fixtures.createAgent({
+        name: 'Agent B',
+        model_id: model.id,
+      });
+      const agentC = fixtures.createAgent({
+        name: 'Agent C',
+        model_id: model.id,
+      });
+
+      const team = fixtures.createTeam({ name: 'Tiebreaker Team' });
+      fixtures.createTeamMember(team.id, agentA.id, { position: 2 });
+      fixtures.createTeamMember(team.id, agentB.id, { position: 1 });
+      fixtures.createTeamMember(team.id, agentC.id, { position: null as any });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Go',
+      });
+
+      testDouble.complete = vi.fn().mockResolvedValue({
+        content: 'Done',
+        finishReason: 'stop',
+        usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+      });
+
+      const res = await service.completeChat(chat.id, {});
+      expect(res.messages).toHaveLength(3);
+      expect(res.messages![0].agentId).toBe(agentB.id); // Pos 1
+      expect(res.messages![1].agentId).toBe(agentA.id); // Pos 2
+      expect(res.messages![2].agentId).toBe(agentC.id); // Pos NULL
+    });
+
+    it('degenerates cleanly for a 1-member team', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+      const solo = fixtures.createAgent({ name: 'Solo', model_id: model.id });
+
+      const team = fixtures.createTeam({ name: 'Solo Team' });
+      fixtures.createTeamMember(team.id, solo.id, { position: 1 });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Solo query',
+      });
+
+      testDouble.complete = vi.fn().mockResolvedValue({
+        content: 'Solo response',
+        finishReason: 'stop',
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      });
+
+      const response = await service.completeChat(chat.id, {});
+      expect(response.agentId).toBe(solo.id);
+      expect(response.content).toBe('Solo response');
+      expect(response.messages).toHaveLength(1);
+      expect(response.messages![0].agentId).toBe(solo.id);
+    });
+
+    it('frames peer messages with participant banners in context for subsequent agents', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+
+      const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+      const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+
+      const team = fixtures.createTeam({ name: 'Dev Team' });
+      fixtures.createTeamMember(team.id, alice.id, {
+        position: 1,
+        role: 'Lead Architect',
+      });
+      fixtures.createTeamMember(team.id, bob.id, {
+        position: 2,
+        role: 'Database Engineer',
+      });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'What DB should we use?',
+      });
+
+      const contextsSeen: any[] = [];
+      testDouble.complete = vi.fn().mockImplementation(async (req) => {
+        contextsSeen.push(req);
+        return {
+          content:
+            contextsSeen.length === 1
+              ? 'Use SQLite with WAL mode'
+              : 'I agree with SQLite',
+          finishReason: 'stop',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        };
+      });
+
+      await service.completeChat(chat.id, {});
+
+      expect(contextsSeen).toHaveLength(2);
+
+      // Alice saw user prompt
+      expect(contextsSeen[0].messages).toHaveLength(1);
+      expect(contextsSeen[0].messages[0].role).toBe('user');
+      expect(contextsSeen[0].messages[0].content).toBe(
+        'What DB should we use?',
+      );
+      expect(contextsSeen[0].systemPrompt).toContain(
+        "In this conversation, you are collaborating as the Lead Architect for team 'Dev Team'.",
+      );
+
+      // Bob saw user prompt AND Alice's reply framed with participant banner
+      expect(contextsSeen[1].messages).toHaveLength(2);
+      expect(contextsSeen[1].messages[0].role).toBe('user');
+      expect(contextsSeen[1].messages[1].role).toBe('assistant');
+      expect(contextsSeen[1].messages[1].content).toBe(
+        '[Team Member: Alice (Lead Architect)]:\nUse SQLite with WAL mode',
+      );
+      expect(contextsSeen[1].systemPrompt).toContain(
+        "In this conversation, you are collaborating as the Database Engineer for team 'Dev Team'.",
+      );
+    });
+
+    it('terminates early if an agent emits the early exit token <!-- GB_TEAM_FINISH -->', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+
+      const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+      const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+
+      const team = fixtures.createTeam({ name: 'Fast Team' });
+      fixtures.createTeamMember(team.id, alice.id, { position: 1 });
+      fixtures.createTeamMember(team.id, bob.id, { position: 2 });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Simple question',
+      });
+
+      testDouble.complete = vi.fn().mockResolvedValue({
+        content: 'This answers everything directly. <!-- GB_TEAM_FINISH -->',
+        finishReason: 'stop',
+        usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 },
+      });
+
+      const response = await service.completeChat(chat.id, {});
+      expect(testDouble.complete).toHaveBeenCalledTimes(1); // Only Alice called!
+      expect(response.messages).toHaveLength(1);
+      expect(response.messages![0].agentId).toBe(alice.id);
+    });
+
+    it('pauses pipeline gracefully and preserves partial progress on mid-turn failure', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+
+      const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+      const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+      const charlie = fixtures.createAgent({
+        name: 'Charlie',
+        model_id: model.id,
+      });
+
+      const team = fixtures.createTeam({ name: 'Resilient Team' });
+      fixtures.createTeamMember(team.id, alice.id, { position: 1 });
+      fixtures.createTeamMember(team.id, bob.id, { position: 2 });
+      fixtures.createTeamMember(team.id, charlie.id, { position: 3 });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Run test',
+      });
+
+      let call = 0;
+      testDouble.complete = vi.fn().mockImplementation(async () => {
+        call++;
+        if (call === 1) {
+          return {
+            content: 'Alice completed turn',
+            finishReason: 'stop',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          };
+        }
+        // Bob fails with rate limit
+        throw new RateLimitError('Provider rate limit reached', 'openai');
+      });
+
+      await expect(service.completeChat(chat.id, {})).rejects.toThrow(
+        RateLimitError,
+      );
+
+      // Charlie (member 3) was never called
+      expect(testDouble.complete).toHaveBeenCalledTimes(2);
+
+      // Check SQLite state:
+      // Alice's message is persisted with status 'complete'
+      const aliceMsg = db.get<any>(
+        'SELECT * FROM messages WHERE chat_id = ? AND agent_id = ?',
+        [chat.id, alice.id],
+      );
+      expect(aliceMsg).toBeDefined();
+      expect(aliceMsg.status).toBe('complete');
+      expect(aliceMsg.content).toBe('Alice completed turn');
+
+      // Bob's message recorded with status 'error'
+      const bobMsg = db.get<any>(
+        'SELECT * FROM messages WHERE chat_id = ? AND agent_id = ?',
+        [chat.id, bob.id],
+      );
+      expect(bobMsg).toBeDefined();
+      expect(bobMsg.status).toBe('error');
+
+      // Charlie's message was not created
+      const charlieMsg = db.get<any>(
+        'SELECT * FROM messages WHERE chat_id = ? AND agent_id = ?',
+        [chat.id, charlie.id],
+      );
+      expect(charlieMsg).toBeUndefined();
+    });
+
+    it('streams multi-agent team completion multiplexing sequential message_start and complete events', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+
+      const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+      const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+
+      const team = fixtures.createTeam({ name: 'Streaming Team' });
+      fixtures.createTeamMember(team.id, alice.id, {
+        position: 1,
+        role: 'Drafter',
+      });
+      fixtures.createTeamMember(team.id, bob.id, {
+        position: 2,
+        role: 'Editor',
+      });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Stream collaborate',
+      });
+
+      let streamCall = 0;
+      testDouble.stream = vi.fn().mockImplementation(async function* () {
+        streamCall++;
+        if (streamCall === 1) {
+          yield { type: 'text-delta', delta: 'Draft content ' };
+          yield { type: 'text-delta', delta: 'from Alice' };
+          yield {
+            type: 'usage',
+            usage: { inputTokens: 10, outputTokens: 6, totalTokens: 16 },
+          };
+          yield { type: 'complete', finishReason: 'stop' };
+        } else {
+          yield { type: 'text-delta', delta: 'Edited content ' };
+          yield { type: 'text-delta', delta: 'from Bob' };
+          yield {
+            type: 'usage',
+            usage: { inputTokens: 20, outputTokens: 6, totalTokens: 26 },
+          };
+          yield { type: 'complete', finishReason: 'stop' };
+        }
+      });
+
+      const generator = service.streamChat(chat.id, { stream: true });
+      const events: any[] = [];
+      for await (const event of generator) {
+        events.push(event);
+      }
+
+      // Check event taxonomy sequence
+      const messageStarts = events.filter((e) => e.type === 'message_start');
+      expect(messageStarts).toHaveLength(2);
+      expect(messageStarts[0].data.agentId).toBe(alice.id);
+      expect(messageStarts[0].data.agentName).toBe('Alice (Drafter)');
+      expect(messageStarts[1].data.agentId).toBe(bob.id);
+      expect(messageStarts[1].data.agentName).toBe('Bob (Editor)');
+
+      const messageCompletes = events.filter(
+        (e) => e.type === 'message_complete',
+      );
+      expect(messageCompletes).toHaveLength(2);
+      expect(messageCompletes[0].data.messageId).toBe(
+        messageStarts[0].data.messageId,
+      );
+      expect(messageCompletes[1].data.messageId).toBe(
+        messageStarts[1].data.messageId,
+      );
+
+      // Terminal aggregate usage
+      const terminalUsage = events.find((e) => e.type === 'usage');
+      expect(terminalUsage).toBeDefined();
+      expect(terminalUsage.data.inputTokens).toBe(30); // 10 + 20
+      expect(terminalUsage.data.outputTokens).toBe(12); // 6 + 6
+      expect(terminalUsage.data.totalTokens).toBe(42); // 16 + 26
+
+      // Terminal done event
+      const doneEvent = events[events.length - 1];
+      expect(doneEvent.type).toBe('done');
+      expect(doneEvent.data).toBe('[DONE]');
+
+      // Check SQLite rows
+      const dbMessages = db.all<any>(
+        'SELECT * FROM messages WHERE chat_id = ? ORDER BY sequence ASC',
+        [chat.id],
+      );
+      expect(dbMessages).toHaveLength(3); // 1 user + 2 assistant
+      expect(dbMessages[1].status).toBe('complete');
+      expect(dbMessages[1].content).toBe('Draft content from Alice');
+      expect(dbMessages[2].status).toBe('complete');
+      expect(dbMessages[2].content).toBe('Edited content from Bob');
+    });
+
+    it('delivers in-band error and halts downstream streaming when mid-stream failure occurs', async () => {
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+
+      const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+      const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+
+      const team = fixtures.createTeam({ name: 'Error Team' });
+      fixtures.createTeamMember(team.id, alice.id, { position: 1 });
+      fixtures.createTeamMember(team.id, bob.id, { position: 2 });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Stream error test',
+      });
+
+      let streamCall = 0;
+      testDouble.stream = vi.fn().mockImplementation(async function* () {
+        streamCall++;
+        if (streamCall === 1) {
+          yield { type: 'text-delta', delta: 'Alice OK' };
+          yield {
+            type: 'usage',
+            usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
+          };
+          yield { type: 'complete', finishReason: 'stop' };
+        } else {
+          yield { type: 'text-delta', delta: 'Bob partial ' };
+          yield {
+            type: 'error',
+            error: new RateLimitError('Stream rate limit exceeded', 'openai'),
+          };
+        }
+      });
+
+      const generator = service.streamChat(chat.id, { stream: true });
+      const events: any[] = [];
+      for await (const event of generator) {
+        events.push(event);
+      }
+
+      // Alice completed
+      const aliceStart = events.find(
+        (e) => e.type === 'message_start' && e.data.agentId === alice.id,
+      );
+      expect(aliceStart).toBeDefined();
+      const aliceComplete = events.find(
+        (e) =>
+          e.type === 'message_complete' &&
+          e.data.messageId === aliceStart.data.messageId,
+      );
+      expect(aliceComplete).toBeDefined();
+
+      // Bob failed in-band
+      const inBandError = events.find((e) => e.type === 'error');
+      expect(inBandError).toBeDefined();
+      expect(inBandError.data.code).toBe('RATE_LIMIT_EXCEEDED');
+
+      // Terminal done emitted
+      expect(events[events.length - 1].type).toBe('done');
+
+      // Bob's message in SQLite is marked error, partial content preserved
+      const bobMsg = db.get<any>(
+        'SELECT * FROM messages WHERE chat_id = ? AND agent_id = ?',
+        [chat.id, bob.id],
+      );
+      expect(bobMsg.status).toBe('error');
+      expect(bobMsg.content).toBe('Bob partial ');
+    });
+  });
+});

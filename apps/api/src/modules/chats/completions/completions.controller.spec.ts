@@ -4,7 +4,10 @@ import type { Request, Response } from 'express';
 import { EventEmitter } from 'node:events';
 import { CompletionsController } from './completions.controller.js';
 import { InferenceService } from '../../inference/inference.service.js';
-import type { CreateCompletionDto, CompletionResponseDto } from './dto/index.js';
+import type {
+  CreateCompletionDto,
+  CompletionResponseDto,
+} from './dto/index.js';
 
 describe('CompletionsController', () => {
   let controller: CompletionsController;
@@ -175,7 +178,9 @@ describe('CompletionsController', () => {
         }
       }
 
-      (mockInferenceService as any).streamChat = vi.fn().mockReturnValue(mockStream());
+      (mockInferenceService as any).streamChat = vi
+        .fn()
+        .mockReturnValue(mockStream());
 
       const req = new EventEmitter() as unknown as Request;
       (req as any).headers = {};
@@ -239,7 +244,9 @@ describe('CompletionsController', () => {
         };
       }
 
-      (mockInferenceService as any).streamChat = vi.fn().mockReturnValue(mockStream());
+      (mockInferenceService as any).streamChat = vi
+        .fn()
+        .mockReturnValue(mockStream());
 
       const req = new EventEmitter() as unknown as Request;
       (req as any).headers = { accept: 'text/event-stream, */*' };
@@ -286,7 +293,9 @@ describe('CompletionsController', () => {
         };
       }
 
-      (mockInferenceService as any).streamChat = vi.fn().mockReturnValue(mockStream());
+      (mockInferenceService as any).streamChat = vi
+        .fn()
+        .mockReturnValue(mockStream());
 
       const req = new EventEmitter() as unknown as Request;
       (req as any).headers = {};
@@ -426,4 +435,3 @@ describe('CompletionsController', () => {
     });
   });
 });
-

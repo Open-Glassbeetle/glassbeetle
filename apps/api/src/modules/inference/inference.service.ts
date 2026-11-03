@@ -47,7 +47,6 @@ import {
 import { ContextConstructionService } from './context-construction.service.js';
 import type { AssembledContext } from './context-construction.types.js';
 
-
 /**
  * Options for executing a chat completion.
  */
@@ -120,10 +119,24 @@ export class InferenceService {
     dto?: CreateCompletionDto,
     options?: CompleteChatOptions,
   ): Promise<CompletionResponseDto> {
+    const chat = this.db.get<ChatRow>('SELECT * FROM chats WHERE id = ?', [
+      chatId,
+    ]);
+    if (!chat) {
+      throw new NotFoundException({
+        code: 'CHAT_NOT_FOUND',
+        message: `Chat with ID "${chatId}" not found`,
+      });
+    }
+
+    if (chat.team_id !== null) {
+      return this.completeTeamChat(chat, dto, options);
+    }
+
     // -----------------------------------------------------------------------
     // 1. Resolve execution chain & validate runnability
     // -----------------------------------------------------------------------
-    const { chat, agent, model, provider, apiKey } = this.resolveExecutionChain(
+    const { agent, model, provider, apiKey } = this.resolveExecutionChain(
       chatId,
       dto?.modelId,
     );
@@ -136,14 +149,14 @@ export class InferenceService {
         ? dto.temperature
         : agent.temperature !== null
           ? agent.temperature
-          : model.default_temperature ?? undefined;
+          : (model.default_temperature ?? undefined);
 
     const effectiveMaxTokens =
       dto?.maxTokens !== undefined && dto.maxTokens !== null
         ? dto.maxTokens
         : agent.max_tokens !== null
           ? agent.max_tokens
-          : model.default_max_tokens ?? undefined;
+          : (model.default_max_tokens ?? undefined);
 
     let effectiveModelParams: Record<string, unknown> | undefined;
     if (agent.model_params) {
@@ -247,10 +260,25 @@ export class InferenceService {
     dto?: CreateCompletionDto,
     options?: CompleteChatOptions,
   ): AsyncGenerator<SseCompletionEvent, void, unknown> {
+    const chat = this.db.get<ChatRow>('SELECT * FROM chats WHERE id = ?', [
+      chatId,
+    ]);
+    if (!chat) {
+      throw new NotFoundException({
+        code: 'CHAT_NOT_FOUND',
+        message: `Chat with ID "${chatId}" not found`,
+      });
+    }
+
+    if (chat.team_id !== null) {
+      yield* this.streamTeamChat(chat, dto, options);
+      return;
+    }
+
     // -----------------------------------------------------------------------
     // 1. Resolve execution chain & validate runnability
     // -----------------------------------------------------------------------
-    const { chat, agent, model, provider, apiKey } = this.resolveExecutionChain(
+    const { agent, model, provider, apiKey } = this.resolveExecutionChain(
       chatId,
       dto?.modelId,
     );
@@ -286,14 +314,14 @@ export class InferenceService {
         ? dto.temperature
         : agent.temperature !== null
           ? agent.temperature
-          : model.default_temperature ?? undefined;
+          : (model.default_temperature ?? undefined);
 
     const effectiveMaxTokens =
       dto?.maxTokens !== undefined && dto.maxTokens !== null
         ? dto.maxTokens
         : agent.max_tokens !== null
           ? agent.max_tokens
-          : model.default_max_tokens ?? undefined;
+          : (model.default_max_tokens ?? undefined);
 
     let effectiveModelParams: Record<string, unknown> | undefined;
     if (agent.model_params) {
@@ -321,87 +349,7 @@ export class InferenceService {
     // -----------------------------------------------------------------------
     // 4. Atomically allocate sequence and insert pending row in SQLite
     // -----------------------------------------------------------------------
-    let attempts = 0;
-    const maxRetries = 3;
-    let pendingRow: MessageRow | null = null;
-    const messageId = newId();
-    const createdAt = nowIso();
-
-    while (attempts < maxRetries) {
-      attempts++;
-      try {
-        pendingRow = this.db.transaction(() => {
-          const insertSql = `
-            INSERT INTO messages (
-              id,
-              chat_id,
-              sequence,
-              role,
-              agent_id,
-              content,
-              status,
-              token_count,
-              created_at
-            ) VALUES (
-              ?,
-              ?,
-              (SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE chat_id = ?),
-              'assistant',
-              ?,
-              '',
-              'pending',
-              NULL,
-              ?
-            )
-            RETURNING *
-          `;
-          const row = this.db.get<MessageRow>(insertSql, [
-            messageId,
-            chat.id,
-            chat.id,
-            agent.id,
-            createdAt,
-          ]);
-
-          this.db.run('UPDATE chats SET updated_at = ? WHERE id = ?', [
-            createdAt,
-            chat.id,
-          ]);
-
-          return row ?? null;
-        });
-
-        if (pendingRow) {
-          break;
-        }
-      } catch (error: any) {
-        const isUniqueConstraint =
-          error?.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
-          (typeof error?.message === 'string' &&
-            error.message.includes(
-              'UNIQUE constraint failed: messages.chat_id, messages.sequence',
-            ));
-
-        if (isUniqueConstraint && attempts < maxRetries) {
-          continue;
-        }
-
-        this.logger.error(
-          `Failed to allocate sequence for streaming message in chat "${chat.id}": ${error?.message}`,
-        );
-        throw new InternalServerErrorException({
-          code: 'SEQUENCE_ALLOCATION_FAILED',
-          message: 'Failed to allocate sequence for chat message',
-        });
-      }
-    }
-
-    if (!pendingRow) {
-      throw new InternalServerErrorException({
-        code: 'SEQUENCE_ALLOCATION_FAILED',
-        message: 'Failed to allocate sequence for chat message',
-      });
-    }
+    const pendingRow = this.createPendingMessageRow(chat.id, agent.id);
 
     // -----------------------------------------------------------------------
     // 5. Emit message_start event
@@ -413,6 +361,7 @@ export class InferenceService {
         chatId: chat.id,
         sequence: pendingRow.sequence,
         agentId: agent.id,
+        agentName: agent.name,
         role: 'assistant',
       },
     };
@@ -661,59 +610,48 @@ export class InferenceService {
   }
 
   /**
-   * Resolves the full execution chain from chat to provider credentials.
-
+   * Retrieves active team members in deterministic execution order.
    *
-   * Fails with distinct, actionable 422 errors at whichever link is invalid.
+   * Ordered per RFC 67:
+   * 1. Position ascending (NULLS LAST)
+   * 2. Membership creation timestamp ascending
+   * 3. Agent ID ascending
    */
-  private resolveExecutionChain(
-    chatId: string,
+  private getActiveTeamMembers(teamId: string): Array<{
+    agent_id: string;
+    role: string | null;
+    position: number | null;
+    agent_name: string;
+  }> {
+    return this.db.all(
+      `SELECT
+         tm.agent_id,
+         tm.role,
+         tm.position,
+         a.name AS agent_name
+       FROM team_members tm
+       JOIN agents a ON a.id = tm.agent_id
+       WHERE tm.team_id = ?
+       ORDER BY
+         tm.position ASC NULLS LAST,
+         tm.created_at ASC,
+         tm.agent_id ASC`,
+      [teamId],
+    );
+  }
+
+  /**
+   * Resolves model, provider, and decrypted API key for an agent.
+   */
+  private resolveAgentExecution(
+    agent: AgentRow,
     overrideModelId?: string,
   ): {
-    chat: ChatRow;
-    agent: AgentRow;
     model: ModelRow;
     provider: ProviderRow;
     apiKey?: string;
   } {
-    // 1. Chat existence check (404)
-    const chat = this.db.get<ChatRow>('SELECT * FROM chats WHERE id = ?', [
-      chatId,
-    ]);
-    if (!chat) {
-      throw new NotFoundException({
-        code: 'CHAT_NOT_FOUND',
-        message: `Chat with ID "${chatId}" not found`,
-      });
-    }
-
-    // 2. Team-owned chat check (422)
-    if (chat.team_id !== null) {
-      throw new UnprocessableEntityException({
-        code: 'TEAM_CHAT_NOT_SUPPORTED',
-        message: 'Multi-agent team chats are not yet supported for completion',
-      });
-    }
-
-    // 3. Agent existence check (422)
-    if (!chat.agent_id) {
-      throw new UnprocessableEntityException({
-        code: 'CHAT_HAS_NO_AGENT',
-        message: 'Chat has no assigned agent to execute completions',
-      });
-    }
-
-    const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
-      chat.agent_id,
-    ]);
-    if (!agent) {
-      throw new UnprocessableEntityException({
-        code: 'AGENT_NOT_FOUND',
-        message: `Agent with ID "${chat.agent_id}" was not found`,
-      });
-    }
-
-    // 4. Model resolution & existence check (422)
+    // 1. Model resolution & existence check (422)
     const effectiveModelId = overrideModelId ?? agent.model_id;
     if (!effectiveModelId) {
       throw new UnprocessableEntityException({
@@ -739,7 +677,7 @@ export class InferenceService {
       });
     }
 
-    // 5. Provider existence & enabled check (422)
+    // 2. Provider existence & enabled check (422)
     const provider = this.db.get<ProviderRow>(
       'SELECT * FROM providers WHERE id = ?',
       [model.provider_id],
@@ -758,7 +696,7 @@ export class InferenceService {
       });
     }
 
-    // 6. Credential check (422)
+    // 3. Credential check (422)
     const isLocal =
       provider.is_local === 1 ||
       provider.kind === 'ollama' ||
@@ -781,6 +719,692 @@ export class InferenceService {
         message: `Provider "${provider.name}" requires an API credential that is not configured`,
       });
     }
+
+    return { model, provider, apiKey };
+  }
+
+  /**
+   * Atomically allocates sequence and inserts a pending message row in SQLite.
+   */
+  private createPendingMessageRow(chatId: string, agentId: string): MessageRow {
+    const maxRetries = 3;
+    let attempts = 0;
+    const messageId = newId();
+    const createdAt = nowIso();
+
+    while (attempts < maxRetries) {
+      attempts++;
+      try {
+        const pendingRow = this.db.transaction(() => {
+          const insertSql = `
+            INSERT INTO messages (
+              id,
+              chat_id,
+              sequence,
+              role,
+              agent_id,
+              content,
+              status,
+              token_count,
+              created_at
+            ) VALUES (
+              ?,
+              ?,
+              (SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE chat_id = ?),
+              'assistant',
+              ?,
+              '',
+              'pending',
+              NULL,
+              ?
+            )
+            RETURNING *
+          `;
+          const row = this.db.get<MessageRow>(insertSql, [
+            messageId,
+            chatId,
+            chatId,
+            agentId,
+            createdAt,
+          ]);
+
+          this.db.run('UPDATE chats SET updated_at = ? WHERE id = ?', [
+            createdAt,
+            chatId,
+          ]);
+
+          return row ?? null;
+        });
+
+        if (pendingRow) {
+          return pendingRow;
+        }
+      } catch (error: any) {
+        const isUniqueConstraint =
+          error?.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+          (typeof error?.message === 'string' &&
+            error.message.includes(
+              'UNIQUE constraint failed: messages.chat_id, messages.sequence',
+            ));
+
+        if (isUniqueConstraint && attempts < maxRetries) {
+          continue;
+        }
+
+        this.logger.error(
+          `Failed to allocate sequence for streaming message in chat "${chatId}": ${error?.message}`,
+        );
+        throw new InternalServerErrorException({
+          code: 'SEQUENCE_ALLOCATION_FAILED',
+          message: 'Failed to allocate sequence for chat message',
+        });
+      }
+    }
+
+    throw new InternalServerErrorException({
+      code: 'SEQUENCE_ALLOCATION_FAILED',
+      message: 'Failed to allocate sequence for chat message',
+    });
+  }
+
+  /**
+   * Executes a sequential position pipeline completion for a multi-agent team chat (RFC 67).
+   */
+  private async completeTeamChat(
+    chat: ChatRow,
+    dto?: CreateCompletionDto,
+    options?: CompleteChatOptions,
+  ): Promise<CompletionResponseDto> {
+    const members = this.getActiveTeamMembers(chat.team_id!);
+    if (members.length === 0) {
+      throw new UnprocessableEntityException({
+        code: 'TEAM_HAS_NO_MEMBERS',
+        message: 'Team has no active members to execute completions',
+      });
+    }
+
+    // Pre-validate all members' runnability upfront so configuration errors fail before executing
+    for (const member of members) {
+      const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+        member.agent_id,
+      ]);
+      if (!agent) {
+        throw new UnprocessableEntityException({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent with ID "${member.agent_id}" was not found`,
+        });
+      }
+      this.resolveAgentExecution(agent, dto?.modelId);
+    }
+
+    const maxTurns = Math.min(members.length, 10);
+    const completedMessages: CompletionResponseDto[] = [];
+
+    for (let i = 0; i < maxTurns; i++) {
+      if (options?.signal?.aborted) {
+        if (completedMessages.length === 0) {
+          throw new RequestAbortedError('Request was aborted', 'generic');
+        }
+        break;
+      }
+
+      const member = members[i];
+      const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+        member.agent_id,
+      ])!;
+      const { model, provider, apiKey } = this.resolveAgentExecution(
+        agent,
+        dto?.modelId,
+      );
+
+      const effectiveTemperature =
+        dto?.temperature !== undefined && dto.temperature !== null
+          ? dto.temperature
+          : agent.temperature !== null
+            ? agent.temperature
+            : (model.default_temperature ?? undefined);
+
+      const effectiveMaxTokens =
+        dto?.maxTokens !== undefined && dto.maxTokens !== null
+          ? dto.maxTokens
+          : agent.max_tokens !== null
+            ? agent.max_tokens
+            : (model.default_max_tokens ?? undefined);
+
+      let effectiveModelParams: Record<string, unknown> | undefined;
+      if (agent.model_params) {
+        try {
+          effectiveModelParams = JSON.parse(agent.model_params);
+        } catch {
+          effectiveModelParams = undefined;
+        }
+      }
+
+      const { systemPrompt, messages } = this.buildContext(chat, agent, model);
+
+      const completionRequest: CompletionRequest = {
+        model: model.model_identifier,
+        systemPrompt,
+        messages,
+        temperature: effectiveTemperature,
+        maxTokens: effectiveMaxTokens,
+        modelParams: effectiveModelParams,
+      };
+
+      const adapter = this.adapterFactory.create({
+        providerId: provider.id,
+        providerKind: provider.kind as ProviderKind,
+        baseUrl: provider.base_url,
+        apiKey,
+        modelIdentifier: model.model_identifier,
+      });
+
+      let completionResponse: CompletionResponse;
+      try {
+        completionResponse = await adapter.complete(completionRequest, {
+          signal: options?.signal,
+        });
+      } catch (error: unknown) {
+        if (completedMessages.length > 0) {
+          try {
+            this.db.run(
+              `INSERT INTO messages (
+                id, chat_id, sequence, role, agent_id, content, status, token_count, created_at
+              ) VALUES (
+                ?, ?, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE chat_id = ?),
+                'assistant', ?, 'Generation failed mid-team turn', 'error', NULL, ?
+              )`,
+              [newId(), chat.id, chat.id, agent.id, nowIso()],
+            );
+          } catch {
+            // Ignore failure when recording error row
+          }
+        }
+
+        if (error instanceof ModelAdapterError) {
+          if (apiKey) {
+            error.message = redactSecrets(error.message, [apiKey]);
+            if (error.cause) {
+              (error as { cause: unknown }).cause = sanitizeErrorCause(
+                error.cause,
+                [apiKey],
+              );
+            }
+          }
+          throw error;
+        }
+
+        throw normalizeProviderError({
+          providerKind: provider.kind,
+          model: model.model_identifier,
+          cause: error,
+          knownSecrets: apiKey ? [apiKey] : undefined,
+        });
+      }
+
+      const reply = this.persistAssistantReply(
+        chat,
+        agent,
+        provider,
+        model,
+        completionResponse,
+      );
+      completedMessages.push(reply);
+
+      if (reply.content.includes('<!-- GB_TEAM_FINISH -->')) {
+        break;
+      }
+    }
+
+    const lastMessage = completedMessages[completedMessages.length - 1];
+    return {
+      ...lastMessage,
+      messages: completedMessages,
+    };
+  }
+
+  /**
+   * Executes a streaming chat completion for a multi-agent team chat (RFC 67).
+   */
+  private async *streamTeamChat(
+    chat: ChatRow,
+    dto?: CreateCompletionDto,
+    options?: CompleteChatOptions,
+  ): AsyncGenerator<SseCompletionEvent, void, unknown> {
+    const members = this.getActiveTeamMembers(chat.team_id!);
+    if (members.length === 0) {
+      throw new UnprocessableEntityException({
+        code: 'TEAM_HAS_NO_MEMBERS',
+        message: 'Team has no active members to execute completions',
+      });
+    }
+
+    if (options?.signal?.aborted) {
+      throw new RequestAbortedError(
+        'Request was aborted before execution',
+        'generic',
+      );
+    }
+
+    // Pre-validate all members' runnability and streaming capabilities upfront
+    // Fails synchronously before headers are sent if any member is misconfigured
+    for (const member of members) {
+      const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+        member.agent_id,
+      ]);
+      if (!agent) {
+        throw new UnprocessableEntityException({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent with ID "${member.agent_id}" was not found`,
+        });
+      }
+      const { model, provider, apiKey } = this.resolveAgentExecution(
+        agent,
+        dto?.modelId,
+      );
+      const adapter = this.adapterFactory.create({
+        providerId: provider.id,
+        providerKind: provider.kind as ProviderKind,
+        baseUrl: provider.base_url,
+        apiKey,
+        modelIdentifier: model.model_identifier,
+      });
+      if (!adapter.capabilities.supportsStreaming) {
+        throw new UnprocessableEntityException({
+          code: 'STREAMING_NOT_SUPPORTED',
+          message: `Model "${model.display_name}" does not support streaming completions`,
+        });
+      }
+    }
+
+    const maxTurns = Math.min(members.length, 10);
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalTokens = 0;
+    let totalReasoningTokens = 0;
+
+    for (let i = 0; i < maxTurns; i++) {
+      if (options?.signal?.aborted) {
+        return;
+      }
+
+      const member = members[i];
+      const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+        member.agent_id,
+      ])!;
+      const { model, provider, apiKey } = this.resolveAgentExecution(
+        agent,
+        dto?.modelId,
+      );
+
+      const effectiveTemperature =
+        dto?.temperature !== undefined && dto.temperature !== null
+          ? dto.temperature
+          : agent.temperature !== null
+            ? agent.temperature
+            : (model.default_temperature ?? undefined);
+
+      const effectiveMaxTokens =
+        dto?.maxTokens !== undefined && dto.maxTokens !== null
+          ? dto.maxTokens
+          : agent.max_tokens !== null
+            ? agent.max_tokens
+            : (model.default_max_tokens ?? undefined);
+
+      let effectiveModelParams: Record<string, unknown> | undefined;
+      if (agent.model_params) {
+        try {
+          effectiveModelParams = JSON.parse(agent.model_params);
+        } catch {
+          effectiveModelParams = undefined;
+        }
+      }
+
+      const { systemPrompt, messages } = this.buildContext(chat, agent, model);
+
+      const completionRequest: CompletionRequest = {
+        model: model.model_identifier,
+        systemPrompt,
+        messages,
+        temperature: effectiveTemperature,
+        maxTokens: effectiveMaxTokens,
+        modelParams: effectiveModelParams,
+      };
+
+      const pendingRow = this.createPendingMessageRow(chat.id, agent.id);
+
+      yield {
+        type: 'message_start',
+        data: {
+          messageId: pendingRow.id,
+          chatId: chat.id,
+          sequence: pendingRow.sequence,
+          agentId: agent.id,
+          agentName: member.role
+            ? `${member.agent_name} (${member.role})`
+            : member.agent_name,
+          role: 'assistant',
+        },
+      };
+
+      let accumulatedContent = '';
+      let lastFlushedContent = '';
+      let lastFlushTime = Date.now();
+      let currentStatus: 'pending' | 'streaming' | 'complete' | 'error' =
+        'pending';
+      let reportedUsage: TokenUsage | undefined;
+
+      const flushPartial = (
+        newStatus: 'streaming' | 'complete' | 'error',
+        finalOutputTokens?: number | null,
+      ) => {
+        const now = nowIso();
+        this.db.run(
+          `UPDATE messages
+           SET status = ?,
+               content = ?,
+               token_count = ?
+           WHERE id = ?`,
+          [
+            newStatus,
+            accumulatedContent,
+            finalOutputTokens !== undefined
+              ? finalOutputTokens
+              : (reportedUsage?.outputTokens ?? null),
+            pendingRow.id,
+          ],
+        );
+        this.db.run('UPDATE chats SET updated_at = ? WHERE id = ?', [
+          now,
+          chat.id,
+        ]);
+        lastFlushedContent = accumulatedContent;
+        lastFlushTime = Date.now();
+        currentStatus = newStatus;
+      };
+
+      const adapter = this.adapterFactory.create({
+        providerId: provider.id,
+        providerKind: provider.kind as ProviderKind,
+        baseUrl: provider.base_url,
+        apiKey,
+        modelIdentifier: model.model_identifier,
+      });
+
+      let turnError: unknown;
+      try {
+        const stream = adapter.stream(completionRequest, {
+          signal: options?.signal,
+        });
+
+        for await (const event of stream) {
+          if (options?.signal?.aborted) {
+            break;
+          }
+
+          switch (event.type) {
+            case 'text-delta': {
+              accumulatedContent += event.delta;
+              if (currentStatus === 'pending') {
+                flushPartial('streaming');
+              } else {
+                const charsSinceFlush =
+                  accumulatedContent.length - lastFlushedContent.length;
+                const timeSinceFlush = Date.now() - lastFlushTime;
+                if (charsSinceFlush >= 200 || timeSinceFlush >= 500) {
+                  flushPartial('streaming');
+                }
+              }
+
+              yield {
+                type: 'token',
+                data: {
+                  messageId: pendingRow.id,
+                  text: event.delta,
+                },
+              };
+              break;
+            }
+
+            case 'thought-delta': {
+              yield {
+                type: 'thought',
+                data: {
+                  messageId: pendingRow.id,
+                  thought: event.delta,
+                },
+              };
+              break;
+            }
+
+            case 'usage': {
+              reportedUsage = event.usage;
+              break;
+            }
+
+            case 'complete': {
+              if (event.usage) {
+                reportedUsage = event.usage;
+              }
+              break;
+            }
+
+            case 'error': {
+              throw event.error;
+            }
+          }
+        }
+      } catch (err: unknown) {
+        turnError = err;
+      }
+
+      // Handle client abort during or right after stream
+      if (options?.signal?.aborted) {
+        if (accumulatedContent.length > 0) {
+          flushPartial('complete', reportedUsage?.outputTokens ?? null);
+        } else {
+          accumulatedContent = 'Generation interrupted';
+          flushPartial('error', null);
+        }
+        return;
+      }
+
+      // Handle mid-stream provider error
+      if (turnError) {
+        let normalizedError: unknown = turnError;
+        if (apiKey) {
+          if (normalizedError instanceof ModelAdapterError) {
+            normalizedError.message = redactSecrets(normalizedError.message, [
+              apiKey,
+            ]);
+            if (normalizedError.cause) {
+              (normalizedError as { cause: unknown }).cause =
+                sanitizeErrorCause(normalizedError.cause, [apiKey]);
+            }
+          } else {
+            normalizedError = normalizeProviderError({
+              providerKind: provider.kind,
+              model: model.model_identifier,
+              cause: turnError,
+              knownSecrets: [apiKey],
+            });
+          }
+        } else if (!(normalizedError instanceof ModelAdapterError)) {
+          normalizedError = normalizeProviderError({
+            providerKind: provider.kind,
+            model: model.model_identifier,
+            cause: turnError,
+          });
+        }
+
+        flushPartial('error', reportedUsage?.outputTokens ?? null);
+
+        yield {
+          type: 'error',
+          data: toStreamErrorPayload(normalizedError),
+        };
+
+        yield {
+          type: 'done',
+          data: '[DONE]',
+        };
+
+        return; // Halt pipeline
+      }
+
+      // Normal turn completion for this member
+      flushPartial('complete', reportedUsage?.outputTokens ?? null);
+
+      const finalInputTokens = reportedUsage?.inputTokens ?? null;
+      const finalOutputTokens = reportedUsage?.outputTokens ?? null;
+
+      this.db.run(
+        `INSERT INTO usage_events (
+          id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id,
+          input_tokens, output_tokens, cost_usd, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newId(),
+          nowIso(),
+          'chat_completion',
+          agent.id,
+          provider.id,
+          model.id,
+          chat.id,
+          finalInputTokens,
+          finalOutputTokens,
+          null,
+          null,
+        ],
+      );
+
+      totalInputTokens += reportedUsage?.inputTokens ?? 0;
+      totalOutputTokens += reportedUsage?.outputTokens ?? 0;
+      totalTokens += reportedUsage?.totalTokens ?? 0;
+      totalReasoningTokens += reportedUsage?.reasoningTokens ?? 0;
+
+      yield {
+        type: 'message_complete',
+        data: {
+          messageId: pendingRow.id,
+          status: 'complete',
+          tokenCount: reportedUsage?.outputTokens ?? null,
+          usage: reportedUsage
+            ? {
+                inputTokens: reportedUsage.inputTokens,
+                outputTokens: reportedUsage.outputTokens,
+                totalTokens: reportedUsage.totalTokens,
+                reasoningTokens: reportedUsage.reasoningTokens,
+              }
+            : null,
+        },
+      };
+
+      // Check early termination token
+      if (accumulatedContent.includes('<!-- GB_TEAM_FINISH -->')) {
+        break;
+      }
+    }
+
+    // Terminal aggregate usage and done events
+    if (totalInputTokens > 0 || totalOutputTokens > 0) {
+      yield {
+        type: 'usage',
+        data: {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          totalTokens: totalTokens,
+          ...(totalReasoningTokens > 0
+            ? { reasoningTokens: totalReasoningTokens }
+            : {}),
+        },
+      };
+    }
+
+    yield {
+      type: 'done',
+      data: '[DONE]',
+    };
+  }
+
+  /**
+   * Resolves the full execution chain from chat to provider credentials.
+   *
+   * Fails with distinct, actionable 422 errors at whichever link is invalid.
+   */
+  private resolveExecutionChain(
+    chatId: string,
+    overrideModelId?: string,
+  ): {
+    chat: ChatRow;
+    agent: AgentRow;
+    model: ModelRow;
+    provider: ProviderRow;
+    apiKey?: string;
+  } {
+    // 1. Chat existence check (404)
+    const chat = this.db.get<ChatRow>('SELECT * FROM chats WHERE id = ?', [
+      chatId,
+    ]);
+    if (!chat) {
+      throw new NotFoundException({
+        code: 'CHAT_NOT_FOUND',
+        message: `Chat with ID "${chatId}" not found`,
+      });
+    }
+
+    // 2. Team-owned chat resolution (422 if empty roster)
+    if (chat.team_id !== null) {
+      const members = this.getActiveTeamMembers(chat.team_id);
+      if (members.length === 0) {
+        throw new UnprocessableEntityException({
+          code: 'TEAM_HAS_NO_MEMBERS',
+          message: 'Team has no active members to execute completions',
+        });
+      }
+
+      // Default to lead member for single-entity operations (e.g. compaction)
+      const lead = members[0];
+      const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+        lead.agent_id,
+      ]);
+      if (!agent) {
+        throw new UnprocessableEntityException({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent with ID "${lead.agent_id}" was not found`,
+        });
+      }
+
+      const { model, provider, apiKey } = this.resolveAgentExecution(
+        agent,
+        overrideModelId,
+      );
+      return { chat, agent, model, provider, apiKey };
+    }
+
+    // 3. Agent existence check (422)
+    if (!chat.agent_id) {
+      throw new UnprocessableEntityException({
+        code: 'CHAT_HAS_NO_AGENT',
+        message: 'Chat has no assigned agent to execute completions',
+      });
+    }
+
+    const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+      chat.agent_id,
+    ]);
+    if (!agent) {
+      throw new UnprocessableEntityException({
+        code: 'AGENT_NOT_FOUND',
+        message: `Agent with ID "${chat.agent_id}" was not found`,
+      });
+    }
+
+    // 4. Resolve agent execution chain (model, provider, apiKey)
+    const { model, provider, apiKey } = this.resolveAgentExecution(
+      agent,
+      overrideModelId,
+    );
 
     return { chat, agent, model, provider, apiKey };
   }
@@ -872,9 +1496,7 @@ export class InferenceService {
     // If chat.compacted_before_sequence exists, messages with sequence >= compacted_before_sequence are uncompacted.
     // If no prior compaction point exists, all messages are candidates.
     const uncompactedMessages = chat.compacted_before_sequence
-      ? allMessages.filter(
-          (m) => m.sequence >= chat.compacted_before_sequence!,
-        )
+      ? allMessages.filter((m) => m.sequence >= chat.compacted_before_sequence!)
       : allMessages;
 
     // 4. Verify there are enough messages to compact
