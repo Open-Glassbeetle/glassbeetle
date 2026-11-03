@@ -182,9 +182,8 @@ describe('ChatDetail', () => {
     const { element } = setup();
     const composer = element.querySelector('.composer');
 
-    // POST /messages exists, but nothing generates a reply, so there is
-    // deliberately nothing here to type into.
-    expect(composer?.textContent).toContain('completion endpoints');
+    // Completions exist; the bar holds the composer's place until that UI lands.
+    expect(composer?.textContent).toContain('waiting on a composer');
     expect(composer?.querySelector('textarea')).toBeNull();
     expect(composer?.querySelector('input')).toBeNull();
   });

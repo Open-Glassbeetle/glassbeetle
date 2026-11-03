@@ -63,10 +63,10 @@ interface TranscriptResult {
  * the end: an offset window shifts under the reader the moment a message is
  * appended, while a sequence cursor addresses the same turns either way.
  *
- * There is still no composer. `POST /messages` exists and would store what was
- * typed, but the completion endpoints do not, so nothing would ever answer it;
- * an input that produces a monologue is the kind of half-truth this codebase
- * avoids. The bar below the transcript says that in as many words.
+ * There is still no composer. `POST /messages` and `POST /completions` both
+ * exist, so a typed turn could be stored and answered — but this screen has
+ * nowhere to type yet. Building that input is composer work (#168); the bar
+ * below the transcript says so rather than blaming the API.
  */
 @Component({
   selector: 'app-chat-detail',
