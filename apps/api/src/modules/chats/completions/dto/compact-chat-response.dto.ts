@@ -26,4 +26,3 @@ export class CompactChatResponseDto extends ChatResponseDto {
   })
   readonly compactedBeforeSequence!: number | null;
 }
-

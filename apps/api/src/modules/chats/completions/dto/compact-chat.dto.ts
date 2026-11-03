@@ -1,11 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Min,
-} from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
 /**
  * Optional payload for conversation compaction (`POST /api/v1/chats/:chatId/compact`).
@@ -46,4 +40,3 @@ export class CompactChatDto {
   @Min(0, { message: 'preserveRecentCount must be at least 0' })
   preserveRecentCount?: number;
 }
-

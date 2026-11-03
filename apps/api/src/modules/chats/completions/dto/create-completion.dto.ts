@@ -66,4 +66,3 @@ export class CreateCompletionDto {
   @Min(1, { message: 'maxTokens must be at least 1' })
   maxTokens?: number;
 }
-

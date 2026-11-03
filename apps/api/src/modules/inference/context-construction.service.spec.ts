@@ -1,4 +1,7 @@
-import { NotFoundException } from '@nestjs/common';
+import {
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
 import { ContextLengthExceededError } from '../../model-adapters/errors/model-adapter-error.js';
@@ -917,10 +920,132 @@ describe('ContextConstructionService (Database-backed integration)', () => {
     );
   });
 
-  it('throws NotFoundException when chat has no agent (team chat without individual agent)', () => {
+  it('throws UnprocessableEntityException when team has no active members', () => {
     const team = fixtures.createTeam({ name: 'Architecture Team' });
     const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
 
-    expect(() => service.buildByChatId(chat.id)).toThrow(NotFoundException);
+    expect(() => service.buildByChatId(chat.id)).toThrow(
+      new UnprocessableEntityException({
+        code: 'TEAM_HAS_NO_MEMBERS',
+        message: 'Team has no active members to execute completions',
+      }),
+    );
+  });
+
+  it('builds context for team chat injecting role directive and peer banners', () => {
+    const team = fixtures.createTeam({ name: 'Architecture Core' });
+    const agentAlice = fixtures.createAgent({
+      name: 'Alice',
+      personality: 'Precise and analytical',
+      instructions: 'Focus on system structure',
+    });
+    const agentBob = fixtures.createAgent({
+      name: 'Bob',
+      personality: 'Pragmatic implementer',
+      instructions: 'Focus on database schema',
+    });
+
+    fixtures.createTeamMember(team.id, agentAlice.id, {
+      role: 'System Architect',
+      position: 1,
+    });
+    fixtures.createTeamMember(team.id, agentBob.id, {
+      role: 'Database Specialist',
+      position: 2,
+    });
+
+    const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+
+    fixtures.createMessage({
+      chat_id: chat.id,
+      sequence: 1,
+      role: 'user',
+      content: 'Design the cache layer',
+      status: 'complete',
+    });
+    fixtures.createMessage({
+      chat_id: chat.id,
+      sequence: 2,
+      role: 'assistant',
+      agent_id: agentAlice.id,
+      content: 'Use Redis with WAL mode',
+      status: 'complete',
+    });
+    fixtures.createMessage({
+      chat_id: chat.id,
+      sequence: 3,
+      role: 'assistant',
+      agent_id: null, // deleted agent
+      content: 'Make sure it is persistent',
+      status: 'complete',
+    });
+
+    // Inspect from Bob's perspective
+    const inspected = service.buildByChatId(chat.id, {
+      targetAgentId: agentBob.id,
+    });
+
+    expect(inspected.systemPrompt).toContain('Pragmatic implementer');
+    expect(inspected.systemPrompt).toContain('Focus on database schema');
+    expect(inspected.systemPrompt).toContain(
+      "In this conversation, you are collaborating as the Database Specialist for team 'Architecture Core'.",
+    );
+
+    // Messages checks:
+    // Turn 1 (user): verbatim
+    expect(inspected.messages[0].role).toBe('user');
+    expect(inspected.messages[0].content).toBe('Design the cache layer');
+
+    // Turn 2 (Alice - peer): framed with participant banner
+    expect(inspected.messages[1].role).toBe('assistant');
+    expect(inspected.messages[1].content).toBe(
+      '[Team Member: Alice (System Architect)]:\nUse Redis with WAL mode',
+    );
+
+    // Turn 3 (deleted agent - peer): framed with Former Agent banner
+    expect(inspected.messages[2].role).toBe('assistant');
+    expect(inspected.messages[2].content).toBe(
+      '[Team Member: Former Agent]:\nMake sure it is persistent',
+    );
+  });
+
+  it('preserves own messages verbatim for the active team agent', () => {
+    const team = fixtures.createTeam({ name: 'Architecture Core' });
+    const agentAlice = fixtures.createAgent({ name: 'Alice' });
+    const agentBob = fixtures.createAgent({ name: 'Bob' });
+
+    fixtures.createTeamMember(team.id, agentAlice.id, {
+      position: 1,
+    });
+    fixtures.createTeamMember(team.id, agentBob.id, {
+      position: 2,
+    });
+
+    const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+
+    fixtures.createMessage({
+      chat_id: chat.id,
+      sequence: 1,
+      role: 'user',
+      content: 'Hello',
+      status: 'complete',
+    });
+    fixtures.createMessage({
+      chat_id: chat.id,
+      sequence: 2,
+      role: 'assistant',
+      agent_id: agentAlice.id,
+      content: 'Alice reply verbatim',
+      status: 'complete',
+    });
+
+    // Inspect from Alice's perspective
+    const inspected = service.buildByChatId(chat.id, {
+      targetAgentId: agentAlice.id,
+    });
+
+    expect(inspected.messages[1].role).toBe('assistant');
+    // Alice's own message must NOT have [Team Member: Alice]: banner
+    expect(inspected.messages[1].content).toBe('Alice reply verbatim');
   });
 });

@@ -15,7 +15,11 @@ describe('compaction-prompts', () => {
   it('formats conversation messages with sequence, role, and content', () => {
     const formatted = formatMessagesForCompaction([
       { sequence: 1, role: 'user', content: 'What is SQLite?' },
-      { sequence: 2, role: 'assistant', content: 'SQLite is an embedded database engine.' },
+      {
+        sequence: 2,
+        role: 'assistant',
+        content: 'SQLite is an embedded database engine.',
+      },
     ]);
 
     expect(formatted).toContain('[Sequence 1 | user]:\nWhat is SQLite?');
@@ -48,11 +52,14 @@ describe('compaction-prompts', () => {
     });
 
     expect(prompt).toContain('<prior_summary>');
-    expect(prompt).toContain('User previously asked about TypeScript configuration.');
+    expect(prompt).toContain(
+      'User previously asked about TypeScript configuration.',
+    );
     expect(prompt).toContain('<new_turns>');
     expect(prompt).toContain('[Sequence 3 | user]:\nNow add Vitest.');
-    expect(prompt).toContain('[Sequence 4 | assistant]:\nVitest is configured.');
+    expect(prompt).toContain(
+      '[Sequence 4 | assistant]:\nVitest is configured.',
+    );
     expect(prompt).toContain('produce an updated, cohesive summary');
   });
 });
-

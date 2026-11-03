@@ -86,4 +86,3 @@ export function buildCompactionUserPrompt(
     'Return only the summary.'
   );
 }
-

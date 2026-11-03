@@ -112,4 +112,11 @@ export class CompletionResponseDto {
     nullable: true,
   })
   readonly usage?: TokenUsageDto | null;
+
+  @ApiPropertyOptional({
+    description:
+      'For team chats, array of all assistant messages generated across the team turn sequence in order.',
+    type: () => [CompletionResponseDto],
+  })
+  readonly messages?: CompletionResponseDto[];
 }
