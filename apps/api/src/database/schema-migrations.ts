@@ -139,6 +139,8 @@ const FALLBACK_SQL: Record<string, string> = {
     id           TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
     description  TEXT,
+    strategy     TEXT NOT NULL DEFAULT 'sequential',
+    max_turns_per_interaction INTEGER DEFAULT 5,
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );`,
@@ -147,6 +149,7 @@ const FALLBACK_SQL: Record<string, string> = {
     agent_id     TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     role         TEXT,
     position     INTEGER,
+    is_coordinator INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT NOT NULL,
     PRIMARY KEY (team_id, agent_id)
 );`,
@@ -402,6 +405,12 @@ export const MIGRATIONS_AFTER_BOOTSTRAP: readonly IncrementalMigration[] = [
     name: '004_chat_compaction_sequence',
     sql: `ALTER TABLE chats ADD COLUMN compacted_before_sequence INTEGER;`,
   },
+  {
+    name: '005_team_orchestration_strategies',
+    sql: `ALTER TABLE teams ADD COLUMN strategy TEXT NOT NULL DEFAULT 'sequential';
+ALTER TABLE teams ADD COLUMN max_turns_per_interaction INTEGER DEFAULT 5;
+ALTER TABLE team_members ADD COLUMN is_coordinator INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 /**
@@ -465,15 +474,19 @@ function applyIncrementalMigrations(db: Database.Database): void {
     }
 
     const apply = db.transaction(() => {
-      try {
-        db.exec(migration.sql);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (
-          !message.includes('duplicate column name') &&
-          !message.includes('no such table')
-        ) {
-          throw err;
+      for (const statement of migration.sql.split(';')) {
+        const trimmed = statement.trim();
+        if (!trimmed) continue;
+        try {
+          db.exec(trimmed);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (
+            !message.includes('duplicate column name') &&
+            !message.includes('no such table')
+          ) {
+            throw err;
+          }
         }
       }
       db.prepare(

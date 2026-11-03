@@ -26,7 +26,6 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
     adapterFactory = testApp.app.get(AdapterFactoryService);
   });
 
-
   afterAll(async () => {
     await testApp.close();
   });
@@ -59,7 +58,8 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
       { providerKind: kind },
       {
         cannedResponse: {
-          content: overrides?.cannedContent ?? 'Hello from the streaming agent!',
+          content:
+            overrides?.cannedContent ?? 'Hello from the streaming agent!',
           finishReason: 'stop',
           ...(overrides && 'cannedUsage' in overrides
             ? { usage: overrides.cannedUsage }
@@ -244,13 +244,19 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
 
       adapterFactory.register('openai', () => pausingAdapter);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -300,7 +306,6 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
       expect(streamError).toBeUndefined();
       expect(streamResponse.status).toBe(200);
 
-
       // Verify list endpoint returns completed message after generation
       const finalListRes = await testApp
         .request()
@@ -309,10 +314,11 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
 
       expect(finalListRes.body.items).toHaveLength(1);
       expect(finalListRes.body.items[0].status).toBe('complete');
-      expect(finalListRes.body.items[0].content).toBe('In-flight text and final text.');
+      expect(finalListRes.body.items[0].content).toBe(
+        'In-flight text and final text.',
+      );
     });
   });
-
 
   // =========================================================================
   // 3. Mid-Stream Failure & In-Band Error Reporting
@@ -355,10 +361,9 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
 
       // Database row verification: status is error, partial content preserved
       const messageId = events[0].data.messageId;
-      const row = testApp.db.get<any>(
-        'SELECT * FROM messages WHERE id = ?',
-        [messageId],
-      );
+      const row = testApp.db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        messageId,
+      ]);
       expect(row.status).toBe('error');
       expect(row.content).toBe('Chunk1-Chunk2-');
     });
@@ -392,16 +397,21 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
         },
       };
 
-
       adapterFactory.register('openai', () => delayedAdapter);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -539,7 +549,7 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
   // 7. Team-owned Chat Validation
   // =========================================================================
   describe('Team-owned chat behavior', () => {
-    it('rejects team-owned chats with 422 TEAM_CHAT_NOT_SUPPORTED as standard JSON', async () => {
+    it('rejects team-owned chats with no members with 422 TEAM_HAS_NO_MEMBERS as standard JSON', async () => {
       const team = testApp.fixtures.createTeam({ name: 'Orchestration Team' });
       const chat = testApp.fixtures.createChat({
         title: 'Team Chat',
@@ -554,8 +564,8 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
         .expect(422);
 
       expect(res.headers['content-type']).toContain('application/json');
-      expect(res.body.code).toBe('TEAM_CHAT_NOT_SUPPORTED');
-      expect(res.body.message).toContain('Multi-agent team chats are not yet supported');
+      expect(res.body.code).toBe('TEAM_HAS_NO_MEMBERS');
+      expect(res.body.message).toContain('Team has no active members');
 
       // No message created
       const count = testApp.db.get<{ cnt: number }>(
@@ -563,6 +573,57 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
         [chat.id],
       );
       expect(count?.cnt).toBe(0);
+    });
+
+    it('streams multi-agent team completion successfully with sequential message_start events', async () => {
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        is_local: 0,
+      });
+      const model = testApp.fixtures.createModel(provider.id);
+      const alice = testApp.fixtures.createAgent({
+        name: 'Alice',
+        model_id: model.id,
+      });
+      const bob = testApp.fixtures.createAgent({
+        name: 'Bob',
+        model_id: model.id,
+      });
+
+      const team = testApp.fixtures.createTeam({ name: 'Orchestration Team' });
+      testApp.fixtures.createTeamMember(team.id, alice.id, {
+        position: 1,
+        role: 'Architect',
+      });
+      testApp.fixtures.createTeamMember(team.id, bob.id, {
+        position: 2,
+        role: 'Engineer',
+      });
+
+      const chat = testApp.fixtures.createChat({
+        title: 'Team Chat',
+        team_id: team.id,
+        agent_id: null,
+      });
+
+      testApp.fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Design pipeline',
+      });
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/completions`)
+        .send({ stream: true })
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('text/event-stream');
+      expect(res.text).toContain('event: message_start');
+      expect(res.text).toContain('Alice (Architect)');
+      expect(res.text).toContain('Bob (Engineer)');
+      expect(res.text).toContain('event: done');
     });
   });
 });

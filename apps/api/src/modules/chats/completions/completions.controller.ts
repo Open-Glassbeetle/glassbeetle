@@ -88,7 +88,7 @@ export class CompletionsController {
   @ApiUnprocessableEntityResponse({
     type: ApiErrorResponseDto,
     description:
-      'Chat is not runnable (team chat, no agent, agent missing model, disabled model/provider, or missing credential).',
+      'Chat is not runnable (team has no members, no agent, agent missing model, disabled model/provider, or missing credential).',
   })
   @ApiResponse({
     status: HttpStatus.TOO_MANY_REQUESTS,
@@ -142,14 +142,11 @@ export class CompletionsController {
       dto?.stream === true ||
       Boolean(req?.headers?.accept?.includes('text/event-stream'));
 
-
     if (!isStreaming) {
       try {
-        return await this.inferenceService.completeChat(
-          chatId,
-          dto ?? {},
-          { signal: abortController.signal },
-        );
+        return await this.inferenceService.completeChat(chatId, dto ?? {}, {
+          signal: abortController.signal,
+        });
       } finally {
         req.off('close', onClose);
         res.off('close', onClose);
@@ -158,11 +155,9 @@ export class CompletionsController {
 
     let headersSent = false;
     try {
-      const stream = this.inferenceService.streamChat(
-        chatId,
-        dto ?? {},
-        { signal: abortController.signal },
-      );
+      const stream = this.inferenceService.streamChat(chatId, dto ?? {}, {
+        signal: abortController.signal,
+      });
 
       for await (const event of stream) {
         if (!headersSent) {
@@ -281,7 +276,7 @@ export class CompletionsController {
   @ApiUnprocessableEntityResponse({
     type: ApiErrorResponseDto,
     description:
-      'Chat is not runnable (team chat, no agent, agent missing model, disabled model/provider, or missing credential).',
+      'Chat is not runnable (team has no members, no agent, agent missing model, disabled model/provider, or missing credential).',
   })
   @ApiResponse({
     status: HttpStatus.TOO_MANY_REQUESTS,
@@ -339,4 +334,3 @@ export class CompletionsController {
     }
   }
 }
-

@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service.js';
 import { ContextLengthExceededError } from '../../model-adapters/errors/model-adapter-error.js';
@@ -258,6 +259,22 @@ export function buildContextPure(input: BuildContextInput): AssembledContext {
       continue;
     }
 
+    // Rule: Max sequence boundary (used for broadcast team turns to ensure peer isolation)
+    if (
+      typeof input.maxSequence === 'number' &&
+      msg.sequence > input.maxSequence
+    ) {
+      excludedMessages.push({
+        id: msg.id,
+        sequence: msg.sequence,
+        role: msg.role,
+        status: msg.status,
+        reason: 'max_sequence_boundary',
+        detail: `Message sequence ${msg.sequence} excluded because it exceeds max sequence boundary ${input.maxSequence}.`,
+      });
+      continue;
+    }
+
     // Normalize role and map to AdapterMessage
     const validRole = (
       ['user', 'assistant', 'system', 'tool'].includes(msg.role)
@@ -265,13 +282,26 @@ export function buildContextPure(input: BuildContextInput): AssembledContext {
         : 'user'
     ) as MessageRole;
 
+    // Attribution framing for multi-agent team chats (RFC Section 4 & 6)
+    let formattedContent = msg.content;
+    if (input.isTeamChat && validRole === 'assistant') {
+      if (input.currentAgentId && msg.agentId === input.currentAgentId) {
+        // Own prior message: keep verbatim content
+        formattedContent = msg.content;
+      } else if (msg.agentId) {
+        // Peer agent message: frame with participant identity banner
+        const peerName = msg.agentName || 'Team Member';
+        const peerRole = msg.agentRole ? ` (${msg.agentRole})` : '';
+        formattedContent = `[Team Member: ${peerName}${peerRole}]:\n${msg.content}`;
+      } else {
+        // Deleted agent message (messages.agent_id set to NULL by ON DELETE SET NULL)
+        formattedContent = `[Team Member: Former Agent]:\n${msg.content}`;
+      }
+    }
+
     const adapterMessage: AdapterMessage = {
       role: validRole,
-      content: msg.content,
-      // Do not put agent_id on AdapterMessage.name — adapters send `name` to
-      // providers (OpenAI field / Anthropic+Gemini text prefix). Team chats are
-      // rejected today; leave name unset until orchestration needs a display
-      // name from agents.name. messageDetails[].agentId keeps attribution.
+      content: formattedContent,
     };
 
     const estimatedTokens = estimateMessageTokens(adapterMessage);
@@ -367,7 +397,8 @@ export function buildContextPure(input: BuildContextInput): AssembledContext {
     messagesTokens,
     totalTokens,
     contextWindow,
-    fitsContextWindow: contextWindow === null ? true : totalTokens <= contextWindow,
+    fitsContextWindow:
+      contextWindow === null ? true : totalTokens <= contextWindow,
     heuristic:
       'Character-based heuristic (~4 characters per token + 4 tokens overhead per message/system turn). Exact token count requires model-specific tokenizer.',
   };
@@ -435,11 +466,57 @@ export class ContextConstructionService {
       }
     }
 
-    // 2. Fetch message history in sequence order
-    const messageRows = this.db.all<MessageRow>(
-      'SELECT id, chat_id, sequence, role, agent_id, content, status, token_count, created_at FROM messages WHERE chat_id = ? ORDER BY sequence ASC',
-      [chat.id],
-    );
+    // 2. Resolve instructions (injecting team role directive if team chat, RFC Section 9.1)
+    let instructions = agent.instructions;
+    const isTeamChat = chat.team_id !== null;
+    if (isTeamChat) {
+      const team = this.db.get<{ name: string }>(
+        'SELECT name FROM teams WHERE id = ?',
+        [chat.team_id],
+      );
+      const member = this.db.get<{ role: string | null }>(
+        'SELECT role FROM team_members WHERE team_id = ? AND agent_id = ?',
+        [chat.team_id, agent.id],
+      );
+      if (member?.role && member.role.trim().length > 0) {
+        const roleDirective = `In this conversation, you are collaborating as the ${member.role.trim()} for team '${team?.name ?? 'Team'}'.`;
+        instructions = instructions
+          ? `${instructions}\n\n${roleDirective}`
+          : roleDirective;
+      }
+    }
+
+    // 3. Fetch message history in sequence order
+    interface MessageWithAttributionRow extends MessageRow {
+      agent_name?: string | null;
+      agent_role?: string | null;
+    }
+
+    const messageRows = isTeamChat
+      ? this.db.all<MessageWithAttributionRow>(
+          `SELECT
+             m.id,
+             m.chat_id,
+             m.sequence,
+             m.role,
+             m.agent_id,
+             m.content,
+             m.status,
+             m.token_count,
+             m.created_at,
+             a.name AS agent_name,
+             tm.role AS agent_role
+           FROM messages m
+           LEFT JOIN agents a ON a.id = m.agent_id
+           LEFT JOIN team_members tm ON tm.team_id = ? AND tm.agent_id = m.agent_id
+           WHERE m.chat_id = ?
+           ORDER BY m.sequence ASC`,
+          [chat.team_id, chat.id],
+        )
+      : this.db.all<MessageWithAttributionRow>(
+          'SELECT id, chat_id, sequence, role, agent_id, content, status, token_count, created_at FROM messages WHERE chat_id = ? ORDER BY sequence ASC',
+          [chat.id],
+        );
 
     const messages: ContextInputMessage[] = messageRows.map((row) => ({
       id: row.id,
@@ -448,17 +525,20 @@ export class ContextConstructionService {
       content: row.content,
       status: row.status,
       agentId: row.agent_id,
+      agentName: row.agent_name ?? undefined,
+      agentRole: row.agent_role ?? undefined,
       tokenCount: row.token_count,
     }));
 
-    // 3. Assemble context via pure function
-    const contextWindow = options?.contextWindow ?? model?.context_window ?? null;
+    // 4. Assemble context via pure function
+    const contextWindow =
+      options?.contextWindow ?? model?.context_window ?? null;
 
     return buildContextPure({
       sources: {
         systemPromptTemplate,
         personality: agent.personality,
-        instructions: agent.instructions,
+        instructions,
         contextSummary: chat.context_summary,
       },
       messages,
@@ -467,6 +547,9 @@ export class ContextConstructionService {
       compactedBeforeSequence:
         options?.compactedBeforeSequence ?? chat.compacted_before_sequence,
       memorySeam: options?.memorySeam,
+      isTeamChat,
+      currentAgentId: agent.id,
+      maxSequence: options?.maxSequence,
     });
   }
 
@@ -482,10 +565,9 @@ export class ContextConstructionService {
     chatId: string,
     options?: ContextBuildingOptions,
   ): AssembledContext {
-    const chat = this.db.get<ChatRow>(
-      'SELECT * FROM chats WHERE id = ?',
-      [chatId],
-    );
+    const chat = this.db.get<ChatRow>('SELECT * FROM chats WHERE id = ?', [
+      chatId,
+    ]);
 
     if (!chat) {
       throw new NotFoundException({
@@ -494,20 +576,67 @@ export class ContextConstructionService {
       });
     }
 
-    if (!chat.agent_id) {
-      this.logger.warn(
-        `Chat "${chatId}" is a team chat or lacks agent_id. Context construction for team chats is out of scope.`,
+    if (chat.team_id !== null) {
+      const members = this.db.all<{
+        agent_id: string;
+        role: string | null;
+        position: number | null;
+      }>(
+        `SELECT tm.agent_id, tm.role, tm.position
+         FROM team_members tm
+         JOIN agents a ON a.id = tm.agent_id
+         WHERE tm.team_id = ?
+         ORDER BY
+           tm.position ASC NULLS LAST,
+           tm.created_at ASC,
+           tm.agent_id ASC`,
+        [chat.team_id],
       );
-      throw new NotFoundException({
-        code: 'AGENT_NOT_FOUND',
-        message: `Chat "${chatId}" is not assigned to an individual agent`,
+
+      if (members.length === 0) {
+        throw new UnprocessableEntityException({
+          code: 'TEAM_HAS_NO_MEMBERS',
+          message: 'Team has no active members to execute completions',
+        });
+      }
+
+      const targetMember = options?.targetAgentId
+        ? (members.find((m) => m.agent_id === options.targetAgentId) ??
+          members[0])
+        : members[0];
+
+      const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+        targetMember.agent_id,
+      ]);
+
+      if (!agent) {
+        throw new NotFoundException({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${targetMember.agent_id}" was not found`,
+        });
+      }
+
+      let model: ModelRow | null = null;
+      if (agent.model_id) {
+        model =
+          this.db.get<ModelRow>('SELECT * FROM models WHERE id = ?', [
+            agent.model_id,
+          ]) ?? null;
+      }
+
+      return this.buildForChat(chat, agent, model, options);
+    }
+
+    if (!chat.agent_id) {
+      throw new UnprocessableEntityException({
+        code: 'CHAT_HAS_NO_AGENT',
+        message: 'Chat has no assigned agent to execute completions',
       });
     }
 
-    const agent = this.db.get<AgentRow>(
-      'SELECT * FROM agents WHERE id = ?',
-      [chat.agent_id],
-    );
+    const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
+      chat.agent_id,
+    ]);
 
     if (!agent) {
       throw new NotFoundException({

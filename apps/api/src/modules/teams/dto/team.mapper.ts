@@ -11,6 +11,8 @@ export interface TeamRow {
   readonly id: string;
   readonly name: string;
   readonly description: string | null;
+  readonly strategy?: 'sequential' | 'coordinator' | 'broadcast' | 'autonomous';
+  readonly max_turns_per_interaction?: number | null;
   readonly created_at: string;
   readonly updated_at: string;
 }

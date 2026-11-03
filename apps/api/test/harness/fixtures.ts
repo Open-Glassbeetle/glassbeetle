@@ -69,6 +69,8 @@ export interface TeamRow {
   id: string;
   name: string;
   description: string | null;
+  strategy?: 'sequential' | 'coordinator' | 'broadcast' | 'autonomous';
+  max_turns_per_interaction?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -78,6 +80,7 @@ export interface TeamMemberRow {
   agent_id: string;
   role: string | null;
   position: number | null;
+  is_coordinator?: number;
   created_at: string;
 }
 
@@ -300,14 +303,24 @@ export class TestFixtures {
       id: newId(),
       name: 'Test Team',
       description: 'A test team',
+      strategy: 'sequential',
+      max_turns_per_interaction: 5,
       created_at: now,
       updated_at: now,
       ...overrides,
     };
 
     this.dbService.run(
-      `INSERT INTO teams (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      [row.id, row.name, row.description, row.created_at, row.updated_at],
+      `INSERT INTO teams (id, name, description, strategy, max_turns_per_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.id,
+        row.name,
+        row.description,
+        row.strategy ?? 'sequential',
+        row.max_turns_per_interaction ?? 5,
+        row.created_at,
+        row.updated_at,
+      ],
     );
 
     return row;
@@ -327,13 +340,21 @@ export class TestFixtures {
       agent_id,
       role: 'member',
       position: 1,
+      is_coordinator: 0,
       created_at: now,
       ...overrides,
     };
 
     this.dbService.run(
-      `INSERT INTO team_members (team_id, agent_id, role, position, created_at) VALUES (?, ?, ?, ?, ?)`,
-      [row.team_id, row.agent_id, row.role, row.position, row.created_at],
+      `INSERT INTO team_members (team_id, agent_id, role, position, is_coordinator, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        row.team_id,
+        row.agent_id,
+        row.role,
+        row.position,
+        row.is_coordinator ?? 0,
+        row.created_at,
+      ],
     );
 
     return row;

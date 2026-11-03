@@ -293,7 +293,7 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       expect(res.body.message).toContain(unknownChatId);
     });
 
-    it('returns 422 when chat is owned by a team (multi-agent not yet supported)', async () => {
+    it('returns 422 when team chat has no active members (TEAM_HAS_NO_MEMBERS)', async () => {
       const team = testApp.fixtures.createTeam({ name: 'Engineering Team' });
       const chat = testApp.fixtures.createChat({
         title: 'Team Collaboration',
@@ -308,8 +308,59 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
         .expect(422);
 
       expect(res.body.statusCode).toBe(422);
-      expect(res.body.code).toBe('TEAM_CHAT_NOT_SUPPORTED');
-      expect(res.body.message).toContain('Multi-agent team chats');
+      expect(res.body.code).toBe('TEAM_HAS_NO_MEMBERS');
+      expect(res.body.message).toContain('Team has no active members');
+    });
+
+    it('executes multi-agent completion successfully when chat is owned by a team with members', async () => {
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        is_local: 0,
+      });
+      const model = testApp.fixtures.createModel(provider.id);
+      const alice = testApp.fixtures.createAgent({
+        name: 'Alice',
+        model_id: model.id,
+      });
+      const bob = testApp.fixtures.createAgent({
+        name: 'Bob',
+        model_id: model.id,
+      });
+
+      const team = testApp.fixtures.createTeam({ name: 'Engineering Team' });
+      testApp.fixtures.createTeamMember(team.id, alice.id, {
+        position: 1,
+        role: 'Architect',
+      });
+      testApp.fixtures.createTeamMember(team.id, bob.id, {
+        position: 2,
+        role: 'Engineer',
+      });
+
+      const chat = testApp.fixtures.createChat({
+        title: 'Team Collaboration',
+        team_id: team.id,
+        agent_id: null,
+      });
+
+      testApp.fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Design the cache',
+      });
+
+      const res = await testApp
+        .request()
+        .post(`/api/v1/chats/${chat.id}/completions`)
+        .send({})
+        .expect(200);
+
+      expect(res.body.role).toBe('assistant');
+      expect(res.body.agentId).toBe(bob.id);
+      expect(res.body.messages).toHaveLength(2);
+      expect(res.body.messages[0].agentId).toBe(alice.id);
+      expect(res.body.messages[1].agentId).toBe(bob.id);
     });
 
     it('returns 422 when chat has no agent (owning agent was deleted)', async () => {
@@ -317,7 +368,9 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
       testApp.db.run('PRAGMA ignore_check_constraints = ON;');
-      testApp.db.run('UPDATE chats SET agent_id = NULL WHERE id = ?', [chat.id]);
+      testApp.db.run('UPDATE chats SET agent_id = NULL WHERE id = ?', [
+        chat.id,
+      ]);
       testApp.db.run('PRAGMA ignore_check_constraints = OFF;');
 
       const res = await testApp
@@ -483,10 +536,10 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
         [systemPrompt.id, 'Always write TypeScript.', env.agent.id],
       );
 
-      testApp.db.run(
-        'UPDATE chats SET context_summary = ? WHERE id = ?',
-        ['User is working on issue #63.', env.chat.id],
-      );
+      testApp.db.run('UPDATE chats SET context_summary = ? WHERE id = ?', [
+        'User is working on issue #63.',
+        env.chat.id,
+      ]);
 
       testApp.fixtures.createMessage({
         chat_id: env.chat.id,
@@ -516,9 +569,13 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
         .expect(200);
 
       const req = env.testDouble.completedRequests[0];
-      expect(req.systemPrompt).toContain('You are an expert software engineer.');
+      expect(req.systemPrompt).toContain(
+        'You are an expert software engineer.',
+      );
       expect(req.systemPrompt).toContain('Always write TypeScript.');
-      expect(req.systemPrompt).toContain('Context summary:\nUser is working on issue #63.');
+      expect(req.systemPrompt).toContain(
+        'Context summary:\nUser is working on issue #63.',
+      );
 
       expect(req.messages).toHaveLength(3);
       expect(req.messages[0]).toEqual({
@@ -543,13 +600,18 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
 
       testApp.db.run(
         'UPDATE agents SET system_prompt_id = ?, personality = ?, instructions = ? WHERE id = ?',
-        [prompt.id, 'Helpful and patient.', 'Always provide examples.', env.agent.id],
+        [
+          prompt.id,
+          'Helpful and patient.',
+          'Always provide examples.',
+          env.agent.id,
+        ],
       );
 
-      testApp.db.run(
-        'UPDATE chats SET context_summary = ? WHERE id = ?',
-        ['Earlier discussed testing setup.', env.chat.id],
-      );
+      testApp.db.run('UPDATE chats SET context_summary = ? WHERE id = ?', [
+        'Earlier discussed testing setup.',
+        env.chat.id,
+      ]);
 
       testApp.fixtures.createMessage({
         chat_id: env.chat.id,
@@ -566,13 +628,21 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       expect(res.body.systemPrompt).toContain('You are a debugging assistant.');
       expect(res.body.systemPrompt).toContain('Helpful and patient.');
       expect(res.body.systemPrompt).toContain('Always provide examples.');
-      expect(res.body.systemPrompt).toContain('Context summary:\nEarlier discussed testing setup.');
+      expect(res.body.systemPrompt).toContain(
+        'Context summary:\nEarlier discussed testing setup.',
+      );
 
       expect(res.body.systemDetails).toBeDefined();
-      expect(res.body.systemDetails.promptTemplate).toBe('You are a debugging assistant.');
+      expect(res.body.systemDetails.promptTemplate).toBe(
+        'You are a debugging assistant.',
+      );
       expect(res.body.systemDetails.personality).toBe('Helpful and patient.');
-      expect(res.body.systemDetails.instructions).toBe('Always provide examples.');
-      expect(res.body.systemDetails.contextSummary).toBe('Earlier discussed testing setup.');
+      expect(res.body.systemDetails.instructions).toBe(
+        'Always provide examples.',
+      );
+      expect(res.body.systemDetails.contextSummary).toBe(
+        'Earlier discussed testing setup.',
+      );
 
       expect(res.body.messages).toHaveLength(1);
       expect(res.body.messages[0]).toEqual({
@@ -613,13 +683,19 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       );
       adapterFactory.register('openai', () => testDouble);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test-key' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -646,13 +722,19 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       );
       adapterFactory.register('openai', () => testDouble);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test-key' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -683,7 +765,10 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
         is_local: 1,
         enabled: 1,
       });
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -709,13 +794,19 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       );
       adapterFactory.register('openai', () => testDouble);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test-key' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -741,13 +832,19 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       );
       adapterFactory.register('openai', () => testDouble);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test-key' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -773,13 +870,19 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
       );
       adapterFactory.register('openai', () => testDouble);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test-key' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -865,13 +968,19 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
         });
 
       try {
-        const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+        const provider = testApp.fixtures.createProvider({
+          kind: 'openai',
+          enabled: 1,
+        });
         await testApp
           .request()
           .put(`/api/v1/providers/${provider.id}/credential`)
           .send({ apiKey: sensitiveKey })
           .expect(200);
-        const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+        const model = testApp.fixtures.createModel({
+          provider_id: provider.id,
+          enabled: 1,
+        });
         const agent = testApp.fixtures.createAgent({ model_id: model.id });
         const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 
@@ -952,13 +1061,19 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
 
       adapterFactory.register('openai', () => delayedAdapter);
 
-      const provider = testApp.fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const provider = testApp.fixtures.createProvider({
+        kind: 'openai',
+        enabled: 1,
+      });
       await testApp
         .request()
         .put(`/api/v1/providers/${provider.id}/credential`)
         .send({ apiKey: 'sk-test-key' })
         .expect(200);
-      const model = testApp.fixtures.createModel({ provider_id: provider.id, enabled: 1 });
+      const model = testApp.fixtures.createModel({
+        provider_id: provider.id,
+        enabled: 1,
+      });
       const agent = testApp.fixtures.createAgent({ model_id: model.id });
       const chat = testApp.fixtures.createChat({ agent_id: agent.id });
 

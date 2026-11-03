@@ -32,6 +32,8 @@ export interface ContextInputMessage {
   readonly content: string;
   readonly status: MessageStatus | string;
   readonly agentId?: string | null;
+  readonly agentName?: string | null;
+  readonly agentRole?: string | null;
   readonly tokenCount?: number | null;
 }
 
@@ -70,6 +72,10 @@ export interface ContextBuildingOptions {
   readonly compactedBeforeSequence?: number | null;
   /** Optional memory injection seam implementation */
   readonly memorySeam?: MemoryInjectionSeam;
+  /** In team chats, target agent ID for whom context is being constructed */
+  readonly targetAgentId?: string | null;
+  /** If specified, messages with sequence > maxSequence are excluded (used for broadcast team turns) */
+  readonly maxSequence?: number | null;
 }
 
 /**
@@ -82,6 +88,12 @@ export interface BuildContextInput {
   readonly fittingStrategy?: ContextFittingStrategy;
   readonly compactedBeforeSequence?: number | null;
   readonly memorySeam?: MemoryInjectionSeam;
+  /** In team chats, indicates that peer turns should be framed with participant banners */
+  readonly isTeamChat?: boolean;
+  /** ID of the speaking agent (turns from this agent are self assistant turns, others are peer turns) */
+  readonly currentAgentId?: string | null;
+  /** If specified, messages with sequence > maxSequence are excluded */
+  readonly maxSequence?: number | null;
 }
 
 /**
@@ -116,7 +128,8 @@ export type ExclusionReason =
   | 'status_not_complete'
   | 'empty_content'
   | 'compacted_history'
-  | 'truncated_for_window';
+  | 'truncated_for_window'
+  | 'max_sequence_boundary';
 
 /**
  * Detailed inspectable representation of an excluded or dropped message.

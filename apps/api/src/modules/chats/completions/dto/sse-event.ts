@@ -8,6 +8,7 @@ export interface MessageStartPayload {
   readonly chatId: string;
   readonly sequence: number;
   readonly agentId: string | null;
+  readonly agentName?: string | null;
   readonly role: 'assistant';
 }
 
