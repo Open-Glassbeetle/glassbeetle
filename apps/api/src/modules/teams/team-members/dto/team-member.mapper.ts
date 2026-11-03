@@ -12,6 +12,7 @@ export interface TeamMemberRow {
   readonly agent_id: string;
   readonly role: string | null;
   readonly position: number | null;
+  readonly is_coordinator?: number;
   readonly created_at: string;
 }
 

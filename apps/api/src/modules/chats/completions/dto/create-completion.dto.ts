@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -65,4 +66,31 @@ export class CreateCompletionDto {
   @IsInt({ message: 'maxTokens must be an integer' })
   @Min(1, { message: 'maxTokens must be at least 1' })
   maxTokens?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional team orchestration strategy override ("sequential", "coordinator", "broadcast", "autonomous")',
+    enum: ['sequential', 'coordinator', 'broadcast', 'autonomous'],
+    example: 'coordinator',
+  })
+  @IsOptional()
+  @IsString({ message: 'strategy must be a string' })
+  @IsIn(['sequential', 'coordinator', 'broadcast', 'autonomous'], {
+    message:
+      'strategy must be one of: sequential, coordinator, broadcast, autonomous',
+  })
+  strategy?: 'sequential' | 'coordinator' | 'broadcast' | 'autonomous';
+
+  @ApiPropertyOptional({
+    description:
+      'Optional maximum turns to execute in this multi-agent exchange (1 to 10)',
+    example: 5,
+    minimum: 1,
+    maximum: 10,
+  })
+  @IsOptional()
+  @IsInt({ message: 'maxTurns must be an integer' })
+  @Min(1, { message: 'maxTurns must be at least 1' })
+  @Max(10, { message: 'maxTurns must not exceed 10' })
+  maxTurns?: number;
 }
