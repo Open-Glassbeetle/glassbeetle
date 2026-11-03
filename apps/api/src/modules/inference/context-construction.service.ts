@@ -267,8 +267,10 @@ export function buildContextPure(input: BuildContextInput): AssembledContext {
     const adapterMessage: AdapterMessage = {
       role: validRole,
       content: msg.content,
-      // Retain per-message agent attribution in team chats (omitted when null/deleted)
-      ...(msg.agentId ? { name: msg.agentId } : {}),
+      // Do not put agent_id on AdapterMessage.name — adapters send `name` to
+      // providers (OpenAI field / Anthropic+Gemini text prefix). Team chats are
+      // rejected today; leave name unset until orchestration needs a display
+      // name from agents.name. messageDetails[].agentId keeps attribution.
     };
 
     const estimatedTokens = estimateMessageTokens(adapterMessage);

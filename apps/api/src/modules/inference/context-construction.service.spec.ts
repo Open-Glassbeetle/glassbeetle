@@ -571,7 +571,7 @@ describe('ContextConstructionService (Pure assembly & fitting)', () => {
       expect(assembled.messageDetails[0].agentId).toBeNull();
     });
 
-    it('preserves per-message agent attribution in team chats', () => {
+    it('keeps agentId in messageDetails without putting it on AdapterMessage.name', () => {
       const messages: ContextInputMessage[] = [
         {
           sequence: 1,
@@ -602,11 +602,36 @@ describe('ContextConstructionService (Pure assembly & fitting)', () => {
 
       expect(assembled.messages).toHaveLength(3);
       expect(assembled.messages[0].name).toBeUndefined();
-      expect(assembled.messages[1].name).toBe('architect-agent-id');
-      expect(assembled.messages[2].name).toBe('coder-agent-id');
+      expect(assembled.messages[1].name).toBeUndefined();
+      expect(assembled.messages[2].name).toBeUndefined();
 
       expect(assembled.messageDetails[1].agentId).toBe('architect-agent-id');
       expect(assembled.messageDetails[2].agentId).toBe('coder-agent-id');
+    });
+
+    it('never places a UUID agent id into assembled messages', () => {
+      const agentUuid = '01a19e3a-db10-7535-b8a3-e89c68f87fa3';
+      const uuidRe =
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+      const assembled = buildContextPure({
+        sources: {},
+        messages: [
+          {
+            sequence: 1,
+            role: 'assistant',
+            content: 'Hi! How can I help?',
+            status: 'complete',
+            agentId: agentUuid,
+          },
+        ],
+      });
+
+      expect(assembled.messageDetails[0].agentId).toBe(agentUuid);
+      for (const msg of assembled.messages) {
+        expect(msg.name).toBeUndefined();
+        expect(msg.content).not.toMatch(uuidRe);
+      }
+      expect(assembled.systemPrompt ?? '').not.toMatch(uuidRe);
     });
   });
 
@@ -732,7 +757,7 @@ describe('ContextConstructionService (Pure assembly & fitting)', () => {
             {
               "agentId": "agent-senior-dev",
               "content": "We should isolate it as a pure function and test all edge cases.",
-              "estimatedTokens": 24,
+              "estimatedTokens": 20,
               "id": "msg-2",
               "role": "assistant",
               "sequence": 2,
@@ -755,7 +780,6 @@ describe('ContextConstructionService (Pure assembly & fitting)', () => {
             },
             {
               "content": "We should isolate it as a pure function and test all edge cases.",
-              "name": "agent-senior-dev",
               "role": "assistant",
             },
             {
@@ -790,9 +814,9 @@ describe('ContextConstructionService (Pure assembly & fitting)', () => {
             "contextWindow": 10000,
             "fitsContextWindow": true,
             "heuristic": "Character-based heuristic (~4 characters per token + 4 tokens overhead per message/system turn). Exact token count requires model-specific tokenizer.",
-            "messagesTokens": 55,
+            "messagesTokens": 51,
             "systemTokens": 67,
-            "totalTokens": 122,
+            "totalTokens": 118,
           },
         }
       `);
