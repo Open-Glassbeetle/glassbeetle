@@ -72,9 +72,10 @@ export class SpendService {
   /**
    * Whether anything chargeable has been recorded in this period.
    *
-   * False is the honest state of every installation today — completions do not
-   * run, so nothing writes to `usage_events` — and it stays the right question
-   * afterwards, when it will mean "you have not used it yet this period".
+   * False is the honest state of every installation today — completions write
+   * `usage_events` with `cost_usd` still NULL, so `callCount` stays zero —
+   * and it stays the right question afterwards, when priced rows land and it
+   * will mean "you have not used it yet this period".
    */
   readonly hasRecordedSpend = computed(() => (this._budget()?.callCount ?? 0) > 0);
 

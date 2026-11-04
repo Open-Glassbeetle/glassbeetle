@@ -16,9 +16,10 @@ npm run format:check -w @glassbeetle/web
 
 The UI shows only what the API implements. Projects, artifacts, analytics and
 backups exist as NestJS modules with empty controllers, so their routes 404 and
-they have no screens. Chats are served except for generation: the chat, its
-messages and the owner rules are all there, while `completions.controller.ts`
-has no routes — so a conversation can be read, and nothing answers.
+they have no screens. Chats are fully served on the API — including
+`POST /chats/:chatId/completions`, context and compact — but this UI still has
+no composer, so a conversation can be read here without anything on screen
+triggering a reply.
 
 | Surface | Endpoints |
 | --- | --- |
@@ -52,26 +53,27 @@ agent?
 from the `created_at` / `updated_at` every resource already carries, and the
 panel is labelled as configuration history.
 
-**Spending is real arithmetic over an empty log.** `/budget` does sum
-`usage_events.cost_usd` for the current period — but only the inference module
-would write those rows, and it is an empty class, so every installation reads
-zero. The screen says so in as many words instead of presenting a full budget
-as a measurement, and the deck's meter draws no value ring until there is a
-limit to measure against.
+**Spending is real arithmetic over an unpriced log.** `/budget` does sum
+`usage_events.cost_usd` for the current period, and completions do write those
+rows — but with `cost_usd` still NULL until per-token pricing lands, so every
+installation's chargeable count stays zero. The screen says so in as many words
+instead of presenting a full budget as a measurement, and the deck's meter
+draws no value ring until there is a limit to measure against.
 
 **A chat has a transcript but no composer.** The turns are read from
 `GET /chats/:chatId/messages` and shown as the conversation they are.
-`POST /messages` exists too, so a message box could technically send — but
-`completions.controller.ts` has no routes, so nothing would ever answer, and an
-input that produces a monologue is the same half-truth as a fabricated reply.
-The bar below the transcript says what has to land before it becomes one.
+`POST /messages` and `POST /completions` both exist, so a typed turn could be
+stored and answered — but this screen has nowhere to type yet. Building that
+input is composer work; the bar below the transcript says so rather than
+blaming the API.
 
-**The agent's Context tab is not a rendered prompt.** No endpoint composes one.
-The tab shows the configured layers — system prompt, personality, instructions,
-shared and private memory — each with its real size and source, and says so on
-screen. Memory is counted in entries rather than characters, because only a
-page of it is loaded and a character total over a partial read would be wrong
-in a way the number would not reveal.
+**The agent's Context tab is not a rendered prompt.** `GET /chats/:chatId/context`
+assembles one for a chat, but this tab has no chat — it shows the configured
+layers (system prompt, personality, instructions, shared and private memory),
+each with its real size and source, and says so on screen. Memory is counted in
+entries rather than characters, because only a page of it is loaded and a
+character total over a partial read would be wrong in a way the number would
+not reveal.
 
 ## The models capability
 

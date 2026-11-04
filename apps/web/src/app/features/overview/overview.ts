@@ -76,7 +76,7 @@ export class Overview implements OnInit {
    * the one capability that *changes behaviour* — the model catalogue — is
    * probed for real.
    */
-  protected readonly plannedSurfaces = ['Chat completions', 'Projects', 'Artifacts', 'Analytics'];
+  protected readonly plannedSurfaces = ['Projects', 'Artifacts', 'Analytics'];
   protected readonly entityLabel = ENTITY_LABEL;
 
   /** The one health detail the deck's workspace panel does not already show. */

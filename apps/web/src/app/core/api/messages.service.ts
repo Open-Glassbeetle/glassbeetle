@@ -24,8 +24,9 @@ export class MessagesService extends ApiClient {
   /**
    * Appends a turn.
    *
-   * Nothing answers it: the completion endpoints do not exist yet, so this
-   * stores what was said and advances the chat's `updatedAt`, and that is all.
+   * This call only stores the turn and advances the chat's `updatedAt`. A
+   * reply comes from `POST /chats/:chatId/completions`, which this UI does not
+   * invoke yet — there is no composer to trigger it from.
    */
   create(chatId: string, input: CreateMessageInput): Observable<Message> {
     return this.http.post<Message>(this.url(`/chats/${chatId}/messages`), input);

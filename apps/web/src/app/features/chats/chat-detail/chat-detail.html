@@ -226,14 +226,13 @@
         </div>
       }
 
-      <!-- Where the composer goes. It is not one yet: POST /messages would
-           store what was typed, but no endpoint generates a reply, and an
-           input that produces a monologue would be the half-truth this
-           codebase avoids. -->
+      <!-- Where the composer goes. Completions exist (POST /completions),
+           but this screen has nowhere to type yet — an input belongs to
+           composer work, not a padlock blaming the API. -->
       <footer class="composer">
         <mat-icon class="composer__icon">lock</mat-icon>
         <p class="composer__text">
-          Sending is waiting on the completion endpoints — nothing would answer yet.
+          Sending is waiting on a composer — completion endpoints would answer, but there is nowhere to type yet.
         </p>
       </footer>
     </gb-panel>
