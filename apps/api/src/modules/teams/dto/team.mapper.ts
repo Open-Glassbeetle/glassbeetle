@@ -35,6 +35,8 @@ export function mapTeamRowToResponse(row: TeamRowWithCount): TeamResponseDto {
     // `COUNT` over a LEFT JOIN yields 0 for a team with no members, but a
     // hand-built row might not, and a null count would render as blank.
     memberCount: Number(row.member_count ?? 0),
+    strategy: row.strategy ?? 'sequential',
+    maxTurnsPerInteraction: row.max_turns_per_interaction ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -64,6 +66,9 @@ export function mapCreateTeamDtoToRow(
     id: options?.id ?? newId(),
     name: dto.name,
     description: dto.description ?? null,
+    // The same defaults the `teams` table gives an insert that omits them.
+    strategy: 'sequential',
+    max_turns_per_interaction: 5,
     created_at: timestamp,
     updated_at: timestamp,
   };
@@ -119,6 +124,17 @@ export function applyTeamUpdates(
     if (next !== existingRow.description) {
       recordChange('description', next);
     }
+  }
+
+  if (dto.strategy !== undefined && dto.strategy !== existingRow.strategy) {
+    recordChange('strategy', dto.strategy);
+  }
+
+  if (
+    dto.maxTurnsPerInteraction !== undefined &&
+    dto.maxTurnsPerInteraction !== existingRow.max_turns_per_interaction
+  ) {
+    recordChange('max_turns_per_interaction', dto.maxTurnsPerInteraction);
   }
 
   const hasChanges = setClauses.length > 0;

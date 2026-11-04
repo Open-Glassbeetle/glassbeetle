@@ -23,6 +23,8 @@ describe('mapTeamRowToResponse', () => {
       name: 'Research Desk',
       description: 'Finds things',
       memberCount: 3,
+      strategy: 'sequential',
+      maxTurnsPerInteraction: null,
       createdAt: ROW.created_at,
       updatedAt: ROW.updated_at,
     });
@@ -51,6 +53,17 @@ describe('mapTeamRowToResponse', () => {
     });
 
     expect(response.memberCount).toBe(2);
+  });
+
+  it('exposes the orchestration strategy and turn cap', () => {
+    const response = mapTeamRowToResponse({
+      ...ROW,
+      strategy: 'broadcast',
+      max_turns_per_interaction: 7,
+    });
+
+    expect(response.strategy).toBe('broadcast');
+    expect(response.maxTurnsPerInteraction).toBe(7);
   });
 });
 
@@ -126,6 +139,35 @@ describe('applyTeamUpdates', () => {
     );
 
     expect(result.updatedRow.description).toBe(BASE.description);
+  });
+
+  it('writes the orchestration strategy and turn cap', () => {
+    const result = applyTeamUpdates(
+      { ...BASE, strategy: 'sequential', max_turns_per_interaction: 5 },
+      { strategy: 'broadcast', maxTurnsPerInteraction: 7 },
+      { now: NOW },
+    );
+
+    expect(result.setClauses).toEqual([
+      'strategy = ?',
+      'max_turns_per_interaction = ?',
+      'updated_at = ?',
+    ]);
+    expect(result.setParams).toEqual(['broadcast', 7, NOW]);
+    expect(result.updatedRow).toMatchObject({
+      strategy: 'broadcast',
+      max_turns_per_interaction: 7,
+    });
+  });
+
+  it('clears the turn cap on an explicit null', () => {
+    const result = applyTeamUpdates(
+      { ...BASE, max_turns_per_interaction: 5 },
+      { maxTurnsPerInteraction: null },
+      { now: NOW },
+    );
+
+    expect(result.setParams).toEqual([null, NOW]);
   });
 
   it('collects both fields into one statement', () => {

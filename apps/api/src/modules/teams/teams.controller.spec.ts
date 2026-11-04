@@ -10,6 +10,8 @@ const TEAM: TeamResponseDto = {
   name: 'Research Desk',
   description: null,
   memberCount: 2,
+  strategy: 'sequential',
+  maxTurnsPerInteraction: 5,
   createdAt: '2026-10-04T12:00:00.000Z',
   updatedAt: '2026-10-04T12:00:00.000Z',
 };
