@@ -185,7 +185,7 @@ export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
       stream,
       temperature: request.temperature,
       max_tokens: request.maxTokens,
-      ...(request.modelParams ?? {}),
+      ...request.modelParams,
     };
   }
 
@@ -202,7 +202,7 @@ export class ExampleOpenAiCompatibleAdapter implements ModelAdapter {
   ): Promise<Response> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options?.headers ?? {}),
+      ...options?.headers,
     };
 
     if (this.apiKey) {
