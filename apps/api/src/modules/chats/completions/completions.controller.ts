@@ -170,22 +170,29 @@ export class CompletionsController {
           headersSent = true;
         }
 
-        if (res.writableEnded) {
+        if (res.writableEnded || res.destroyed) {
           break;
         }
 
         const formatted = formatSseEvent(event);
         const canContinue = res.write(formatted);
-        if (!canContinue && !res.writableEnded) {
+        if (!canContinue && !res.writableEnded && !res.destroyed) {
+          // A client that hangs up while we wait for drain never emits 'drain', so also wake on 'close'
           await new Promise<void>((resolve) => {
-            res.once('drain', resolve);
+            const wake = () => {
+              res.off('drain', wake);
+              res.off('close', wake);
+              resolve();
+            };
+            res.on('drain', wake);
+            res.on('close', wake);
           });
         }
       }
     } finally {
       req.off('close', onClose);
       res.off('close', onClose);
-      if (headersSent && !res.writableEnded) {
+      if (headersSent && !res.writableEnded && !res.destroyed) {
         res.end();
       }
     }
