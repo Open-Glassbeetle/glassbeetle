@@ -234,6 +234,8 @@ describe('Teams OpenAPI specification', () => {
           'name',
           'description',
           'memberCount',
+          'strategy',
+          'maxTurnsPerInteraction',
           'createdAt',
           'updatedAt',
         ].sort(),
@@ -243,9 +245,11 @@ describe('Teams OpenAPI specification', () => {
       ).toBe(true);
     });
 
-    it('CreateTeamDto and UpdateTeamDto accept only name and description', () => {
+    it('CreateTeamDto takes name and description, and UpdateTeamDto adds the orchestration fields', () => {
       expect(fields('CreateTeamDto')).toEqual(['description', 'name']);
-      expect(fields('UpdateTeamDto')).toEqual(['description', 'name']);
+      expect(fields('UpdateTeamDto')).toEqual(
+        ['description', 'maxTurnsPerInteraction', 'name', 'strategy'].sort(),
+      );
       expect(doc.components.schemas.CreateTeamDto.required).toEqual(['name']);
       expect(doc.components.schemas.UpdateTeamDto.required).toBeUndefined();
     });

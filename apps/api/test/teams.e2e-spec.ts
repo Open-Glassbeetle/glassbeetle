@@ -140,6 +140,66 @@ describe('Teams endpoints (e2e)', () => {
 
       expect(response.body.updatedAt).toBe(team.updatedAt);
     });
+
+    it('writes the orchestration strategy and turn cap through PATCH and reads them back', async () => {
+      const team = await createTeam();
+
+      const patched = await testApp
+        .request()
+        .patch(`/api/v1/teams/${team.id}`)
+        .send({ strategy: 'broadcast', maxTurnsPerInteraction: 7 })
+        .expect(200);
+      expect(patched.body).toMatchObject({
+        strategy: 'broadcast',
+        maxTurnsPerInteraction: 7,
+      });
+
+      const read = await testApp
+        .request()
+        .get(`/api/v1/teams/${team.id}`)
+        .expect(200);
+      expect(read.body).toMatchObject({
+        strategy: 'broadcast',
+        maxTurnsPerInteraction: 7,
+      });
+    });
+
+    it('clears the turn cap on an explicit null, and accepts that null again on the next PATCH', async () => {
+      const team = await createTeam();
+
+      await testApp
+        .request()
+        .patch(`/api/v1/teams/${team.id}`)
+        .send({ maxTurnsPerInteraction: null })
+        .expect(200);
+
+      const read = await testApp
+        .request()
+        .get(`/api/v1/teams/${team.id}`)
+        .expect(200);
+      expect(read.body.maxTurnsPerInteraction).toBeNull();
+
+      await testApp
+        .request()
+        .patch(`/api/v1/teams/${team.id}`)
+        .send({ maxTurnsPerInteraction: read.body.maxTurnsPerInteraction })
+        .expect(200);
+    });
+
+    it('refuses an unknown strategy and an out-of-range turn cap on PATCH', async () => {
+      const team = await createTeam();
+
+      await testApp
+        .request()
+        .patch(`/api/v1/teams/${team.id}`)
+        .send({ strategy: 'round-robin' })
+        .expect(400);
+      await testApp
+        .request()
+        .patch(`/api/v1/teams/${team.id}`)
+        .send({ maxTurnsPerInteraction: 11 })
+        .expect(400);
+    });
   });
 
   describe('the collection', () => {

@@ -97,4 +97,20 @@ describe('UpdateTeamDto', () => {
     expect(await validateUpdate({ name: '' })).toHaveLength(1);
     expect(await validateUpdate({ name: '   ' })).toHaveLength(1);
   });
+
+  it('accepts null for the turn cap, so a GET response can be sent back as-is', async () => {
+    expect(await validateUpdate({ maxTurnsPerInteraction: null })).toHaveLength(
+      0,
+    );
+  });
+
+  it('still refuses a turn cap that is not an integer in range', async () => {
+    expect(await validateUpdate({ maxTurnsPerInteraction: 0 })).toHaveLength(1);
+    expect(await validateUpdate({ maxTurnsPerInteraction: 11 })).toHaveLength(
+      1,
+    );
+    expect(await validateUpdate({ maxTurnsPerInteraction: 2.5 })).toHaveLength(
+      1,
+    );
+  });
 });

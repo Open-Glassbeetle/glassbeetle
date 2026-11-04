@@ -37,9 +37,10 @@ export interface Budget {
   /**
    * Usage events in this period that carry a cost.
    *
-   * Zero means nothing chargeable has been recorded. That is the case for
-   * every installation today, because completions do not run yet — so the UI
-   * says which of the two it is rather than presenting a full budget as a
+   * Zero means nothing chargeable has been recorded. Completions do run and
+   * write `usage_events`, but with `cost_usd` still NULL (per-token pricing
+   * is separate work), and `callCount` is a count of non-null costs — so the
+   * UI says which of the two it is rather than presenting a full budget as a
    * measurement.
    */
   readonly callCount: number;

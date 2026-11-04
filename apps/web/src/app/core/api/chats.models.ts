@@ -6,9 +6,10 @@ import type { PageQuery } from './pagination';
  * A chat is the container a conversation happens in: who it belongs to, what
  * it is called, and the compacted summary of what has been said. The turns
  * themselves are their own resource (`messages.models.ts`), read from
- * `/chats/:chatId/messages`. What is still missing is generation: the
- * completion endpoints are empty controllers, so a conversation can be read
- * and appended to, but nothing answers.
+ * `/chats/:chatId/messages`. Generation is on the API too
+ * (`POST /chats/:chatId/completions`, plus context and compact), but this UI
+ * has no composer yet, so a conversation can be read and appended to here
+ * without anything on this screen triggering a reply.
  *
  * Both owner fields are nullable even though a chat is created with exactly
  * one owner: deleting an agent or a team clears the reference rather than the

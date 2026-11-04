@@ -41,6 +41,21 @@ export class TeamResponseDto {
   readonly memberCount!: number;
 
   @ApiProperty({
+    description: 'How the agents on the roster take turns in a multi-agent chat',
+    enum: ['sequential', 'coordinator', 'broadcast', 'autonomous'],
+    example: 'sequential',
+  })
+  readonly strategy!: 'sequential' | 'coordinator' | 'broadcast' | 'autonomous';
+
+  @ApiProperty({
+    type: 'integer',
+    description: 'Most turns a multi-agent exchange may take',
+    example: 5,
+    nullable: true,
+  })
+  readonly maxTurnsPerInteraction!: number | null;
+
+  @ApiProperty({
     description: 'Timestamp of team creation in ISO-8601 UTC format',
     example: '2026-10-04T12:00:00.000Z',
   })
