@@ -328,6 +328,71 @@ describe('CompletionsController', () => {
       expect(writeCount).toBe(2);
       expect((res as any).end).toHaveBeenCalled();
     });
+
+    it('settles and closes the stream when the client disconnects while parked on backpressure', async () => {
+      const chatId = 'chat-001';
+      const dto: CreateCompletionDto = { stream: true };
+
+      let generatorClosed = false;
+      let abortedWhenClosed = false;
+      let signal: AbortSignal | undefined;
+      async function* mockStream() {
+        try {
+          yield {
+            type: 'token' as const,
+            data: { messageId: 'm1', text: 'chunk1' },
+          };
+          yield {
+            type: 'token' as const,
+            data: { messageId: 'm1', text: 'chunk2' },
+          };
+        } finally {
+          generatorClosed = true;
+          abortedWhenClosed = signal?.aborted === true;
+        }
+      }
+
+      (mockInferenceService as any).streamChat = vi
+        .fn()
+        .mockImplementation((_chatId: string, _dto: unknown, options: any) => {
+          signal = options.signal;
+          return mockStream();
+        });
+
+      const req = new EventEmitter() as unknown as Request;
+      (req as any).headers = {};
+
+      const res = new EventEmitter() as unknown as Response;
+      (res as any).writableEnded = false;
+      (res as any).destroyed = false;
+      (res as any).status = vi.fn().mockReturnValue(res);
+      (res as any).setHeader = vi.fn();
+      (res as any).flushHeaders = vi.fn();
+      (res as any).write = vi.fn(() => {
+        // Buffer stays full and the client hangs up without ever draining it
+        setTimeout(() => {
+          (res as any).destroyed = true;
+          res.emit('close');
+        }, 10);
+        return false;
+      });
+      (res as any).end = vi.fn();
+
+      let settled = false;
+      const completion = controller
+        .createCompletion(chatId, dto, req, res)
+        .then(() => {
+          settled = true;
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(settled).toBe(true);
+      expect(generatorClosed).toBe(true);
+      // streamChat only persists the partial row once it sees the abort, so the signal must fire before the generator closes
+      expect(abortedWhenClosed).toBe(true);
+      await completion;
+    });
   });
 
   describe('inspectContext', () => {
