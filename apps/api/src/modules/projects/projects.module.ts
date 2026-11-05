@@ -3,15 +3,14 @@ import { ProjectsController } from './projects.controller.js';
 import { ProjectsService } from './projects.service.js';
 
 /**
- * Will wire the `/projects` resource.
+ * Wires the `/projects` resource.
  *
- * A placeholder: the controller declares no routes and the service has no
- * implementation, so importing this module adds nothing to the API. The
- * `projects` table exists in the schema and `chats.project_id` and
- * `artifacts.project_id` already reference it.
+ * Exposes CRUD endpoints for projects, which serve as organizing containers
+ * for chats and artifacts.
  */
 @Module({
   controllers: [ProjectsController],
-  providers: [ProjectsService]
+  providers: [ProjectsService],
+  exports: [ProjectsService],
 })
 export class ProjectsModule {}
