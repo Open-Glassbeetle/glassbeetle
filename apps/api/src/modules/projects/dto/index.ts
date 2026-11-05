@@ -4,4 +4,4 @@ export * from './project-response.dto.js';
 export * from './list-projects-query.dto.js';
 export * from './paginated-projects-response.dto.js';
 export * from './project.mapper.js';
-
+export * from './upload-project-image.dto.js';

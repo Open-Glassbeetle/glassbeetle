@@ -1,6 +1,12 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  PayloadTooLargeException,
+} from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppConfigService } from '../../config/app-config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { UnsupportedMediaTypeError } from '../../file-storage/file-storage.errors.js';
 import type { FileStorageService } from '../../file-storage/file-storage.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
 import { ProjectsService } from './projects.service.js';
@@ -10,6 +16,7 @@ describe('ProjectsService', () => {
   let db: DatabaseService;
   let fixtures: TestFixtures;
   let fileStorage: FileStorageService;
+  let appConfig: AppConfigService;
   let service: ProjectsService;
 
   beforeEach(() => {
@@ -17,9 +24,17 @@ describe('ProjectsService', () => {
     db.connect(':memory:');
     fixtures = new TestFixtures(db);
     fileStorage = {
+      write: vi.fn().mockImplementation(async (bucket: string, buffer: Buffer) => ({
+        reference: `${bucket}/018f3a9e-0000-7000-8000-000000000001.png`,
+        bytesWritten: buffer.length,
+        mimeType: 'image/png',
+      })),
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as FileStorageService;
-    service = new ProjectsService(db, fileStorage);
+    appConfig = {
+      maxPictureSizeBytes: 5 * 1024 * 1024,
+    } as unknown as AppConfigService;
+    service = new ProjectsService(db, fileStorage, appConfig);
   });
 
   afterEach(() => {
@@ -355,6 +370,182 @@ describe('ProjectsService', () => {
       );
       expect(artifactRow).toBeDefined();
       expect(artifactRow?.project_id).toBeNull();
+    });
+  });
+
+  describe('uploadImage', () => {
+    const validPngBuffer = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    const validJpegBuffer = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+    ]);
+
+    it('uploads a valid image, stores file in project-images bucket, updates database row, and returns project with hasImage: true', async () => {
+      const project = fixtures.createProject({
+        name: 'Cover Project',
+        created_at: '2026-09-01T00:00:00.000Z',
+        updated_at: '2026-09-01T00:00:00.000Z',
+      });
+
+      const mockFile = {
+        buffer: validPngBuffer,
+        originalname: 'my-project-cover.png',
+        mimetype: 'image/png',
+        size: validPngBuffer.length,
+      } as Express.Multer.File;
+
+      const result = await service.uploadImage(project.id, mockFile);
+
+      expect(fileStorage.write).toHaveBeenCalledWith(
+        'project-images',
+        validPngBuffer,
+        expect.objectContaining({
+          maxBytes: 5 * 1024 * 1024,
+        }),
+      );
+
+      expect(result.id).toBe(project.id);
+      expect(result.hasImage).toBe(true);
+      expect((result as any).image_path).toBeUndefined();
+      expect(result.updatedAt).not.toBe('2026-09-01T00:00:00.000Z');
+
+      const inDb = db.get<{ image_path: string | null }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(inDb?.image_path).toBe(
+        'project-images/018f3a9e-0000-7000-8000-000000000001.png',
+      );
+    });
+
+    it('replaces an existing image and deletes the old file from storage', async () => {
+      const oldPath = 'project-images/old-image.png';
+      const project = fixtures.createProject({
+        name: 'Project with Old Image',
+        image_path: oldPath,
+      });
+
+      const mockFile = {
+        buffer: validJpegBuffer,
+        originalname: 'new-cover.jpg',
+        mimetype: 'image/jpeg',
+        size: validJpegBuffer.length,
+      } as Express.Multer.File;
+
+      await service.uploadImage(project.id, mockFile);
+
+      expect(fileStorage.delete).toHaveBeenCalledWith(oldPath);
+
+      const inDb = db.get<{ image_path: string | null }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(inDb?.image_path).toBe(
+        'project-images/018f3a9e-0000-7000-8000-000000000001.png',
+      );
+    });
+
+    it('rejects a non-image file disguised as image (magic bytes sniffing) with UnsupportedMediaTypeError', async () => {
+      const project = fixtures.createProject({ name: 'Spoofed Project' });
+      const textBuffer = Buffer.from('Just plain text pretending to be a PNG');
+
+      const mockFile = {
+        buffer: textBuffer,
+        originalname: 'innocent.png',
+        mimetype: 'image/png',
+        size: textBuffer.length,
+      } as Express.Multer.File;
+
+      await expect(service.uploadImage(project.id, mockFile)).rejects.toThrow(
+        UnsupportedMediaTypeError,
+      );
+
+      // Verify row was not modified
+      const inDb = db.get<{ image_path: string | null }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(inDb?.image_path).toBeNull();
+    });
+
+    it('rejects an SVG file due to stored XSS concerns', async () => {
+      const project = fixtures.createProject({ name: 'SVG Project' });
+      const svgBuffer = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      );
+
+      const mockFile = {
+        buffer: svgBuffer,
+        originalname: 'vector.svg',
+        mimetype: 'image/svg+xml',
+        size: svgBuffer.length,
+      } as Express.Multer.File;
+
+      await expect(service.uploadImage(project.id, mockFile)).rejects.toThrow(
+        UnsupportedMediaTypeError,
+      );
+    });
+
+    it('rejects a file exceeding the maximum size limit with PayloadTooLargeException', async () => {
+      const project = fixtures.createProject({ name: 'Huge Project' });
+      const hugeBuffer = Buffer.alloc(5 * 1024 * 1024 + 1024);
+
+      const mockFile = {
+        buffer: hugeBuffer,
+        originalname: 'huge.png',
+        mimetype: 'image/png',
+        size: hugeBuffer.length,
+      } as Express.Multer.File;
+
+      await expect(service.uploadImage(project.id, mockFile)).rejects.toThrow(
+        PayloadTooLargeException,
+      );
+    });
+
+    it('throws BadRequestException when file is missing or has empty buffer', async () => {
+      const project = fixtures.createProject({ name: 'No File Project' });
+
+      await expect(service.uploadImage(project.id, undefined)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      await expect(
+        service.uploadImage(project.id, {
+          buffer: Buffer.alloc(0),
+        } as Express.Multer.File),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException for non-existent project', async () => {
+      const mockFile = {
+        buffer: validPngBuffer,
+        originalname: 'cover.png',
+        mimetype: 'image/png',
+        size: validPngBuffer.length,
+      } as Express.Multer.File;
+
+      await expect(
+        service.uploadImage('018f3a9e-0000-7000-8000-000000000404', mockFile),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws Error when FileStorageService is not configured', async () => {
+      const serviceWithoutStorage = new ProjectsService(db, undefined, appConfig);
+      const project = fixtures.createProject({ name: 'No Storage Project' });
+
+      const mockFile = {
+        buffer: validPngBuffer,
+        originalname: 'cover.png',
+        mimetype: 'image/png',
+        size: validPngBuffer.length,
+      } as Express.Multer.File;
+
+      await expect(
+        serviceWithoutStorage.uploadImage(project.id, mockFile),
+      ).rejects.toThrow('FileStorageService is required for image uploads');
     });
   });
 });

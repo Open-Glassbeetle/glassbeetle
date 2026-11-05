@@ -487,5 +487,217 @@ describe('Projects Endpoints (e2e)', () => {
       expect(await fileStorage.exists(stored.reference)).toBe(false);
     });
   });
+
+  describe('PUT /api/v1/projects/:projectId/image', () => {
+    const validPng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    const validJpeg = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+    ]);
+
+    it('uploads a valid PNG image, stores file in storage, updates database row, and returns 200 OK', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const project = testApp.fixtures.createProject({
+        name: 'Image Project',
+        created_at: '2026-09-01T00:00:00.000Z',
+        updated_at: '2026-09-01T00:00:00.000Z',
+      });
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', validPng, 'cover.png')
+        .expect(200);
+
+      expect(res.body.id).toBe(project.id);
+      expect(res.body.hasImage).toBe(true);
+      expect(res.body.image_path).toBeUndefined();
+      expect(res.body.imagePath).toBeUndefined();
+      expect(res.body.updatedAt).not.toBe('2026-09-01T00:00:00.000Z');
+
+      const dbRow = testApp.db.get<{ image_path: string | null }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(dbRow?.image_path).toMatch(/^project-images\/[0-9a-f-]+\.png$/);
+      expect(await fileStorage.exists(dbRow!.image_path!)).toBe(true);
+    });
+
+    it('accepts upload with field name "image"', async () => {
+      const project = testApp.fixtures.createProject({ name: 'Field Image Project' });
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('image', validJpeg, 'photo.jpg')
+        .expect(200);
+
+      expect(res.body.id).toBe(project.id);
+      expect(res.body.hasImage).toBe(true);
+    });
+
+    it('replaces an existing image, writes the new file and deletes the old file from storage', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const project = testApp.fixtures.createProject({ name: 'Replace Image Project' });
+
+      // First upload
+      await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', validPng, 'first.png')
+        .expect(200);
+
+      const firstRow = testApp.db.get<{ image_path: string }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      const firstPath = firstRow!.image_path;
+      expect(await fileStorage.exists(firstPath)).toBe(true);
+
+      // Second upload (replacement)
+      const secondRes = await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', validJpeg, 'second.jpg')
+        .expect(200);
+
+      expect(secondRes.body.hasImage).toBe(true);
+
+      const secondRow = testApp.db.get<{ image_path: string }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      const secondPath = secondRow!.image_path;
+
+      // Old file must be gone
+      expect(await fileStorage.exists(firstPath)).toBe(false);
+      // New file must exist
+      expect(await fileStorage.exists(secondPath)).toBe(true);
+      expect(secondPath).not.toBe(firstPath);
+    });
+
+    it('rejects a non-image file disguised as image (magic bytes sniffing) with 415', async () => {
+      const project = testApp.fixtures.createProject({ name: 'Disguised Project' });
+      const textBuffer = Buffer.from('Just plain text disguised as PNG image');
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', textBuffer, 'fake.png')
+        .expect(415);
+
+      expect(res.body.statusCode).toBe(415);
+      expect(res.body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+
+      const dbRow = testApp.db.get<{ image_path: string | null }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(dbRow?.image_path).toBeNull();
+    });
+
+    it('rejects an SVG file due to stored-XSS concern with 415', async () => {
+      const project = testApp.fixtures.createProject({ name: 'SVG Project' });
+      const svgBuffer = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      );
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', svgBuffer, 'vector.svg')
+        .expect(415);
+
+      expect(res.body.statusCode).toBe(415);
+      expect(res.body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+    });
+
+    it('rejects a file exceeding the maximum size limit with 413 Payload Too Large', async () => {
+      const project = testApp.fixtures.createProject({ name: 'Big Image Project' });
+      const hugeBuffer = Buffer.alloc(5 * 1024 * 1024 + 1024);
+      validPng.copy(hugeBuffer, 0, 0, validPng.length);
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', hugeBuffer, 'huge.png')
+        .expect(413);
+
+      expect(res.body.statusCode).toBe(413);
+      expect(res.body.code).toBe('FILE_TOO_LARGE');
+    });
+
+    it('rejects request with no file attached with 400 Bad Request', async () => {
+      const project = testApp.fixtures.createProject({ name: 'No File Project' });
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .expect(400);
+
+      expect(res.body.statusCode).toBe(400);
+      expect(res.body.code).toBe('MISSING_FILE');
+    });
+
+    it('stores file using server-generated UUIDv7 even if client filename has directory traversal ../', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const project = testApp.fixtures.createProject({ name: 'Traversal Project' });
+
+      await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', validPng, '../../../../../../etc/shadow.png')
+        .expect(200);
+
+      const dbRow = testApp.db.get<{ image_path: string }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(dbRow?.image_path).toMatch(/^project-images\/[0-9a-f-]+\.png$/);
+      expect(await fileStorage.exists(dbRow!.image_path)).toBe(true);
+    });
+
+    it('returns 404 Not Found for non-existent project ID on image upload', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-999999999999';
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/projects/${nonExistentId}/image`)
+        .attach('file', validPng, 'cover.png')
+        .expect(404);
+
+      expect(res.body.statusCode).toBe(404);
+      expect(res.body.code).toBe('PROJECT_NOT_FOUND');
+    });
+
+    it('integration test: delete project and assert the image file is cleaned up', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const project = testApp.fixtures.createProject({ name: 'Project to Delete' });
+
+      await testApp
+        .request()
+        .put(`/api/v1/projects/${project.id}/image`)
+        .attach('file', validPng, 'cover.png')
+        .expect(200);
+
+      const dbRow = testApp.db.get<{ image_path: string }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(await fileStorage.exists(dbRow!.image_path)).toBe(true);
+
+      // Delete the project
+      await testApp
+        .request()
+        .delete(`/api/v1/projects/${project.id}`)
+        .expect(204);
+
+      // Verify file is cleaned up from disk
+      expect(await fileStorage.exists(dbRow!.image_path)).toBe(false);
+    });
+  });
 });
 
