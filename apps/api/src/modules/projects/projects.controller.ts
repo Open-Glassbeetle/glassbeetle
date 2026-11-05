@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,19 +9,28 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
+  ApiBody,
+  ApiConsumes,
   ApiCreatedResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiPayloadTooLargeResponse,
   ApiTags,
+  ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import {
   CreateProjectDto,
@@ -28,6 +38,7 @@ import {
   PaginatedProjectsResponseDto,
   ProjectResponseDto,
   UpdateProjectDto,
+  UploadProjectImageDto,
 } from './dto/index.js';
 import { ProjectsService } from './projects.service.js';
 
@@ -167,5 +178,63 @@ export class ProjectsController {
   @ApiNotFoundResponse({ description: 'Project not found' })
   async delete(@Param('projectId') projectId: string): Promise<void> {
     await this.projectsService.delete(projectId);
+  }
+
+  /**
+   * `PUT /projects/:projectId/image` — upload or replace the project image.
+   *
+   * Replaces any existing project image. Enforces image type allow-list via magic
+   * bytes, rejecting SVG to protect against stored XSS in Tauri webview.
+   * File size limit is dynamically read from configuration and enforced during
+   * upload streaming by multer.
+   */
+  @Put(':projectId/image')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(PictureUploadInterceptor)
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload a project image',
+    description:
+      'Uploads a cover image for the project (PUT replaces any existing image). Only JPEG, PNG, WebP, and GIF images are permitted. SVG is excluded to prevent stored XSS. File size is bounded by configuration.',
+  })
+  @ApiParam({
+    name: 'projectId',
+    description: 'Unique project identifier',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiBody({
+    description:
+      'Project image file (JPEG, PNG, WebP, or GIF up to configured max size)',
+    type: UploadProjectImageDto,
+  })
+  @ApiOkResponse({
+    description: 'Image uploaded and project updated successfully',
+    type: ProjectResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'No file uploaded or file is empty',
+  })
+  @ApiUnsupportedMediaTypeResponse({
+    description:
+      'Unsupported media type (non-image or SVG); detected type is not permitted',
+  })
+  @ApiNotFoundResponse({
+    description: 'Project not found',
+  })
+  @ApiPayloadTooLargeResponse({
+    description: 'Uploaded file exceeds configured maximum size limit',
+  })
+  async uploadImage(
+    @Param('projectId') projectId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<ProjectResponseDto> {
+    if (!file || !file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException({
+        code: 'MISSING_FILE',
+        message: 'No file uploaded or file is empty',
+      });
+    }
+
+    return this.projectsService.uploadImage(projectId, file);
   }
 }

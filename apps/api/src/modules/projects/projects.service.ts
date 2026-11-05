@@ -14,8 +14,14 @@ import {
 } from '../../common/pagination/sql-query-builder.js';
 import { newId } from '../../common/persistence/identifiers.js';
 import { nowIso } from '../../common/persistence/timestamps.js';
+import { AppConfigService } from '../../config/app-config.service.js';
+import { DEFAULT_MAX_PICTURE_SIZE_BYTES } from '../../config/app.config.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
+import {
+  ALLOWED_PICTURE_MIME_TYPES,
+  assertUploadablePicture,
+} from '../../file-storage/picture-uploads.js';
 import {
   applyProjectUpdates,
   mapCreateProjectDtoToRow,
@@ -72,6 +78,7 @@ export class ProjectsService {
   constructor(
     private readonly db: DatabaseService,
     @Optional() private readonly fileStorage?: FileStorageService,
+    @Optional() private readonly appConfigService?: AppConfigService,
   ) {}
 
   /**
@@ -310,5 +317,84 @@ export class ProjectsService {
         );
       }
     }
+  }
+
+  /**
+   * Uploads and stores a new image for a project, replacing any existing image.
+   *
+   * Constraints:
+   * - Project must exist (throws 404 NotFoundException if not).
+   * - Content type is determined from actual file bytes (magic bytes), not client headers.
+   * - Only JPEG, PNG, WebP, and GIF images are permitted (SVG excluded to prevent XSS in Tauri webview).
+   * - Maximum file size is enforced from configuration.
+   * - The stored filename is generated via UUIDv7 and never derived from client-supplied names.
+   * - The file is stored via FileStorageService in the 'project-images' bucket.
+   * - Replaces and deletes any previously stored image file without leaking files.
+   * - Updates `projects.image_path` and `updated_at`.
+   * - Never returns the raw `image_path` in the response (maps to ProjectResponseDto with `hasImage: true`).
+   *
+   * Ordering on replacement:
+   * 1. Validate file (type, size).
+   * 2. Verify project exists.
+   * 3. Write new file to storage ('project-images' bucket).
+   * 4. Update database row (`image_path`, `updated_at`).
+   * 5. Delete old file from storage (logged on failure, harmless if unreferenced).
+   */
+  async uploadImage(
+    id: string,
+    file?: Express.Multer.File,
+  ): Promise<ProjectResponseDto> {
+    const maxBytes =
+      this.appConfigService?.maxPictureSizeBytes ??
+      DEFAULT_MAX_PICTURE_SIZE_BYTES;
+
+    assertUploadablePicture(file, maxBytes);
+
+    const existing = this.db.get<{ id: string; image_path: string | null }>(
+      'SELECT id, image_path FROM projects WHERE id = ?',
+      [id],
+    );
+
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'PROJECT_NOT_FOUND',
+        message: `Project with ID "${id}" not found`,
+      });
+    }
+
+    if (!this.fileStorage) {
+      throw new Error('FileStorageService is required for image uploads');
+    }
+
+    // Write new file to 'project-images' bucket (generates internal UUIDv7 filename, ignores client originalname)
+    const stored = await this.fileStorage.write(
+      'project-images',
+      (file as Express.Multer.File).buffer,
+      {
+        maxBytes,
+        allowedMimeTypes: ALLOWED_PICTURE_MIME_TYPES,
+      },
+    );
+
+    const now = nowIso();
+
+    // Update database row
+    this.db.run(
+      'UPDATE projects SET image_path = ?, updated_at = ? WHERE id = ?',
+      [stored.reference, now, id],
+    );
+
+    // Delete previous image file if one existed
+    if (existing.image_path) {
+      try {
+        await this.fileStorage.delete(existing.image_path);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete previous image "${existing.image_path}" for project "${id}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return this.findOne(id);
   }
 }

@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,6 +46,9 @@ describe('ProjectsController', () => {
             create: vi.fn().mockResolvedValue(mockProject),
             update: vi.fn().mockResolvedValue(mockProject),
             delete: vi.fn().mockResolvedValue(undefined),
+            uploadImage: vi
+              .fn()
+              .mockResolvedValue({ ...mockProject, hasImage: true }),
           },
         },
       ],
@@ -119,6 +123,34 @@ describe('ProjectsController', () => {
       await controller.delete(mockProject.id);
 
       expect(service.delete).toHaveBeenCalledWith(mockProject.id);
+    });
+  });
+
+  describe('uploadImage', () => {
+    it('delegates to projectsService.uploadImage and returns updated project with hasImage: true', async () => {
+      const mockFile = {
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        originalname: 'cover.png',
+        mimetype: 'image/png',
+        size: 4,
+      } as Express.Multer.File;
+
+      const result = await controller.uploadImage(mockProject.id, mockFile);
+
+      expect(service.uploadImage).toHaveBeenCalledWith(mockProject.id, mockFile);
+      expect(result).toEqual({ ...mockProject, hasImage: true });
+    });
+
+    it('throws BadRequestException if no file is uploaded or buffer is empty', async () => {
+      await expect(
+        controller.uploadImage(mockProject.id, undefined),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.uploadImage(mockProject.id, {
+          buffer: Buffer.alloc(0),
+        } as Express.Multer.File),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });
