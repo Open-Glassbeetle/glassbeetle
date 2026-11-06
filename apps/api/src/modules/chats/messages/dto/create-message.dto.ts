@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   ValidateIf,
 } from 'class-validator';
@@ -71,7 +72,7 @@ export class CreateMessageDto {
   @IsOptional()
   @ValidateIf((_object, value) => value !== undefined && value !== null)
   @IsString({ message: 'agentId must be a string' })
-  @IsNotEmpty({ message: 'agentId must not be empty' })
+  @IsUUID('7', { message: 'agentId must be a UUIDv7' })
   agentId?: string | null;
 
   @DisallowField('id is server-managed and cannot be supplied by the client')

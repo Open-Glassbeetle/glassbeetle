@@ -64,6 +64,22 @@ describe('CreateChatDto', () => {
     expect(messages).toContain(NEITHER_OWNER_ERROR_MESSAGE);
   });
 
+
+  it('rejects malformed UUIDv7 ids on create', async () => {
+    const badAgent = await validateCreate({ agentId: 'not-a-uuid' });
+    expect(
+      badAgent.flatMap((e) => Object.values(e.constraints ?? {})).join(' '),
+    ).toContain('agentId must be a UUIDv7');
+
+    const badProject = await validateCreate({
+      agentId: '018f3a9e-0000-7000-8000-000000000001',
+      projectId: '550e8400-e29b-41d4-a716-446655440000',
+    });
+    expect(
+      badProject.flatMap((e) => Object.values(e.constraints ?? {})).join(' '),
+    ).toContain('projectId must be a UUIDv7');
+  });
+
   it('rejects empty object payload', async () => {
     const errors = await validateCreate({});
     expect(errors.length).toBeGreaterThan(0);

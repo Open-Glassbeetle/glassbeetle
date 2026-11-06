@@ -24,6 +24,7 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { ParseUuidV7Pipe } from '../../common/identifiers/index.js';
 import { ApiErrorResponseDto } from '../../common/http/api-error.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import { ChatsService } from './chats.service.js';
@@ -143,11 +144,17 @@ export class ChatsController {
     description: 'Chat found and returned',
     type: ChatResponseDto,
   })
+  @ApiBadRequestResponse({
+    description: 'chatId is not a UUIDv7 (INVALID_IDENTIFIER)',
+    type: ApiErrorResponseDto,
+  })
   @ApiNotFoundResponse({
     description: 'No chat found with that ID',
     type: ApiErrorResponseDto,
   })
-  async findOne(@Param('chatId') chatId: string): Promise<ChatResponseDto> {
+  async findOne(
+    @Param('chatId', ParseUuidV7Pipe) chatId: string,
+  ): Promise<ChatResponseDto> {
     return this.chatsService.findOne(chatId);
   }
 
@@ -225,7 +232,7 @@ Owner rule:
   })
   @ApiBadRequestResponse({
     description:
-      'Request validation failed, or attempt made to change the owner or set context_summary',
+      'chatId is not a UUIDv7 (INVALID_IDENTIFIER), request validation failed, or attempt made to change the owner or set context_summary',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
@@ -237,7 +244,7 @@ Owner rule:
     type: ApiErrorResponseDto,
   })
   async update(
-    @Param('chatId') chatId: string,
+    @Param('chatId', ParseUuidV7Pipe) chatId: string,
     @Body() dto: UpdateChatDto,
   ): Promise<ChatResponseDto> {
     return this.chatsService.update(chatId, dto);
@@ -309,11 +316,17 @@ Cascade behaviour:
   })
   @ApiParam({ name: 'chatId', description: 'Unique chat identifier (UUIDv7)' })
   @ApiNoContentResponse({ description: 'Chat successfully deleted' })
+  @ApiBadRequestResponse({
+    description: 'chatId is not a UUIDv7 (INVALID_IDENTIFIER)',
+    type: ApiErrorResponseDto,
+  })
   @ApiNotFoundResponse({
     description: 'No chat found with that ID',
     type: ApiErrorResponseDto,
   })
-  async delete(@Param('chatId') chatId: string): Promise<void> {
+  async delete(
+    @Param('chatId', ParseUuidV7Pipe) chatId: string,
+  ): Promise<void> {
     await this.chatsService.delete(chatId);
   }
 }

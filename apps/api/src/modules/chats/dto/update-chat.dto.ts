@@ -1,9 +1,9 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
-  IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   ValidateIf,
 } from 'class-validator';
@@ -55,7 +55,7 @@ export class UpdateChatDto {
   @ValidateIf((_object, value) => value !== undefined && value !== null)
   @Transform(trimString)
   @IsString({ message: 'projectId must be a string' })
-  @IsNotEmpty({ message: 'projectId must not be empty' })
+  @IsUUID('7', { message: 'projectId must be a UUIDv7' })
   projectId?: string | null;
 
   @DisallowField(OWNER_IMMUTABLE_ERROR_MESSAGE)
