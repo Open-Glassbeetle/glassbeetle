@@ -19,6 +19,7 @@ import {
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+import { ParseUuidV7Pipe } from '../../../common/identifiers/index.js';
 import { ApiErrorResponseDto } from '../../../common/http/api-error.js';
 import type { PaginatedResponse } from '../../../common/pagination/paginated-response.dto.js';
 import { MessagesService } from './messages.service.js';
@@ -71,7 +72,8 @@ export class MessagesController {
     type: PaginatedMessagesResponseDto,
   })
   @ApiBadRequestResponse({
-    description: 'Invalid pagination, sorting, cursor, or filter parameters',
+    description:
+      'chatId is not a UUIDv7 (INVALID_IDENTIFIER), or invalid pagination, sorting, cursor, or filter parameters',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
@@ -79,7 +81,7 @@ export class MessagesController {
     type: ApiErrorResponseDto,
   })
   async findAll(
-    @Param('chatId') chatId: string,
+    @Param('chatId', ParseUuidV7Pipe) chatId: string,
     @Query() query: ListMessagesQueryDto,
   ): Promise<PaginatedResponse<MessageResponseDto>> {
     return this.messagesService.findAll(chatId, query);
@@ -111,7 +113,8 @@ export class MessagesController {
     type: MessageResponseDto,
   })
   @ApiBadRequestResponse({
-    description: 'Validation failure, invalid role, or client-supplied server-managed fields',
+    description:
+      'chatId is not a UUIDv7 (INVALID_IDENTIFIER), validation failure, invalid role, or client-supplied server-managed fields',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
@@ -127,7 +130,7 @@ export class MessagesController {
     type: ApiErrorResponseDto,
   })
   async create(
-    @Param('chatId') chatId: string,
+    @Param('chatId', ParseUuidV7Pipe) chatId: string,
     @Body() dto: CreateMessageDto,
   ): Promise<MessageResponseDto> {
     return this.messagesService.create(chatId, dto);

@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import { IsUuidV7OrNullLiteral } from '../../../../common/identifiers/index.js';
 import { PaginationQueryDto } from '../../../../common/pagination/pagination-query.dto.js';
 import {
   MESSAGE_ROLES,
@@ -56,7 +57,7 @@ export class ListMessagesQueryDto extends PaginationQueryDto {
     example: '018f3a9e-0000-7000-8000-000000000003',
   })
   @IsOptional()
-  @IsString()
+  @IsUuidV7OrNullLiteral()
   agentId?: string;
 
   @ApiPropertyOptional({

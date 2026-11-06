@@ -1,11 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
-  IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
+  ValidateBy,
   ValidateIf,
+  isUUID,
+  type ValidationOptions,
 } from 'class-validator';
 import { trimString } from '../../teams/dto/create-team.dto.js';
 import {
@@ -25,6 +28,33 @@ export const MAX_CHAT_TITLE_LENGTH = 200;
  * `context_summary` is read-only and rejected if provided.
  * Server-managed fields (`id`, `created_at`, `updated_at`) are forbidden.
  */
+
+/**
+ * UUIDv7 check that stays quiet when the value is absent or blank, so
+ * {@link ExactlyOneOwner} can own those error messages.
+ */
+function IsUuidV7IfPresent(validationOptions?: ValidationOptions) {
+  return ValidateBy(
+    {
+      name: 'isUuidV7IfPresent',
+      validator: {
+        validate: (value: unknown): boolean => {
+          if (value === undefined || value === null) {
+            return true;
+          }
+          if (typeof value !== 'string' || value.trim().length === 0) {
+            return true;
+          }
+          return isUUID(value, '7');
+        },
+        defaultMessage: (args): string =>
+          `${args?.property ?? 'value'} must be a UUIDv7`,
+      },
+    },
+    validationOptions,
+  );
+}
+
 export class CreateChatDto {
   @ApiPropertyOptional({
     type: String,
@@ -52,7 +82,7 @@ export class CreateChatDto {
   @ValidateIf((_object, value) => value !== undefined && value !== null)
   @Transform(trimString)
   @IsString({ message: 'projectId must be a string' })
-  @IsNotEmpty({ message: 'projectId must not be empty' })
+  @IsUUID('7', { message: 'projectId must be a UUIDv7' })
   projectId?: string | null;
 
   @ApiPropertyOptional({
@@ -64,6 +94,7 @@ export class CreateChatDto {
   @ValidateIf((o: CreateChatDto) => !o.teamId || Boolean(o.agentId))
   @ExactlyOneOwner()
   @Transform(trimString)
+  @IsUuidV7IfPresent({ message: 'agentId must be a UUIDv7' })
   agentId?: string | null;
 
   @ApiPropertyOptional({
@@ -75,7 +106,7 @@ export class CreateChatDto {
   @ValidateIf((o: CreateChatDto) => Boolean(o.teamId))
   @Transform(trimString)
   @IsString({ message: 'teamId must be a string' })
-  @IsNotEmpty({ message: 'teamId must not be empty' })
+  @IsUUID('7', { message: 'teamId must be a UUIDv7' })
   teamId?: string | null;
 
   @DisallowField(CONTEXT_SUMMARY_READONLY_ERROR_MESSAGE)

@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
+import { IsUuidV7OrNullLiteral } from '../../../common/identifiers/index.js';
 import { PaginationQueryDto } from '../../../common/pagination/pagination-query.dto.js';
 
 /**
@@ -13,8 +14,8 @@ import { PaginationQueryDto } from '../../../common/pagination/pagination-query.
  *
  * Supported filters:
  * - `projectId`: Filter by project ID. Pass `"null"` to filter for chats without an assigned project.
- * - `agentId`: Filter by owning agent ID.
- * - `teamId`: Filter by owning team ID.
+ * - `agentId`: Filter by owning agent ID. Pass `"null"` for chats without an assigned agent.
+ * - `teamId`: Filter by owning team ID. Pass `"null"` for chats without an assigned team.
  * - `search`: Substring search matching chat title.
  */
 export class ListChatsQueryDto extends PaginationQueryDto {
@@ -24,23 +25,25 @@ export class ListChatsQueryDto extends PaginationQueryDto {
     example: '018f3a9e-0000-7000-8000-000000000002',
   })
   @IsOptional()
-  @IsString()
+  @IsUuidV7OrNullLiteral()
   projectId?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by owning agent ID',
+    description:
+      'Filter by owning agent ID. Pass "null" for chats without an assigned agent.',
     example: '018f3a9e-0000-7000-8000-000000000003',
   })
   @IsOptional()
-  @IsString()
+  @IsUuidV7OrNullLiteral()
   agentId?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by owning team ID',
+    description:
+      'Filter by owning team ID. Pass "null" for chats without an assigned team.',
     example: '018f3a9e-0000-7000-8000-000000000004',
   })
   @IsOptional()
-  @IsString()
+  @IsUuidV7OrNullLiteral()
   teamId?: string;
 
   @ApiPropertyOptional({

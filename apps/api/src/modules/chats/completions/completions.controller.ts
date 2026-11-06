@@ -21,6 +21,7 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { ParseUuidV7Pipe } from '../../../common/identifiers/index.js';
 import { ApiErrorResponseDto } from '../../../common/http/api-error.js';
 import { InferenceService } from '../../inference/inference.service.js';
 import {
@@ -79,7 +80,8 @@ export class CompletionsController {
   })
   @ApiBadRequestResponse({
     type: ApiErrorResponseDto,
-    description: 'Invalid overrides supplied in request body.',
+    description:
+      'chatId is not a UUIDv7 (INVALID_IDENTIFIER), or invalid overrides supplied in request body.',
   })
   @ApiNotFoundResponse({
     type: ApiErrorResponseDto,
@@ -107,7 +109,7 @@ export class CompletionsController {
     description: 'Upstream provider request timed out.',
   })
   async createCompletion(
-    @Param('chatId') chatId: string,
+    @Param('chatId', ParseUuidV7Pipe) chatId: string,
     @Body() dto: CreateCompletionDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -221,7 +223,7 @@ export class CompletionsController {
     type: ApiErrorResponseDto,
     description: 'Chat or assigned agent not found',
   })
-  inspectContext(@Param('chatId') chatId: string) {
+  inspectContext(@Param('chatId', ParseUuidV7Pipe) chatId: string) {
     return this.inferenceService.inspectContext(chatId);
   }
 
@@ -302,7 +304,7 @@ export class CompletionsController {
     description: 'Upstream provider request timed out.',
   })
   async compactChat(
-    @Param('chatId') chatId: string,
+    @Param('chatId', ParseUuidV7Pipe) chatId: string,
     @Body() dto: CompactChatDto | undefined,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
