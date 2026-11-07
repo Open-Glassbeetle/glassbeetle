@@ -10,6 +10,7 @@ import { newId } from '../../common/persistence/identifiers.js';
 import { nowIso } from '../../common/persistence/timestamps.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { AdapterFactoryService } from '../../model-adapters/adapter-factory/adapter-factory.service.js';
+import type { ModelAdapter } from '../../model-adapters/model-adapter.interface.js';
 import {
   ModelAdapterError,
   RequestAbortedError,
@@ -188,7 +189,7 @@ export class InferenceService {
     // -----------------------------------------------------------------------
     // 4. Resolve adapter and call complete()
     // -----------------------------------------------------------------------
-    const adapter = this.adapterFactory.create({
+    const adapter: ModelAdapter = this.adapterFactory.create({
       providerId: provider.id,
       providerKind: provider.kind as ProviderKind,
       baseUrl: provider.base_url,
@@ -295,7 +296,7 @@ export class InferenceService {
       );
     }
 
-    const adapter = this.adapterFactory.create({
+    const adapter: ModelAdapter = this.adapterFactory.create({
       providerId: provider.id,
       providerKind: provider.kind as ProviderKind,
       baseUrl: provider.base_url,
@@ -837,7 +838,7 @@ export class InferenceService {
         modelIdOverride,
       );
       if (requireStreaming) {
-        const adapter = this.adapterFactory.create({
+        const adapter: ModelAdapter = this.adapterFactory.create({
           providerId: provider.id,
           providerKind: provider.kind as ProviderKind,
           baseUrl: provider.base_url,
@@ -975,7 +976,7 @@ export class InferenceService {
       modelParams: effectiveModelParams,
     };
 
-    const adapter = this.adapterFactory.create({
+    const adapter: ModelAdapter = this.adapterFactory.create({
       providerId: provider.id,
       providerKind: provider.kind as ProviderKind,
       baseUrl: provider.base_url,
@@ -1620,7 +1621,7 @@ When the task is complete and no further response is needed, end with:
       currentStatus = newStatus;
     };
 
-    const adapter = this.adapterFactory.create({
+    const adapter: ModelAdapter = this.adapterFactory.create({
       providerId: provider.id,
       providerKind: provider.kind as ProviderKind,
       baseUrl: provider.base_url,
@@ -2352,7 +2353,7 @@ When the task is complete and no further response is needed, end with:
     };
 
     // 7. Invoke provider adapter
-    const adapter = this.adapterFactory.create({
+    const adapter: ModelAdapter = this.adapterFactory.create({
       providerId: provider.id,
       providerKind: provider.kind as ProviderKind,
       baseUrl: provider.base_url,
