@@ -576,18 +576,14 @@ describe('Chat completions: streaming (POST /api/v1/chats/:chatId/completions) (
     });
 
     it('streams multi-agent team completion successfully with sequential message_start events', async () => {
-      const provider = testApp.fixtures.createProvider({
-        kind: 'openai',
-        is_local: 0,
-      });
-      const model = testApp.fixtures.createModel(provider.id);
+      const env = await setupValidEnvironment();
       const alice = testApp.fixtures.createAgent({
         name: 'Alice',
-        model_id: model.id,
+        model_id: env.model.id,
       });
       const bob = testApp.fixtures.createAgent({
         name: 'Bob',
-        model_id: model.id,
+        model_id: env.model.id,
       });
 
       const team = testApp.fixtures.createTeam({ name: 'Orchestration Team' });
