@@ -25,7 +25,7 @@ import type {
 } from './context-construction.types.js';
 
 /** Row interface for `chats` table */
-interface ChatRow {
+export interface ChatRow {
   id: string;
   title: string | null;
   project_id: string | null;
@@ -38,7 +38,7 @@ interface ChatRow {
 }
 
 /** Row interface for `agents` table */
-interface AgentRow {
+export interface AgentRow {
   id: string;
   name: string;
   personality: string | null;
@@ -53,7 +53,7 @@ interface AgentRow {
 }
 
 /** Row interface for `models` table */
-interface ModelRow {
+export interface ModelRow {
   id: string;
   provider_id: string;
   model_identifier: string;
@@ -65,7 +65,7 @@ interface ModelRow {
 }
 
 /** Row interface for `messages` table */
-interface MessageRow {
+export interface MessageRow {
   id: string;
   chat_id: string;
   sequence: number;

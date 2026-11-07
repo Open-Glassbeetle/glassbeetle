@@ -313,18 +313,14 @@ describe('Chat Completions: Non-streaming execution (POST /api/v1/chats/:chatId/
     });
 
     it('executes multi-agent completion successfully when chat is owned by a team with members', async () => {
-      const provider = testApp.fixtures.createProvider({
-        kind: 'openai',
-        is_local: 0,
-      });
-      const model = testApp.fixtures.createModel(provider.id);
+      const env = await setupValidEnvironment();
       const alice = testApp.fixtures.createAgent({
         name: 'Alice',
-        model_id: model.id,
+        model_id: env.model.id,
       });
       const bob = testApp.fixtures.createAgent({
         name: 'Bob',
-        model_id: model.id,
+        model_id: env.model.id,
       });
 
       const team = testApp.fixtures.createTeam({ name: 'Engineering Team' });
