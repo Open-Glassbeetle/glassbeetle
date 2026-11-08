@@ -2,7 +2,10 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { MAX_ARTIFACT_TITLE_LENGTH } from './artifact-validators.js';
+import {
+  MAX_ARTIFACT_CONTENT_LENGTH,
+  MAX_ARTIFACT_TITLE_LENGTH,
+} from './artifact-validators.js';
 import { UpdateArtifactDto } from './update-artifact.dto.js';
 
 const VALIDATION_OPTIONS = {
@@ -57,6 +60,23 @@ describe('UpdateArtifactDto', () => {
     const titleError = errors.find((e) => e.property === 'title');
     expect(titleError).toBeDefined();
     expect(titleError?.constraints).toHaveProperty('maxLength');
+  });
+
+  it('accepts content at the maximum length', async () => {
+    const errors = await validateDto({
+      content: 'a'.repeat(MAX_ARTIFACT_CONTENT_LENGTH),
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rejects content exceeding maximum length', async () => {
+    const errors = await validateDto({
+      content: 'a'.repeat(MAX_ARTIFACT_CONTENT_LENGTH + 1),
+    });
+    expect(errors.length).toBeGreaterThan(0);
+    const contentError = errors.find((e) => e.property === 'content');
+    expect(contentError).toBeDefined();
+    expect(contentError?.constraints).toHaveProperty('maxLength');
   });
 
   it('rejects invalid type', async () => {

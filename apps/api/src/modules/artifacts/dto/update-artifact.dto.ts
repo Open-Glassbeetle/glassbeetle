@@ -10,6 +10,7 @@ import {
 } from 'class-validator';
 import {
   ALLOWED_ARTIFACT_TYPES,
+  MAX_ARTIFACT_CONTENT_LENGTH,
   MAX_ARTIFACT_MIME_TYPE_LENGTH,
   MAX_ARTIFACT_TITLE_LENGTH,
   trimString,
@@ -80,10 +81,14 @@ export class UpdateArtifactDto extends PartialType(CreateArtifactDto) {
     description:
       'Inline text content (explicit null clears it if filePath is set)',
     example: '# Updated Content',
+    maxLength: MAX_ARTIFACT_CONTENT_LENGTH,
     nullable: true,
   })
   @ValidateIf((_o, v) => v !== undefined && v !== null)
   @IsString({ message: 'content must be a string' })
+  @MaxLength(MAX_ARTIFACT_CONTENT_LENGTH, {
+    message: `content must not exceed ${MAX_ARTIFACT_CONTENT_LENGTH} characters`,
+  })
   @IsOptional()
   override content?: string | null;
 
