@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import {
   BadRequestException,
   Injectable,
@@ -15,6 +16,7 @@ import {
   escapeLikePattern,
 } from '../../common/pagination/sql-query-builder.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { FileNotFoundError } from '../../file-storage/file-storage.errors.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
 import {
   applyArtifactUpdates,
@@ -44,6 +46,35 @@ export const ALLOWED_ARTIFACT_SORT_COLUMNS: Readonly<Record<string, string>> = {
   version: 'a.version',
   id: 'a.id',
 };
+
+/**
+ * Descriptor of an artifact's actual content for direct serving or streaming.
+ */
+export type ArtifactContent =
+  | {
+      readonly kind: 'inline';
+      readonly id: string;
+      readonly title: string;
+      readonly version: number;
+      readonly mimeType: string | null;
+      readonly updatedAt: string;
+      readonly content: string;
+      readonly size: number;
+    }
+  | {
+      readonly kind: 'file';
+      readonly id: string;
+      readonly title: string;
+      readonly version: number;
+      readonly mimeType: string | null;
+      readonly updatedAt: string;
+      readonly filePath: string;
+      readonly size: number;
+      readonly openStream: (range?: {
+        start?: number;
+        end?: number;
+      }) => Promise<Readable>;
+    };
 
 /**
  * Service managing artifact entities and their persistence in SQLite.
@@ -184,6 +215,99 @@ export class ArtifactsService {
     }
 
     return mapArtifactRowToResponse(row, { includeContent: true });
+  }
+
+  /**
+   * Retrieves an artifact's content descriptor for streaming or direct inline serving.
+   *
+   * All file operations are delegated to `FileStorageService` for containment checks.
+   *
+   * Error Handling / Status Codes:
+   * - `ARTIFACT_NOT_FOUND` (404): No database row exists with the specified ID.
+   * - `ARTIFACT_CONTENT_NOT_FOUND` (404): The row exists but has neither inline content nor a file reference.
+   * - `ARTIFACT_FILE_NOT_FOUND` (404): The row references a file that is missing from storage.
+   *   404 is chosen over 410 (Gone) or 500 because the missing backing file means the requested
+   *   content sub-resource does not exist; 404 with a distinct code is honest, standard REST,
+   *   and consistent with missing stored agent pictures.
+   * - `InvalidPathError` (400): Backing file reference contains traversal sequences or escapes root.
+   *
+   * @throws NotFoundException (404)
+   * @throws InvalidPathError (400)
+   */
+  async openContent(id: string): Promise<ArtifactContent> {
+    const row = this.db.get<ArtifactRow>(
+      `SELECT a.id, a.project_id, a.chat_id, a.agent_id, a.title, a.type, a.mime_type, a.content, a.file_path, a.version, a.created_at, a.updated_at
+       FROM artifacts a WHERE a.id = ?`,
+      [id],
+    );
+
+    if (!row) {
+      throw new NotFoundException({
+        code: 'ARTIFACT_NOT_FOUND',
+        message: `Artifact "${id}" not found`,
+      });
+    }
+
+    const hasContent = row.content !== null && row.content !== undefined;
+    const hasFilePath = row.file_path !== null && row.file_path !== undefined;
+
+    if (!hasContent && !hasFilePath) {
+      throw new NotFoundException({
+        code: 'ARTIFACT_CONTENT_NOT_FOUND',
+        message: `Artifact "${id}" has neither inline content nor backing file`,
+      });
+    }
+
+    if (hasContent) {
+      const content = row.content!;
+      return {
+        kind: 'inline',
+        id: row.id,
+        title: row.title,
+        version: row.version,
+        mimeType: row.mime_type,
+        updatedAt: row.updated_at,
+        content,
+        size: Buffer.byteLength(content, 'utf-8'),
+      };
+    }
+
+    if (!this.fileStorage) {
+      throw new Error(
+        'FileStorageService is required to retrieve file artifact content',
+      );
+    }
+
+    const filePath = row.file_path!;
+    let stat;
+    try {
+      stat = await this.fileStorage.stat(filePath);
+    } catch (err) {
+      if (err instanceof FileNotFoundError) {
+        this.logger.warn(
+          `Artifact "${id}" references file "${filePath}" that is missing from storage`,
+        );
+        throw new NotFoundException({
+          code: 'ARTIFACT_FILE_NOT_FOUND',
+          message: `Artifact backing file not found in storage: ${filePath}`,
+        });
+      }
+      throw err;
+    }
+
+    const fileStorage = this.fileStorage;
+    return {
+      kind: 'file',
+      id: row.id,
+      title: row.title,
+      version: row.version,
+      mimeType: row.mime_type,
+      updatedAt: row.updated_at,
+      filePath,
+      size: stat.size,
+      openStream: (range?: { start?: number; end?: number }) =>
+        fileStorage.createReadStream(filePath, range),
+    };
   }
 
   /**

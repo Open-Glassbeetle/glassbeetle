@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
+import { newId } from '../src/common/persistence/identifiers.js';
 import { FileStorageService } from '../src/file-storage/file-storage.service.js';
 import { createTestApp, type TestApp } from './harness/index.js';
 
@@ -33,7 +43,8 @@ describe('Artifacts Endpoints (e2e)', () => {
       const a1 = testApp.fixtures.createArtifact({
         title: 'Spec Document',
         type: 'document',
-        content: '# Very long specification content that should not bloat lists',
+        content:
+          '# Very long specification content that should not bloat lists',
         file_path: null,
       });
       const a2 = testApp.fixtures.createArtifact({
@@ -402,7 +413,13 @@ describe('Artifacts Endpoints (e2e)', () => {
     });
 
     it('rejects client attempts to supply server-managed fields (400)', async () => {
-      for (const forbidden of ['id', 'version', 'hasFile', 'createdAt', 'updatedAt']) {
+      for (const forbidden of [
+        'id',
+        'version',
+        'hasFile',
+        'createdAt',
+        'updatedAt',
+      ]) {
         const res = await testApp
           .request()
           .post('/api/v1/artifacts')
@@ -694,7 +711,10 @@ describe('Artifacts Endpoints (e2e)', () => {
 
       expect(deleteSpy).toHaveBeenCalledWith('artifacts/deletable.bin');
 
-      await testApp.request().get(`/api/v1/artifacts/${created.id}`).expect(404);
+      await testApp
+        .request()
+        .get(`/api/v1/artifacts/${created.id}`)
+        .expect(404);
     });
 
     it('returns 400 Bad Request for invalid UUIDv7', async () => {
@@ -765,6 +785,401 @@ describe('Artifacts Endpoints (e2e)', () => {
 
       expect(res.body.id).toBe(artifact.id);
       expect(res.body.agentId).toBeNull();
+    });
+  });
+
+  describe('GET /api/v1/artifacts/:artifactId/content', () => {
+    it('returns inline content correctly, including non-ASCII text, with appropriate headers', async () => {
+      const utf8Content =
+        '# Glasflügelkäfer Spezifikation 🚀\n\n' +
+        'Umlaute: ä, ö, ü, ß.\n' +
+        'Japanese: ガラスの甲虫.\n' +
+        'Arabic: خنفساء زجاجية.\n' +
+        'Mathematics: ∑ (i = 1 to n) i = n(n + 1)/2.';
+
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Spec Überkäfer 🚀.md',
+        type: 'document',
+        content: utf8Content,
+        file_path: null,
+        mime_type: 'text/markdown',
+      });
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .expect(200);
+
+      expect(res.text).toBe(utf8Content);
+      expect(res.headers['content-type']).toBe('text/markdown; charset=utf-8');
+      expect(res.headers['content-length']).toBe(
+        Buffer.byteLength(utf8Content, 'utf-8').toString(),
+      );
+      expect(res.headers['content-disposition']).toMatch(
+        /^inline;\s*filename="Spec _berk_fer __\.md";\s*filename\*=UTF-8''Spec%20%C3%9Cberk%C3%A4fer%20%F0%9F%9A%80\.md$/,
+      );
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['etag']).toBe(
+        `"${artifact.version}-${Buffer.byteLength(utf8Content, 'utf-8')}"`,
+      );
+      expect(res.headers['last-modified']).toBe(
+        new Date(artifact.updated_at).toUTCString(),
+      );
+      expect(res.headers['cache-control']).toBe(
+        'private, max-age=0, must-revalidate',
+      );
+    });
+
+    it('streams file content correctly, byte-for-byte identical to what was stored', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      // Valid PNG header + mock data bytes
+      const pngBytes = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+        0x49, 0x48, 0x44, 0x52, 0xaa, 0xbb, 0xcc, 0xdd,
+      ]);
+
+      const stored = await fileStorage.write('artifacts', pngBytes);
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Diagram.png',
+        type: 'file',
+        content: null,
+        file_path: stored.reference,
+        mime_type: 'image/png',
+      });
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(res.body).toEqual(pngBytes);
+      expect(res.headers['content-type']).toBe('image/png');
+      expect(res.headers['content-length']).toBe(pngBytes.length.toString());
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['content-disposition']).toMatch(
+        /^inline;\s*filename="Diagram\.png"/,
+      );
+    });
+
+    it('streams a large file without buffering the whole file into memory', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      // Generate a ~256 KiB binary payload
+      const binaryData = Buffer.alloc(256 * 1024);
+      for (let i = 0; i < binaryData.length; i++) {
+        binaryData[i] = i % 256;
+      }
+
+      const stored = await fileStorage.write('artifacts', binaryData);
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'LargeBlob.bin',
+        type: 'file',
+        content: null,
+        file_path: stored.reference,
+        mime_type: null,
+      });
+
+      const createReadStreamSpy = vi.spyOn(fileStorage, 'createReadStream');
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .responseType('blob')
+        .expect(200);
+
+      // Verify that createReadStream was invoked rather than read() which buffers
+      expect(createReadStreamSpy).toHaveBeenCalledWith(
+        stored.reference,
+        undefined,
+      );
+      expect(res.body).toEqual(binaryData);
+      expect(res.headers['content-length']).toBe(binaryData.length.toString());
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+    });
+
+    it('sets X-Content-Type-Options: nosniff on every response', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Test',
+        content: 'content',
+        file_path: null,
+      });
+
+      const res200 = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .expect(200);
+      expect(res200.headers['x-content-type-options']).toBe('nosniff');
+
+      const res304 = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .set('If-None-Match', res200.headers['etag'])
+        .expect(304);
+      expect(res304.headers['x-content-type-options']).toBe('nosniff');
+    });
+
+    it('demotes text/html to application/octet-stream and forces attachment (pins down XSS policy)', async () => {
+      const htmlPayload =
+        '<html><body><script>alert("xss")</script></body></html>';
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Malicious.html',
+        type: 'document',
+        content: htmlPayload,
+        file_path: null,
+        mime_type: 'text/html',
+      });
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .expect(200);
+
+      // Demoted from text/html to application/octet-stream so browser/webview never parses DOM or executes script
+      expect(res.headers['content-type']).toBe('application/octet-stream');
+      // Forced to attachment so browser downloads rather than renders inline
+      expect(res.headers['content-disposition']).toMatch(
+        /^attachment;\s*filename="Malicious\.html"/,
+      );
+      // Non-negotiable nosniff header prevents MIME sniffing
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.body).toEqual(Buffer.from(htmlPayload, 'utf-8'));
+    });
+
+    it('demotes image/svg+xml to application/octet-stream and forces attachment (active SVG XSS defense)', async () => {
+      const svgPayload =
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Vector.svg',
+        type: 'file',
+        content: svgPayload,
+        file_path: null,
+        mime_type: 'image/svg+xml',
+      });
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toBe('application/octet-stream');
+      expect(res.headers['content-disposition']).toMatch(
+        /^attachment;\s*filename="Vector\.svg"/,
+      );
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+    });
+
+    it('falls back safely when mime_type is null without guessing or sniffing', async () => {
+      const inlineArtifact = testApp.fixtures.createArtifact({
+        title: 'NoMime.txt',
+        type: 'document',
+        content: 'plain content',
+        file_path: null,
+        mime_type: null,
+      });
+
+      const inlineRes = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${inlineArtifact.id}/content`)
+        .expect(200);
+
+      expect(inlineRes.headers['content-type']).toBe(
+        'text/plain; charset=utf-8',
+      );
+      expect(inlineRes.headers['content-disposition']).toMatch(
+        /^inline;\s*filename="NoMime\.txt"/,
+      );
+
+      const fileStorage = testApp.app.get(FileStorageService);
+      const stored = await fileStorage.write(
+        'artifacts',
+        Buffer.from('arbitrary file bytes'),
+      );
+      const fileArtifact = testApp.fixtures.createArtifact({
+        title: 'NoMimeFile.dat',
+        type: 'file',
+        content: null,
+        file_path: stored.reference,
+        mime_type: null,
+      });
+
+      const fileRes = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${fileArtifact.id}/content`)
+        .expect(200);
+
+      expect(fileRes.headers['content-type']).toBe('application/octet-stream');
+      expect(fileRes.headers['content-disposition']).toMatch(
+        /^attachment;\s*filename="NoMimeFile\.dat"/,
+      );
+    });
+
+    it('rejects a file_path containing traversal sequences (../) with 400 Bad Request', async () => {
+      const artifactId = newId();
+      testApp.db.run(
+        `INSERT INTO artifacts (id, title, type, content, file_path, version, created_at, updated_at)
+         VALUES (?, 'Traversal', 'file', NULL, '../../etc/passwd', 1, '2026-09-21T09:30:52.000Z', '2026-09-21T09:30:52.000Z')`,
+        [artifactId],
+      );
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifactId}/content`)
+        .expect(400);
+
+      expect(res.body.code).toBe('INVALID_PATH');
+    });
+
+    it('returns 404 ARTIFACT_FILE_NOT_FOUND when backing file has been deleted from disk', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const stored = await fileStorage.write(
+        'artifacts',
+        Buffer.from('to be deleted'),
+      );
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Deleted Backing File',
+        type: 'file',
+        content: null,
+        file_path: stored.reference,
+      });
+
+      // Delete the file from storage disk behind the server's back
+      const resolvedPath = await fileStorage.resolveAndVerify(stored.reference);
+      await fs.unlink(resolvedPath);
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .expect(404);
+
+      expect(res.body.code).toBe('ARTIFACT_FILE_NOT_FOUND');
+    });
+
+    it('returns 404 ARTIFACT_CONTENT_NOT_FOUND when artifact has neither content nor file', async () => {
+      const artifactId = newId();
+      testApp.db.run(
+        `INSERT INTO artifacts (id, title, type, content, file_path, version, created_at, updated_at)
+         VALUES (?, 'Empty Row', 'document', NULL, NULL, 1, '2026-09-21T09:30:52.000Z', '2026-09-21T09:30:52.000Z')`,
+        [artifactId],
+      );
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifactId}/content`)
+        .expect(404);
+
+      expect(res.body.code).toBe('ARTIFACT_CONTENT_NOT_FOUND');
+    });
+
+    it('returns 404 ARTIFACT_NOT_FOUND when artifact does not exist', async () => {
+      const nonExistentId = '018f3a9e-0000-7000-8000-000000000999';
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${nonExistentId}/content`)
+        .expect(404);
+
+      expect(res.body.code).toBe('ARTIFACT_NOT_FOUND');
+    });
+
+    it('returns 400 Bad Request for non-UUIDv7 artifactId parameter', async () => {
+      const res = await testApp
+        .request()
+        .get('/api/v1/artifacts/not-a-valid-uuid/content')
+        .expect(400);
+
+      expect(res.body.code).toBe('INVALID_IDENTIFIER');
+    });
+
+    it('returns 304 Not Modified when ETag matches If-None-Match', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'ETag Test',
+        content: 'Cacheable content',
+        file_path: null,
+        mime_type: 'text/plain',
+      });
+
+      const initialRes = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .expect(200);
+
+      const etag = initialRes.headers['etag'];
+      expect(etag).toBeDefined();
+
+      const conditionalRes = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .set('If-None-Match', etag)
+        .expect(304);
+
+      expect(conditionalRes.text).toBe('');
+      expect(conditionalRes.headers['etag']).toBe(etag);
+      expect(conditionalRes.headers['x-content-type-options']).toBe('nosniff');
+    });
+
+    it('returns 304 Not Modified when If-Modified-Since is at or after updatedAt', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Modified-Since Test',
+        content: 'Cacheable content',
+        file_path: null,
+      });
+
+      const updatedDate = new Date(artifact.updated_at);
+      // 10 seconds in the future
+      const futureDate = new Date(updatedDate.getTime() + 10_000).toUTCString();
+
+      await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .set('If-Modified-Since', futureDate)
+        .expect(304);
+    });
+
+    it('supports Range requests with 206 Partial Content and Content-Range', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const data = Buffer.from('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+      const stored = await fileStorage.write('artifacts', data);
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Alphabet.txt',
+        type: 'file',
+        content: null,
+        file_path: stored.reference,
+        mime_type: 'text/plain',
+      });
+
+      // Request bytes 10 to 19 inclusive (10 bytes: 'ABCDEFGHIJ')
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .set('Range', 'bytes=10-19')
+        .expect(206);
+
+      expect(res.text).toBe('ABCDEFGHIJ');
+      expect(res.headers['content-range']).toBe(`bytes 10-19/${data.length}`);
+      expect(res.headers['content-length']).toBe('10');
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['accept-ranges']).toBe('bytes');
+    });
+
+    it('returns 416 Range Not Satisfiable when requested range is out of bounds', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const data = Buffer.from('Short data');
+      const stored = await fileStorage.write('artifacts', data);
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Short.txt',
+        type: 'file',
+        content: null,
+        file_path: stored.reference,
+        mime_type: 'text/plain',
+      });
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .set('Range', 'bytes=100-200')
+        .expect(416);
+
+      expect(res.headers['content-range']).toBe(`bytes */${data.length}`);
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
     });
   });
 });

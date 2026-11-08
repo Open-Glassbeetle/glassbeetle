@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
+import {
+  FileNotFoundError,
+  InvalidPathError,
+} from '../../file-storage/file-storage.errors.js';
 import type { FileStorageService } from '../../file-storage/file-storage.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
 import { ArtifactsService } from './artifacts.service.js';
@@ -465,7 +469,9 @@ describe('ArtifactsService', () => {
       await expect(service.findOne(artifact.id)).rejects.toThrow(
         NotFoundException,
       );
-      expect(fileStorage.delete).toHaveBeenCalledWith('artifacts/to-delete.bin');
+      expect(fileStorage.delete).toHaveBeenCalledWith(
+        'artifacts/to-delete.bin',
+      );
     });
 
     it('succeeds even if fileStorage.delete rejects (e.g. missing file)', async () => {
@@ -532,6 +538,153 @@ describe('ArtifactsService', () => {
       const survived = await service.findOne(artifact.id);
       expect(survived.id).toBe(artifact.id);
       expect(survived.agentId).toBeNull();
+    });
+  });
+
+  describe('openContent', () => {
+    it('returns inline content descriptor with UTF-8 byte length for inline artifact', async () => {
+      const utf8Content = 'Hello 世界 🚀';
+      const artifact = fixtures.createArtifact({
+        title: 'Unicode Document',
+        type: 'document',
+        content: utf8Content,
+        file_path: null,
+        mime_type: 'text/markdown',
+      });
+
+      const result = await service.openContent(artifact.id);
+
+      expect(result).toMatchObject({
+        kind: 'inline',
+        id: artifact.id,
+        title: 'Unicode Document',
+        mimeType: 'text/markdown',
+        content: utf8Content,
+        size: Buffer.byteLength(utf8Content, 'utf-8'),
+        version: 1,
+      });
+    });
+
+    it('returns file content descriptor with stat size for backing file artifact', async () => {
+      const artifact = fixtures.createArtifact({
+        title: 'Stored File',
+        type: 'file',
+        content: null,
+        file_path: 'artifacts/archive.zip',
+        mime_type: 'application/zip',
+      });
+
+      vi.spyOn(fileStorage, 'stat').mockResolvedValueOnce({
+        size: 2048,
+        contentType: 'application/zip',
+        modifiedAt: new Date(),
+        createdAt: new Date(),
+      });
+
+      const mockStream = {} as any;
+      (fileStorage.createReadStream as any) = vi
+        .fn()
+        .mockReturnValue(mockStream);
+
+      const result = await service.openContent(artifact.id);
+
+      expect(result).toMatchObject({
+        kind: 'file',
+        id: artifact.id,
+        title: 'Stored File',
+        mimeType: 'application/zip',
+        filePath: 'artifacts/archive.zip',
+        size: 2048,
+        version: 1,
+      });
+
+      if (result.kind === 'file') {
+        const stream = await result.openStream({ start: 0, end: 100 });
+        expect(fileStorage.createReadStream).toHaveBeenCalledWith(
+          'artifacts/archive.zip',
+          { start: 0, end: 100 },
+        );
+        expect(stream).toBe(mockStream);
+      }
+    });
+
+    it('throws 404 ARTIFACT_NOT_FOUND when artifact does not exist', async () => {
+      await expect(
+        service.openContent('018f3a9e-0000-7000-8000-999999999999'),
+      ).rejects.toMatchObject({
+        status: 404,
+        response: {
+          code: 'ARTIFACT_NOT_FOUND',
+        },
+      });
+    });
+
+    it('throws 404 ARTIFACT_CONTENT_NOT_FOUND when artifact has neither content nor file', async () => {
+      // Row inserted directly to bypass XOR invariant
+      const id = '018f3a9e-0000-7000-8000-000000000010';
+      db.run(
+        `INSERT INTO artifacts (id, title, type, content, file_path, version, created_at, updated_at)
+         VALUES (?, 'Empty', 'document', NULL, NULL, 1, '2026-09-21T09:30:52.000Z', '2026-09-21T09:30:52.000Z')`,
+        [id],
+      );
+
+      await expect(service.openContent(id)).rejects.toMatchObject({
+        status: 404,
+        response: {
+          code: 'ARTIFACT_CONTENT_NOT_FOUND',
+        },
+      });
+    });
+
+    it('throws 404 ARTIFACT_FILE_NOT_FOUND when backing file is missing from storage', async () => {
+      const artifact = fixtures.createArtifact({
+        title: 'Missing File',
+        type: 'file',
+        content: null,
+        file_path: 'artifacts/deleted.bin',
+      });
+
+      vi.spyOn(fileStorage, 'stat').mockRejectedValueOnce(
+        new FileNotFoundError('artifacts/deleted.bin'),
+      );
+
+      await expect(service.openContent(artifact.id)).rejects.toMatchObject({
+        status: 404,
+        response: {
+          code: 'ARTIFACT_FILE_NOT_FOUND',
+        },
+      });
+    });
+
+    it('propagates InvalidPathError when file_path contains traversal sequences', async () => {
+      const artifact = fixtures.createArtifact({
+        title: 'Traversal Attempt',
+        type: 'file',
+        content: null,
+        file_path: '../../etc/passwd',
+      });
+
+      vi.spyOn(fileStorage, 'stat').mockRejectedValueOnce(
+        new InvalidPathError('Traversal detected'),
+      );
+
+      await expect(service.openContent(artifact.id)).rejects.toBeInstanceOf(
+        InvalidPathError,
+      );
+    });
+
+    it('throws error when fileStorage is not configured for a file artifact', async () => {
+      const unconfiguredService = new ArtifactsService(db, undefined);
+      const artifact = fixtures.createArtifact({
+        title: 'File Artifact',
+        type: 'file',
+        content: null,
+        file_path: 'artifacts/some.bin',
+      });
+
+      await expect(
+        unconfiguredService.openContent(artifact.id),
+      ).rejects.toThrow('FileStorageService is required');
     });
   });
 });
