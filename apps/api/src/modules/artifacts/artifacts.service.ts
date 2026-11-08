@@ -557,7 +557,10 @@ export class ArtifactsService {
 
     const now = nowIso();
     const nextVersion = existing.version + 1;
-    const nextMimeType = existing.mime_type ?? stored.contentType;
+    // The uploaded bytes are the authority for the artifact's type: a client's
+    // earlier `mimeType` (or one inferred from the previous inline content)
+    // must not outlive the file that replaced it.
+    const nextMimeType = stored.contentType || existing.mime_type;
 
     let orphanedFiles: string[] = [];
     const updatedRow: ArtifactRow = {
