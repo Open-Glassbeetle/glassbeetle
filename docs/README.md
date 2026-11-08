@@ -26,6 +26,9 @@ describes work that has not shipped.
   its UI to see what is measured and what still has no usage data.
 - [Realtime transport](realtime-transport.md): Read before implementing
   streaming to follow the accepted SSE design and its persistence rules.
+- [Artifact versioning and lifecycle](artifact-versioning-and-lifecycle.md): Read to
+  understand the meaning of artifacts.version, how file-backed content is created,
+  the inline-versus-file threshold, and how binary content is served safely.
 
 ## Proposals
 

@@ -6,6 +6,7 @@ import {
   NEITHER_CONTENT_NOR_FILE_ERROR_MESSAGE,
 } from './artifact-validators.js';
 import type { ArtifactResponseDto } from './artifact-response.dto.js';
+import type { ArtifactVersionResponseDto } from './artifact-version-response.dto.js';
 import type { CreateArtifactDto } from './create-artifact.dto.js';
 import type { UpdateArtifactDto } from './update-artifact.dto.js';
 
@@ -247,7 +248,9 @@ export function applyArtifactUpdates(
   const updatedAt = hasChanges
     ? (options?.now ?? nowIso())
     : existingRow.updated_at;
-  const nextVersion = hasChanges ? existingRow.version + 1 : existingRow.version;
+  const nextVersion = hasChanges
+    ? existingRow.version + 1
+    : existingRow.version;
 
   if (hasChanges) {
     changedColumns.version = nextVersion;
@@ -268,10 +271,7 @@ export function applyArtifactUpdates(
 
   // If existing file_path was replaced or unlinked, mark it for cleanup
   let unlinkedFilePath: string | null = null;
-  if (
-    existingRow.file_path &&
-    nextFilePath !== existingRow.file_path
-  ) {
+  if (existingRow.file_path && nextFilePath !== existingRow.file_path) {
     unlinkedFilePath = existingRow.file_path;
   }
 
@@ -285,3 +285,39 @@ export function applyArtifactUpdates(
   };
 }
 
+/**
+ * Raw row shape for the `artifact_versions` SQLite table.
+ */
+export interface ArtifactVersionRow {
+  readonly id: string;
+  readonly artifact_id: string;
+  readonly version: number;
+  readonly title: string;
+  readonly type: string;
+  readonly mime_type: string | null;
+  readonly content: string | null;
+  readonly file_path: string | null;
+  readonly created_at: string;
+}
+
+/**
+ * Maps a SQLite `artifact_versions` row to the public `ArtifactVersionResponseDto`.
+ */
+export function mapArtifactVersionRowToResponse(
+  row: ArtifactVersionRow,
+  options?: { readonly includeContent?: boolean },
+): ArtifactVersionResponseDto {
+  const includeContent = options?.includeContent ?? true;
+
+  return {
+    id: row.id,
+    artifactId: row.artifact_id,
+    version: row.version,
+    title: row.title,
+    type: row.type,
+    mimeType: row.mime_type ?? null,
+    ...(includeContent ? { content: row.content ?? null } : {}),
+    hasFile: Boolean(row.file_path),
+    createdAt: row.created_at,
+  };
+}

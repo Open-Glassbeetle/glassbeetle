@@ -43,6 +43,7 @@ export const MIGRATION_FILE_SEQUENCE = [
   'chats/messages.sql',
   'memory/shared_memories.sql',
   'artifacts/artifacts.sql',
+  'artifacts/artifact_versions.sql',
   'analytics/usage_events.sql',
   'backups/backups.sql',
   'backups/backup_policy.sql',
@@ -211,6 +212,18 @@ const FALLBACK_SQL: Record<string, string> = {
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );`,
+  'artifacts/artifact_versions.sql': `CREATE TABLE artifact_versions (
+    id           TEXT PRIMARY KEY,
+    artifact_id  TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    version      INTEGER NOT NULL,
+    title        TEXT NOT NULL,
+    type         TEXT NOT NULL,
+    mime_type    TEXT,
+    content      TEXT,
+    file_path    TEXT,
+    created_at   TEXT NOT NULL,
+    UNIQUE (artifact_id, version)
+);`,
   'analytics/usage_events.sql': `CREATE TABLE usage_events (
     id            TEXT PRIMARY KEY,
     occurred_at   TEXT NOT NULL,
@@ -275,7 +288,8 @@ CREATE INDEX idx_chats_team_id ON chats(team_id);
 CREATE INDEX idx_messages_chat_id_sequence ON messages(chat_id, sequence);`,
   'artifacts/index.sql': `CREATE INDEX idx_artifacts_project_id ON artifacts(project_id);
 CREATE INDEX idx_artifacts_chat_id ON artifacts(chat_id);
-CREATE INDEX idx_artifacts_agent_id ON artifacts(agent_id);`,
+CREATE INDEX idx_artifacts_agent_id ON artifacts(agent_id);
+CREATE INDEX idx_artifact_versions_artifact_id ON artifact_versions(artifact_id, version DESC);`,
   'analytics/index.sql': `CREATE INDEX idx_usage_events_occurred_at ON usage_events(occurred_at);
 CREATE INDEX idx_usage_events_agent_id ON usage_events(agent_id);
 CREATE INDEX idx_usage_events_provider_id ON usage_events(provider_id);
@@ -410,6 +424,22 @@ export const MIGRATIONS_AFTER_BOOTSTRAP: readonly IncrementalMigration[] = [
     sql: `ALTER TABLE teams ADD COLUMN strategy TEXT NOT NULL DEFAULT 'sequential';
 ALTER TABLE teams ADD COLUMN max_turns_per_interaction INTEGER DEFAULT 5;
 ALTER TABLE team_members ADD COLUMN is_coordinator INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    name: '006_artifact_versions',
+    sql: `CREATE TABLE IF NOT EXISTS artifact_versions (
+    id           TEXT PRIMARY KEY,
+    artifact_id  TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    version      INTEGER NOT NULL,
+    title        TEXT NOT NULL,
+    type         TEXT NOT NULL,
+    mime_type    TEXT,
+    content      TEXT,
+    file_path    TEXT,
+    created_at   TEXT NOT NULL,
+    UNIQUE (artifact_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact_id ON artifact_versions(artifact_id, version DESC);`,
   },
 ];
 
