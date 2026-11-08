@@ -392,7 +392,7 @@ describe('ArtifactsService', () => {
       expect(updated.version).toBe(2);
     });
 
-    it('cleans up old backing file when replacing file artifact with inline content', async () => {
+    it('preserves old backing file in history when replacing file artifact with inline content, and cleans it up on delete', async () => {
       const artifact = fixtures.createArtifact({
         content: null,
         file_path: 'artifacts/old-stored.bin',
@@ -405,6 +405,11 @@ describe('ArtifactsService', () => {
 
       expect(updated.hasFile).toBe(false);
       expect(updated.content).toBe('Now inline text');
+      // The file is NOT unlinked immediately because version 1 in artifact_versions still references it
+      expect(fileStorage.delete).not.toHaveBeenCalled();
+
+      // Deleting the artifact unlinks the file preserved in version history
+      await service.delete(artifact.id);
       expect(fileStorage.delete).toHaveBeenCalledWith(
         'artifacts/old-stored.bin',
       );
@@ -685,6 +690,283 @@ describe('ArtifactsService', () => {
       await expect(
         unconfiguredService.openContent(artifact.id),
       ).rejects.toThrow('FileStorageService is required');
+    });
+  });
+
+  describe('uploadContent', () => {
+    it('uploads file content, bumps version, and snapshots previous active state', async () => {
+      const artifact = fixtures.createArtifact({
+        title: 'Draft Document',
+        type: 'document',
+        content: '# Draft content',
+        file_path: null,
+        version: 1,
+      });
+
+      const fileBuffer = Buffer.from('binary-artifact-bytes');
+      vi.mocked(fileStorage.write).mockResolvedValueOnce({
+        reference: 'artifacts/stored-file.bin',
+        size: fileBuffer.length,
+        contentType: 'application/octet-stream',
+      });
+
+      const mockMulterFile = {
+        buffer: fileBuffer,
+        originalname: 'file.bin',
+        mimetype: 'application/octet-stream',
+        size: fileBuffer.length,
+      } as Express.Multer.File;
+
+      const result = await service.uploadContent(artifact.id, mockMulterFile);
+
+      expect(result.version).toBe(2);
+      expect(result.hasFile).toBe(true);
+      expect(result.content).toBeNull();
+      expect(fileStorage.write).toHaveBeenCalledWith(
+        'artifacts',
+        fileBuffer,
+        expect.any(Object),
+      );
+
+      // Verify that version 1 was snapshotted into artifact_versions
+      const version1 = await service.findOneVersion(artifact.id, 1);
+      expect(version1.version).toBe(1);
+      expect(version1.title).toBe('Draft Document');
+      expect(version1.content).toBe('# Draft content');
+      expect(version1.hasFile).toBe(false);
+    });
+
+    it('throws NotFoundException when uploading content to a non-existent artifact', async () => {
+      const mockMulterFile = {
+        buffer: Buffer.from('data'),
+        originalname: 'file.bin',
+        mimetype: 'application/octet-stream',
+        size: 4,
+      } as Express.Multer.File;
+
+      await expect(
+        service.uploadContent(
+          '018f3a9e-0000-7000-8000-000000000099',
+          mockMulterFile,
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws error when fileStorage is not configured for uploadContent', async () => {
+      const unconfiguredService = new ArtifactsService(db, undefined);
+      const artifact = fixtures.createArtifact();
+      const mockMulterFile = {
+        buffer: Buffer.from('data'),
+        originalname: 'file.bin',
+        mimetype: 'application/octet-stream',
+        size: 4,
+      } as Express.Multer.File;
+
+      await expect(
+        unconfiguredService.uploadContent(artifact.id, mockMulterFile),
+      ).rejects.toThrow('FileStorageService is required');
+    });
+  });
+
+  describe('findAllVersions', () => {
+    it('returns a paginated list of historical versions, default sorted by version desc', async () => {
+      const artifact = fixtures.createArtifact({ title: 'Multi-version Doc' });
+      fixtures.createArtifactVersion({
+        artifact_id: artifact.id,
+        version: 1,
+        title: 'V1 Title',
+        content: 'V1 Content',
+      });
+      fixtures.createArtifactVersion({
+        artifact_id: artifact.id,
+        version: 2,
+        title: 'V2 Title',
+        content: 'V2 Content',
+      });
+
+      const response = await service.findAllVersions(artifact.id, {});
+      expect(response.total).toBe(2);
+      expect(response.items).toHaveLength(2);
+      expect(response.items[0].version).toBe(2);
+      expect(response.items[1].version).toBe(1);
+      // Inline content is omitted in collection listings
+      expect(response.items[0].content).toBeUndefined();
+    });
+
+    it('throws NotFoundException when listing versions of a non-existent artifact', async () => {
+      await expect(
+        service.findAllVersions('018f3a9e-0000-7000-8000-000000000099', {}),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findOneVersion', () => {
+    it('returns metadata and inline content for a specific historical version', async () => {
+      const artifact = fixtures.createArtifact();
+      fixtures.createArtifactVersion({
+        artifact_id: artifact.id,
+        version: 1,
+        title: 'Past Title',
+        content: 'Past inline body',
+      });
+
+      const version = await service.findOneVersion(artifact.id, 1);
+      expect(version.version).toBe(1);
+      expect(version.title).toBe('Past Title');
+      expect(version.content).toBe('Past inline body');
+    });
+
+    it('throws NotFoundException when artifact or version does not exist', async () => {
+      const artifact = fixtures.createArtifact();
+      await expect(service.findOneVersion(artifact.id, 999)).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(
+        service.findOneVersion('018f3a9e-0000-7000-8000-000000000099', 1),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('openVersionContent', () => {
+    it('returns an inline content descriptor for an inline historical version', async () => {
+      const artifact = fixtures.createArtifact();
+      fixtures.createArtifactVersion({
+        artifact_id: artifact.id,
+        version: 1,
+        content: 'Historical inline content',
+        file_path: null,
+      });
+
+      const descriptor = await service.openVersionContent(artifact.id, 1);
+      expect(descriptor.kind).toBe('inline');
+      if (descriptor.kind === 'inline') {
+        expect(descriptor.content).toBe('Historical inline content');
+        expect(descriptor.size).toBe(
+          Buffer.byteLength('Historical inline content'),
+        );
+      }
+    });
+
+    it('returns a file content descriptor for a file historical version', async () => {
+      const artifact = fixtures.createArtifact();
+      fixtures.createArtifactVersion({
+        artifact_id: artifact.id,
+        version: 1,
+        content: null,
+        file_path: 'artifacts/historical.bin',
+      });
+
+      vi.spyOn(fileStorage, 'stat').mockResolvedValueOnce({
+        size: 2048,
+        reference: 'artifacts/historical.bin',
+        contentType: 'application/octet-stream',
+      } as any);
+
+      const descriptor = await service.openVersionContent(artifact.id, 1);
+      expect(descriptor.kind).toBe('file');
+      if (descriptor.kind === 'file') {
+        expect(descriptor.filePath).toBe('artifacts/historical.bin');
+        expect(descriptor.size).toBe(2048);
+      }
+    });
+
+    it('throws 404 ARTIFACT_FILE_NOT_FOUND when historical backing file is missing', async () => {
+      const artifact = fixtures.createArtifact();
+      fixtures.createArtifactVersion({
+        artifact_id: artifact.id,
+        version: 1,
+        content: null,
+        file_path: 'artifacts/missing-hist.bin',
+      });
+
+      vi.spyOn(fileStorage, 'stat').mockRejectedValueOnce(
+        new FileNotFoundError('artifacts/missing-hist.bin'),
+      );
+
+      await expect(
+        service.openVersionContent(artifact.id, 1),
+      ).rejects.toMatchObject({
+        status: 404,
+        response: {
+          code: 'ARTIFACT_FILE_NOT_FOUND',
+        },
+      });
+    });
+  });
+
+  describe('restoreVersion', () => {
+    it('rolls forward by snapshotting active version and creating a new version with restored content', async () => {
+      const artifact = fixtures.createArtifact({
+        title: 'V1 Title',
+        content: 'V1 Content',
+        version: 1,
+      });
+
+      // Update to V2
+      await service.update(artifact.id, {
+        title: 'V2 Title (Mistake)',
+        content: 'V2 Corrupted Content',
+      });
+
+      // Active is now V2, V1 is in history
+      const activeV2 = await service.findOne(artifact.id);
+      expect(activeV2.version).toBe(2);
+
+      // Restore V1
+      const restored = await service.restoreVersion(artifact.id, 1);
+      expect(restored.version).toBe(3); // Monotonically increases
+      expect(restored.title).toBe('V1 Title');
+      expect(restored.content).toBe('V1 Content');
+
+      // V2 is now also preserved in history
+      const v2History = await service.findOneVersion(artifact.id, 2);
+      expect(v2History.version).toBe(2);
+      expect(v2History.title).toBe('V2 Title (Mistake)');
+    });
+
+    it('throws NotFoundException when restoring a non-existent version', async () => {
+      const artifact = fixtures.createArtifact();
+      await expect(service.restoreVersion(artifact.id, 99)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('retention ceiling and pruning', () => {
+    it('prunes oldest versions beyond 20 and unlinks unreferenced files', async () => {
+      const artifact = fixtures.createArtifact({
+        title: 'Artifact 0',
+        content: 'Content 0',
+        version: 21,
+      });
+
+      // Create 20 historical versions for this artifact
+      for (let i = 1; i <= 20; i++) {
+        fixtures.createArtifactVersion({
+          artifact_id: artifact.id,
+          version: i,
+          title: `Version ${i}`,
+          content: `Content ${i}`,
+          file_path: i === 1 ? 'artifacts/unshared-old-file.bin' : null,
+        });
+      }
+
+      // Now we have 20 versions in history. Adding one more update snapshots active version
+      // and triggers pruning (excess = 21 - 20 = 1, version 1 pruned)
+      await service.update(artifact.id, {
+        title: 'Update Triggering Prune',
+      });
+
+      const versionsAfter = await service.findAllVersions(artifact.id, {
+        limit: 100,
+      });
+      expect(versionsAfter.total).toBe(20);
+      // Version 1 was pruned!
+      expect(versionsAfter.items.some((v) => v.version === 1)).toBe(false);
+      // File belonging to version 1 was unlinked
+      expect(fileStorage.delete).toHaveBeenCalledWith(
+        'artifacts/unshared-old-file.bin',
+      );
     });
   });
 });

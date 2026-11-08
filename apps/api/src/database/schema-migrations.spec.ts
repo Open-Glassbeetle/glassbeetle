@@ -53,7 +53,7 @@ describe('runMigrations', () => {
     expect(appliedMigrations()).toEqual(first);
   });
 
-  it.each(['user_profile', 'spend_budget'])(
+  it.each(['user_profile', 'spend_budget', 'artifact_versions'])(
     'creates %s on a fresh database',
     (table) => {
       runMigrations(db);
@@ -221,5 +221,47 @@ describe('spend_budget schema', () => {
       period: string;
     };
     expect(row.period).toBe('monthly');
+  });
+
+  describe('artifact_versions schema', () => {
+    const artifactId = '018f3a9e-0000-7000-8000-000000000001';
+
+    beforeEach(() => {
+      runMigrations(db);
+      db.prepare(
+        `INSERT INTO artifacts (id, title, type, version, created_at, updated_at)
+         VALUES (?, 'Doc', 'document', 2, '2026-01-01', '2026-01-01')`,
+      ).run(artifactId);
+    });
+
+    it('enforces uniqueness on (artifact_id, version)', () => {
+      db.prepare(
+        `INSERT INTO artifact_versions (id, artifact_id, version, title, type, created_at)
+         VALUES ('v1', ?, 1, 'Doc v1', 'document', '2026-01-01')`,
+      ).run(artifactId);
+
+      expect(() => {
+        db.prepare(
+          `INSERT INTO artifact_versions (id, artifact_id, version, title, type, created_at)
+           VALUES ('v2', ?, 1, 'Doc v1 duplicate', 'document', '2026-01-01')`,
+        ).run(artifactId);
+      }).toThrow(/UNIQUE/i);
+    });
+
+    it('cascades deletion when parent artifact is deleted', () => {
+      db.prepare(
+        `INSERT INTO artifact_versions (id, artifact_id, version, title, type, created_at)
+         VALUES ('v1', ?, 1, 'Doc v1', 'document', '2026-01-01')`,
+      ).run(artifactId);
+
+      db.prepare('DELETE FROM artifacts WHERE id = ?').run(artifactId);
+
+      const count = db
+        .prepare(
+          'SELECT COUNT(*) as count FROM artifact_versions WHERE artifact_id = ?',
+        )
+        .get(artifactId) as { count: number };
+      expect(count.count).toBe(0);
+    });
   });
 });

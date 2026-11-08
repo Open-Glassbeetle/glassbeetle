@@ -132,6 +132,18 @@ export interface ArtifactRow {
   updated_at: string;
 }
 
+export interface ArtifactVersionRow {
+  id: string;
+  artifact_id: string;
+  version: number;
+  title: string;
+  type: string;
+  mime_type: string | null;
+  content: string | null;
+  file_path: string | null;
+  created_at: string;
+}
+
 export interface AgentMemoryRow {
   id: string;
   agent_id: string;
@@ -499,6 +511,42 @@ export class TestFixtures {
         row.version,
         row.created_at,
         row.updated_at,
+      ],
+    );
+
+    return row;
+  }
+
+  createArtifactVersion(
+    overrides?: Partial<ArtifactVersionRow>,
+  ): ArtifactVersionRow {
+    const now = nowIso();
+    const row: ArtifactVersionRow = {
+      id: newId(),
+      artifact_id: overrides?.artifact_id ?? this.createArtifact().id,
+      version: 1,
+      title: 'Historical Version',
+      type: 'document',
+      mime_type: 'text/markdown',
+      content: '# Old Draft Content',
+      file_path: null,
+      created_at: now,
+      ...overrides,
+    };
+
+    this.dbService.run(
+      `INSERT INTO artifact_versions (id, artifact_id, version, title, type, mime_type, content, file_path, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.id,
+        row.artifact_id,
+        row.version,
+        row.title,
+        row.type,
+        row.mime_type,
+        row.content,
+        row.file_path,
+        row.created_at,
       ],
     );
 

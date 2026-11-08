@@ -1,5 +1,5 @@
 import { PassThrough, Readable } from 'node:stream';
-import { HttpStatus } from '@nestjs/common';
+import { BadRequestException, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { Request, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { ArtifactsController } from './artifacts.controller.js';
 import { ArtifactsService } from './artifacts.service.js';
 import type {
   ArtifactResponseDto,
+  ArtifactVersionResponseDto,
   CreateArtifactDto,
   ListArtifactsQueryDto,
   UpdateArtifactDto,
@@ -32,12 +33,32 @@ describe('ArtifactsController', () => {
     updatedAt: '2026-09-21T09:30:52.000Z',
   };
 
+  const mockVersion: ArtifactVersionResponseDto = {
+    id: '018f3a9e-0000-7000-8000-000000000010',
+    artifactId: mockArtifact.id,
+    version: 1,
+    title: 'Historical Draft',
+    type: 'document',
+    mimeType: 'text/markdown',
+    content: '# Old Draft',
+    hasFile: false,
+    createdAt: '2026-09-21T09:30:52.000Z',
+  };
+
   const mockPaginatedResponse: PaginatedResponse<ArtifactResponseDto> = {
     items: [mockArtifact],
     total: 1,
     limit: 50,
     offset: 0,
   };
+
+  const mockPaginatedVersionsResponse: PaginatedResponse<ArtifactVersionResponseDto> =
+    {
+      items: [mockVersion],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -52,6 +73,13 @@ describe('ArtifactsController', () => {
             create: vi.fn().mockResolvedValue(mockArtifact),
             update: vi.fn().mockResolvedValue(mockArtifact),
             delete: vi.fn().mockResolvedValue(undefined),
+            uploadContent: vi.fn().mockResolvedValue(mockArtifact),
+            findAllVersions: vi
+              .fn()
+              .mockResolvedValue(mockPaginatedVersionsResponse),
+            findOneVersion: vi.fn().mockResolvedValue(mockVersion),
+            openVersionContent: vi.fn(),
+            restoreVersion: vi.fn().mockResolvedValue(mockArtifact),
           },
         },
       ],
@@ -341,6 +369,120 @@ describe('ArtifactsController', () => {
         'X-Content-Type-Options',
         'nosniff',
       );
+    });
+  });
+
+  describe('uploadContent', () => {
+    it('delegates file upload to artifactsService.uploadContent', async () => {
+      const mockFile = {
+        buffer: Buffer.from('file-bytes'),
+        size: 10,
+        originalname: 'doc.bin',
+        mimetype: 'application/octet-stream',
+      } as Express.Multer.File;
+
+      const result = await controller.uploadContent(mockArtifact.id, mockFile);
+
+      expect(service.uploadContent).toHaveBeenCalledWith(
+        mockArtifact.id,
+        mockFile,
+      );
+      expect(result).toBe(mockArtifact);
+    });
+
+    it('throws BadRequestException if no file or empty file uploaded', async () => {
+      await expect(
+        controller.uploadContent(mockArtifact.id, undefined),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.uploadContent(mockArtifact.id, {
+          buffer: Buffer.alloc(0),
+        } as Express.Multer.File),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('findAllVersions', () => {
+    it('delegates to artifactsService.findAllVersions', async () => {
+      const query = { limit: 10, offset: 0 };
+      const result = await controller.findAllVersions(mockArtifact.id, query);
+
+      expect(service.findAllVersions).toHaveBeenCalledWith(
+        mockArtifact.id,
+        query,
+      );
+      expect(result).toBe(mockPaginatedVersionsResponse);
+    });
+  });
+
+  describe('findOneVersion', () => {
+    it('delegates to artifactsService.findOneVersion', async () => {
+      const result = await controller.findOneVersion(mockArtifact.id, 1);
+
+      expect(service.findOneVersion).toHaveBeenCalledWith(mockArtifact.id, 1);
+      expect(result).toBe(mockVersion);
+    });
+  });
+
+  describe('getVersionContent', () => {
+    const createMockResponse = () => {
+      const passThrough = new PassThrough();
+      const headers: Record<string, string | number> = {};
+      vi.spyOn(passThrough, 'end');
+      const res = Object.assign(passThrough, {
+        headers,
+        setHeader: vi.fn((k: string, v: string | number) => {
+          headers[k.toLowerCase()] = v;
+          return res;
+        }),
+        status: vi.fn().mockReturnThis(),
+        headersSent: false,
+      });
+      return res as unknown as Response & {
+        headers: Record<string, string | number>;
+      };
+    };
+
+    it('streams version content with appropriate security headers', async () => {
+      const versionDescriptor = {
+        kind: 'inline' as const,
+        id: mockVersion.id,
+        title: 'Draft.md',
+        version: 1,
+        mimeType: 'text/markdown',
+        updatedAt: '2026-09-21T09:30:52.000Z',
+        content: '# Historical text',
+        size: 17,
+      };
+      vi.spyOn(service, 'openVersionContent').mockResolvedValue(
+        versionDescriptor,
+      );
+
+      const req = { headers: {} } as Request;
+      const res = createMockResponse();
+
+      await controller.getVersionContent(mockArtifact.id, 1, req, res);
+
+      expect(service.openVersionContent).toHaveBeenCalledWith(
+        mockArtifact.id,
+        1,
+      );
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'X-Content-Type-Options',
+        'nosniff',
+      );
+      expect(res.end).toHaveBeenCalledWith('# Historical text');
+    });
+  });
+
+  describe('restoreVersion', () => {
+    it('delegates to artifactsService.restoreVersion', async () => {
+      const result = await controller.restoreVersion(mockArtifact.id, 1);
+
+      expect(service.restoreVersion).toHaveBeenCalledWith(mockArtifact.id, 1);
+      expect(result).toBe(mockArtifact);
     });
   });
 });

@@ -616,7 +616,7 @@ describe('Artifacts Endpoints (e2e)', () => {
       expect(res.body.version).toBe(2);
     });
 
-    it('cleans up old backing file when replacing file artifact with inline content', async () => {
+    it('preserves old backing file in history when replacing file artifact with inline content, and cleans it up on delete', async () => {
       const fileStorage = testApp.app.get(FileStorageService);
       const deleteSpy = vi.spyOn(fileStorage, 'delete');
 
@@ -636,6 +636,14 @@ describe('Artifacts Endpoints (e2e)', () => {
 
       expect(res.body.hasFile).toBe(false);
       expect(res.body.content).toBe('Replacement text content');
+      // The file is not unlinked immediately because version 1 in artifact_versions still references it
+      expect(deleteSpy).not.toHaveBeenCalled();
+
+      // Deleting the artifact unlinks backing files across all historical versions
+      await testApp
+        .request()
+        .delete(`/api/v1/artifacts/${created.id}`)
+        .expect(204);
       expect(deleteSpy).toHaveBeenCalledWith('artifacts/to-replace.bin');
     });
 
@@ -1180,6 +1188,294 @@ describe('Artifacts Endpoints (e2e)', () => {
 
       expect(res.headers['content-range']).toBe(`bytes */${data.length}`);
       expect(res.headers['x-content-type-options']).toBe('nosniff');
+    });
+  });
+
+  describe('PUT /api/v1/artifacts/:artifactId/content', () => {
+    it('uploads file content via multipart/form-data, creates snapshot, and bumps version', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Initial Text Doc',
+        type: 'document',
+        content: '# Initial Draft',
+        file_path: null,
+        version: 1,
+      });
+
+      const binaryData = Buffer.from('PDF or binary blob content');
+
+      const res = await testApp
+        .request()
+        .put(`/api/v1/artifacts/${artifact.id}/content`)
+        .attach('file', binaryData, 'document.bin')
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: artifact.id,
+        title: 'Initial Text Doc',
+        hasFile: true,
+        content: null,
+        version: 2,
+      });
+
+      // Verify historical version 1 exists in GET /versions
+      const versionsRes = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions`)
+        .expect(200);
+
+      expect(versionsRes.body.total).toBe(1);
+      expect(versionsRes.body.items[0]).toMatchObject({
+        artifactId: artifact.id,
+        version: 1,
+        title: 'Initial Text Doc',
+        hasFile: false,
+      });
+
+      // Verify that downloading content returns the newly uploaded binary bytes
+      const contentRes = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/content`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(contentRes.body).toEqual(binaryData);
+    });
+
+    it('returns 400 Bad Request when no file or an empty file is uploaded', async () => {
+      const artifact = testApp.fixtures.createArtifact();
+
+      const noFileRes = await testApp
+        .request()
+        .put(`/api/v1/artifacts/${artifact.id}/content`)
+        .expect(400);
+
+      expect(noFileRes.body.code).toBe('MISSING_FILE');
+
+      const emptyFileRes = await testApp
+        .request()
+        .put(`/api/v1/artifacts/${artifact.id}/content`)
+        .attach('file', Buffer.alloc(0), 'empty.bin')
+        .expect(400);
+
+      expect(emptyFileRes.body.code).toBe('MISSING_FILE');
+    });
+
+    it('returns 404 when uploading content to a non-existent artifact', async () => {
+      await testApp
+        .request()
+        .put('/api/v1/artifacts/018f3a9e-0000-7000-8000-000000000099/content')
+        .attach('file', Buffer.from('data'), 'file.bin')
+        .expect(404);
+    });
+  });
+
+  describe('GET /api/v1/artifacts/:artifactId/versions', () => {
+    it('returns paginated collection of historical versions (content omitted)', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Versioned Asset',
+        content: 'V1',
+        version: 1,
+      });
+
+      // Update twice to create version 1 and 2 in history
+      await testApp
+        .request()
+        .patch(`/api/v1/artifacts/${artifact.id}`)
+        .send({ content: 'V2' })
+        .expect(200);
+
+      await testApp
+        .request()
+        .patch(`/api/v1/artifacts/${artifact.id}`)
+        .send({ content: 'V3' })
+        .expect(200);
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions`)
+        .expect(200);
+
+      expect(res.body.total).toBe(2);
+      expect(res.body.items).toHaveLength(2);
+      expect(res.body.items[0].version).toBe(2);
+      expect(res.body.items[1].version).toBe(1);
+      // Inline content is omitted in collection listings
+      expect(res.body.items[0].content).toBeUndefined();
+      expect(res.body.items[1].content).toBeUndefined();
+    });
+
+    it('returns 404 when listing versions of a non-existent artifact', async () => {
+      await testApp
+        .request()
+        .get('/api/v1/artifacts/018f3a9e-0000-7000-8000-000000000099/versions')
+        .expect(404);
+    });
+  });
+
+  describe('GET /api/v1/artifacts/:artifactId/versions/:version', () => {
+    it('returns metadata and inline content for a specific past version', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Original Title',
+        content: '# Version 1 Markdown',
+        version: 1,
+      });
+
+      await testApp
+        .request()
+        .patch(`/api/v1/artifacts/${artifact.id}`)
+        .send({
+          title: 'Updated Title',
+          content: '# Version 2 Markdown',
+        })
+        .expect(200);
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions/1`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        artifactId: artifact.id,
+        version: 1,
+        title: 'Original Title',
+        content: '# Version 1 Markdown',
+        hasFile: false,
+      });
+    });
+
+    it('returns 404 when requested version does not exist', async () => {
+      const artifact = testApp.fixtures.createArtifact();
+
+      await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions/99`)
+        .expect(404);
+    });
+  });
+
+  describe('GET /api/v1/artifacts/:artifactId/versions/:version/content', () => {
+    it('serves historical inline content with security headers and ETag', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Historical.md',
+        content: '# Historical Content',
+        mime_type: 'text/markdown',
+        version: 1,
+      });
+
+      await testApp
+        .request()
+        .patch(`/api/v1/artifacts/${artifact.id}`)
+        .send({ content: '# Overwritten Content' })
+        .expect(200);
+
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions/1/content`)
+        .expect(200);
+
+      expect(res.text).toBe('# Historical Content');
+      expect(res.headers['content-type']).toBe('text/markdown; charset=utf-8');
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['etag']).toBeDefined();
+
+      // Conditional request
+      await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions/1/content`)
+        .set('If-None-Match', res.headers['etag'])
+        .expect(304);
+    });
+
+    it('streams historical file content with security headers', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const stored = await fileStorage.write(
+        'artifacts',
+        Buffer.from('Historical file bytes'),
+      );
+
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'historical-file.bin',
+        type: 'file',
+        content: null,
+        file_path: stored.reference,
+        mime_type: 'application/octet-stream',
+        version: 1,
+      });
+
+      // Update artifact with inline content
+      await testApp
+        .request()
+        .patch(`/api/v1/artifacts/${artifact.id}`)
+        .send({
+          content: 'Now inline',
+          filePath: null,
+        })
+        .expect(200);
+
+      // Historical version 1 should still stream the file bytes
+      const res = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions/1/content`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(res.body).toEqual(Buffer.from('Historical file bytes'));
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['content-disposition']).toContain('attachment');
+    });
+  });
+
+  describe('POST /api/v1/artifacts/:artifactId/versions/:version/restore', () => {
+    it('restores historical version by rolling forward to a new version increment', async () => {
+      const artifact = testApp.fixtures.createArtifact({
+        title: 'Original Good Title',
+        content: '# Good Draft Content',
+        version: 1,
+      });
+
+      // Mistake update to V2
+      await testApp
+        .request()
+        .patch(`/api/v1/artifacts/${artifact.id}`)
+        .send({
+          title: 'Mistaken Title',
+          content: '# Corrupted draft by agent',
+        })
+        .expect(200);
+
+      // Restore V1
+      const restoreRes = await testApp
+        .request()
+        .post(`/api/v1/artifacts/${artifact.id}/versions/1/restore`)
+        .expect(200);
+
+      expect(restoreRes.body).toMatchObject({
+        id: artifact.id,
+        title: 'Original Good Title',
+        content: '# Good Draft Content',
+        version: 3, // Version increments monotonically
+      });
+
+      // Verify that version history now contains V1 and V2
+      const versionsRes = await testApp
+        .request()
+        .get(`/api/v1/artifacts/${artifact.id}/versions`)
+        .expect(200);
+
+      expect(versionsRes.body.total).toBe(2);
+      expect(versionsRes.body.items[0].version).toBe(2);
+      expect(versionsRes.body.items[0].title).toBe('Mistaken Title');
+      expect(versionsRes.body.items[1].version).toBe(1);
+      expect(versionsRes.body.items[1].title).toBe('Original Good Title');
+    });
+
+    it('returns 404 when attempting to restore a non-existent version', async () => {
+      const artifact = testApp.fixtures.createArtifact();
+
+      await testApp
+        .request()
+        .post(`/api/v1/artifacts/${artifact.id}/versions/99/restore`)
+        .expect(404);
     });
   });
 });
