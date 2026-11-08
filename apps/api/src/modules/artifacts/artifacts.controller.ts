@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
 } from '@nestjs/common';
 import {
@@ -19,12 +20,18 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiResponse,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { ParseUuidV7Pipe } from '../../common/identifiers/index.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
+import { matchesEtag } from '../user/user.controller.js';
+import {
+  parseRangeHeader,
+  resolveContentSecurityPolicy,
+} from './artifacts-content-policy.js';
 import { ArtifactsService } from './artifacts.service.js';
 import {
   ArtifactResponseDto,
@@ -84,7 +91,10 @@ export class ArtifactsController {
     description:
       'Returns an artifact by ID, including its inline content if stored inline.',
   })
-  @ApiParam({ name: 'artifactId', description: 'Unique artifact identifier (UUIDv7)' })
+  @ApiParam({
+    name: 'artifactId',
+    description: 'Unique artifact identifier (UUIDv7)',
+  })
   @ApiOkResponse({
     description: 'The requested artifact resource',
     type: ArtifactResponseDto,
@@ -94,6 +104,177 @@ export class ArtifactsController {
     @Param('artifactId', ParseUuidV7Pipe) artifactId: string,
   ): Promise<ArtifactResponseDto> {
     return this.artifactsService.findOne(artifactId);
+  }
+
+  /**
+   * `GET /artifacts/:artifactId/content` — retrieve the artifact's actual content.
+   */
+  @Get(':artifactId/content')
+  @ApiOperation({
+    summary: 'Retrieve artifact content',
+    description:
+      "Returns an artifact's actual content — inline text straight from the database, or a file streamed from storage. Content-Type and Content-Disposition are strictly enforced according to security policy to prevent stored XSS.",
+  })
+  @ApiParam({
+    name: 'artifactId',
+    description: 'Unique artifact identifier (UUIDv7)',
+  })
+  @ApiOkResponse({
+    description: 'The artifact content (inline text or streamed file)',
+  })
+  @ApiResponse({
+    status: HttpStatus.PARTIAL_CONTENT,
+    description: 'Partial range of artifact file content',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_MODIFIED,
+    description: 'Artifact content has not changed (ETag match)',
+  })
+  @ApiBadRequestResponse({
+    description: 'artifactId is not a valid UUIDv7 or file path is invalid',
+  })
+  @ApiNotFoundResponse({
+    description:
+      'Artifact not found, has no content or file, or backing file is missing from storage',
+  })
+  async getContent(
+    @Param('artifactId', ParseUuidV7Pipe) artifactId: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const artifact = await this.artifactsService.openContent(artifactId);
+
+    const { contentType, disposition } = resolveContentSecurityPolicy({
+      mimeType: artifact.mimeType,
+      isInline: artifact.kind === 'inline',
+      title: artifact.title,
+    });
+
+    const etag = `"${artifact.version}-${artifact.size}"`;
+    const lastModified = new Date(artifact.updatedAt).toUTCString();
+
+    res.setHeader('ETag', etag);
+    res.setHeader('Last-Modified', lastModified);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    // Conditional requests (ETag and If-Modified-Since)
+    const ifNoneMatch = Array.isArray(req.headers['if-none-match'])
+      ? req.headers['if-none-match'].join(', ')
+      : req.headers['if-none-match'];
+
+    if (matchesEtag(ifNoneMatch, etag)) {
+      res.status(HttpStatus.NOT_MODIFIED);
+      res.end();
+      return;
+    }
+
+    const ifModifiedSince = Array.isArray(req.headers['if-modified-since'])
+      ? req.headers['if-modified-since'][0]
+      : req.headers['if-modified-since'];
+
+    if (ifModifiedSince) {
+      const parsedIfModifiedSince = new Date(ifModifiedSince);
+      if (
+        !isNaN(parsedIfModifiedSince.getTime()) &&
+        new Date(artifact.updatedAt).getTime() <=
+          parsedIfModifiedSince.getTime()
+      ) {
+        res.status(HttpStatus.NOT_MODIFIED);
+        res.end();
+        return;
+      }
+    }
+
+    if (artifact.kind === 'inline') {
+      res.status(HttpStatus.OK);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', artifact.size);
+      res.setHeader('Content-Disposition', disposition);
+      res.end(artifact.content);
+      return;
+    }
+
+    // File content with streaming and optional range support
+    const ifRange = Array.isArray(req.headers['if-range'])
+      ? req.headers['if-range'][0]
+      : req.headers['if-range'];
+    const rangeHeader = Array.isArray(req.headers.range)
+      ? req.headers.range[0]
+      : req.headers.range;
+
+    const rangeApplies = !ifRange || matchesEtag(ifRange, etag);
+    const rangeResult = rangeApplies
+      ? parseRangeHeader(rangeHeader, artifact.size)
+      : null;
+
+    if (rangeResult === 'unsatisfiable') {
+      res.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+      res.setHeader('Content-Range', `bytes */${artifact.size}`);
+      res.end();
+      return;
+    }
+
+    if (rangeResult) {
+      const { start, end } = rangeResult;
+      const contentLength = end - start + 1;
+      res.status(HttpStatus.PARTIAL_CONTENT);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${artifact.size}`);
+      res.setHeader('Content-Length', contentLength);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', disposition);
+
+      const stream = await artifact.openStream({ start, end });
+      await this.pipeStreamToResponse(stream, res);
+      return;
+    }
+
+    res.status(HttpStatus.OK);
+    res.setHeader('Content-Length', artifact.size);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', disposition);
+
+    const stream = await artifact.openStream();
+    await this.pipeStreamToResponse(stream, res);
+  }
+
+  private pipeStreamToResponse(
+    stream: NodeJS.ReadableStream,
+    res: Response,
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      stream.on('error', (err) => {
+        if (res.headersSent) {
+          // Headers already sent; status code cannot be changed.
+          // Terminate the socket connection to signal failure to client.
+          res.destroy(err);
+          resolve();
+        } else {
+          reject(err);
+        }
+      });
+
+      res.on('error', (err) => {
+        if ('destroy' in stream && typeof stream.destroy === 'function') {
+          stream.destroy(err);
+        }
+        resolve();
+      });
+
+      res.on('close', () => {
+        if ('destroy' in stream && typeof stream.destroy === 'function') {
+          stream.destroy();
+        }
+        resolve();
+      });
+
+      stream.on('end', () => {
+        resolve();
+      });
+
+      stream.pipe(res);
+    });
   }
 
   /**
@@ -134,7 +315,10 @@ export class ArtifactsController {
     description:
       'Partially updates an artifact. Increments version counter if fields are modified. Preserves content/file XOR invariant.',
   })
-  @ApiParam({ name: 'artifactId', description: 'Unique artifact identifier (UUIDv7)' })
+  @ApiParam({
+    name: 'artifactId',
+    description: 'Unique artifact identifier (UUIDv7)',
+  })
   @ApiOkResponse({
     description: 'The updated artifact resource',
     type: ArtifactResponseDto,
@@ -163,7 +347,10 @@ export class ArtifactsController {
     description:
       'Permanently deletes an artifact from the database and cleans up its backing file if present.',
   })
-  @ApiParam({ name: 'artifactId', description: 'Unique artifact identifier (UUIDv7)' })
+  @ApiParam({
+    name: 'artifactId',
+    description: 'Unique artifact identifier (UUIDv7)',
+  })
   @ApiNoContentResponse({ description: 'Artifact deleted successfully' })
   @ApiNotFoundResponse({ description: 'Artifact not found' })
   async delete(
