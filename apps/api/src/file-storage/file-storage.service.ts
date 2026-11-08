@@ -402,11 +402,16 @@ export class FileStorageService implements OnModuleInit {
    *
    * Recommended for large files (artifacts, backup archives) to avoid loading whole files into memory.
    *
+   * @param reference - Relative storage reference.
+   * @param options - Optional byte range offsets for partial reads.
    * @see createReadStream, which this delegates to; the two differ only in
    * their declared return type.
    */
-  async stream(reference: string): Promise<Readable> {
-    return this.createReadStream(reference);
+  async stream(
+    reference: string,
+    options?: { start?: number; end?: number },
+  ): Promise<Readable> {
+    return this.createReadStream(reference, options);
   }
 
   /**
@@ -416,6 +421,8 @@ export class FileStorageService implements OnModuleInit {
    * produces a 404 the exception filter can turn into the usual envelope rather
    * than an error event on a response that has already started streaming.
    *
+   * @param reference - Relative storage reference.
+   * @param options - Optional byte range offsets for partial reads.
    * @throws InvalidPathError (400) when the reference is unsafe or escapes the
    * storage root.
    * @throws FileNotFoundError (404) when nothing is stored there, or the
@@ -423,6 +430,7 @@ export class FileStorageService implements OnModuleInit {
    */
   async createReadStream(
     reference: string,
+    options?: { start?: number; end?: number },
   ): Promise<ReturnType<typeof createReadStream>> {
     const resolvedPath = await this.resolveAndVerify(reference);
 
@@ -438,7 +446,7 @@ export class FileStorageService implements OnModuleInit {
       throw err;
     }
 
-    return createReadStream(resolvedPath);
+    return createReadStream(resolvedPath, options);
   }
 
   /**
