@@ -4,6 +4,7 @@ import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import {
   ALLOWED_ARTIFACT_TYPES,
+  MAX_ARTIFACT_CONTENT_LENGTH,
   MAX_ARTIFACT_MIME_TYPE_LENGTH,
   MAX_ARTIFACT_TITLE_LENGTH,
 } from './artifact-validators.js';
@@ -161,6 +162,27 @@ describe('CreateArtifactDto', () => {
     expect(errors.length).toBeGreaterThan(0);
     const mimeError = errors.find((e) => e.property === 'mimeType');
     expect(mimeError?.constraints).toHaveProperty('maxLength');
+  });
+
+  it('accepts content at the maximum length', async () => {
+    const errors = await validateDto({
+      title: 'Large Artifact',
+      type: 'document',
+      content: 'a'.repeat(MAX_ARTIFACT_CONTENT_LENGTH),
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rejects content exceeding maximum length', async () => {
+    const errors = await validateDto({
+      title: 'Oversized Artifact',
+      type: 'document',
+      content: 'a'.repeat(MAX_ARTIFACT_CONTENT_LENGTH + 1),
+    });
+    expect(errors.length).toBeGreaterThan(0);
+    const contentError = errors.find((e) => e.property === 'content');
+    expect(contentError).toBeDefined();
+    expect(contentError?.constraints).toHaveProperty('maxLength');
   });
 
   it('rejects forbidden server-managed fields', async () => {

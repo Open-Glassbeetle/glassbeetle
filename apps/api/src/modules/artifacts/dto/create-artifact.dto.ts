@@ -12,6 +12,7 @@ import {
   ALLOWED_ARTIFACT_TYPES,
   ContentOrFilePathXor,
   DisallowField,
+  MAX_ARTIFACT_CONTENT_LENGTH,
   MAX_ARTIFACT_MIME_TYPE_LENGTH,
   MAX_ARTIFACT_TITLE_LENGTH,
   trimString,
@@ -77,11 +78,15 @@ export class CreateArtifactDto {
     description:
       'Inline text content for small/text artifacts (mutually exclusive with filePath)',
     example: '# Technical Specifications\n\nSystem overview...',
+    maxLength: MAX_ARTIFACT_CONTENT_LENGTH,
     nullable: true,
   })
   @IsOptional()
   @ValidateIf((_o, v) => v !== undefined && v !== null)
   @IsString({ message: 'content must be a string' })
+  @MaxLength(MAX_ARTIFACT_CONTENT_LENGTH, {
+    message: `content must not exceed ${MAX_ARTIFACT_CONTENT_LENGTH} characters`,
+  })
   content?: string | null;
 
   @ApiPropertyOptional({

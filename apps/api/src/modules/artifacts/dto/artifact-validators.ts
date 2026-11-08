@@ -28,6 +28,14 @@ export const MAX_ARTIFACT_TITLE_LENGTH = 200;
 /** Longest MIME type string accepted. */
 export const MAX_ARTIFACT_MIME_TYPE_LENGTH = 100;
 
+/**
+ * Longest inline artifact content accepted.
+ *
+ * Matches the message and memory content caps: the JSON body limit is sized so
+ * 100 000 characters remain reachable, and larger payloads belong in `filePath`.
+ */
+export const MAX_ARTIFACT_CONTENT_LENGTH = 100_000;
+
 /** Error message when both content and filePath are provided. */
 export const BOTH_CONTENT_AND_FILE_ERROR_MESSAGE =
   'An artifact cannot define both content and filePath; specify either content (for inline text) or filePath (for stored files), but not both';
