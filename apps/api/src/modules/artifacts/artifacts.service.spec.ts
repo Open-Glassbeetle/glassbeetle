@@ -736,6 +736,41 @@ describe('ArtifactsService', () => {
       expect(version1.hasFile).toBe(false);
     });
 
+    it('adopts the type detected from the uploaded bytes instead of the declared one', async () => {
+      const artifact = fixtures.createArtifact({
+        title: 'Sticky mime',
+        type: 'document',
+        mime_type: 'text/markdown',
+        content: '# hello',
+        file_path: null,
+        version: 1,
+      });
+
+      const pngBuffer = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+      ]);
+      vi.mocked(fileStorage.write).mockResolvedValueOnce({
+        reference: 'artifacts/stored-png.png',
+        size: pngBuffer.length,
+        contentType: 'image/png',
+      });
+
+      const mockMulterFile = {
+        buffer: pngBuffer,
+        originalname: 'one.png',
+        mimetype: 'text/markdown',
+        size: pngBuffer.length,
+      } as Express.Multer.File;
+
+      const result = await service.uploadContent(artifact.id, mockMulterFile);
+
+      expect(result.version).toBe(2);
+      expect(result.mimeType).toBe('image/png');
+      await expect(service.findOne(artifact.id)).resolves.toMatchObject({
+        mimeType: 'image/png',
+      });
+    });
+
     it('throws NotFoundException when uploading content to a non-existent artifact', async () => {
       const mockMulterFile = {
         buffer: Buffer.from('data'),
