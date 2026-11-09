@@ -254,6 +254,40 @@ describe('ArtifactsService', () => {
       expect(inDb.title).toBe('Architecture Overview');
     });
 
+    it('records artifact_created usage event when AnalyticsService is provided', async () => {
+      const mockAnalytics = {
+        recordArtifactCreated: vi.fn(),
+      } as any;
+
+      const artifactServiceWithAnalytics = new ArtifactsService(
+        db,
+        undefined,
+        mockAnalytics,
+      );
+
+      const agent = fixtures.createAgent();
+      const chat = fixtures.createChat({ agent_id: agent.id });
+
+      const created = await artifactServiceWithAnalytics.create({
+        title: 'Tracked Artifact',
+        type: 'code',
+        content: 'console.log("hello");',
+        agentId: agent.id,
+        chatId: chat.id,
+      });
+
+      expect(mockAnalytics.recordArtifactCreated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: agent.id,
+          chatId: chat.id,
+          metadata: {
+            artifactId: created.id,
+            type: 'code',
+          },
+        }),
+      );
+    });
+
     it('creates an artifact backed by a stored file', async () => {
       const dto: CreateArtifactDto = {
         title: 'Asset Bundle',

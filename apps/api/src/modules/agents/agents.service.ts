@@ -25,6 +25,7 @@ import {
   assertUploadablePicture,
 } from '../../file-storage/picture-uploads.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
+import { AnalyticsService } from '../analytics/analytics.service.js';
 import type { AgentResponseDto } from './dto/agent-response.dto.js';
 import {
   applyAgentUpdates,
@@ -71,7 +72,6 @@ export interface StoredAgentPicture {
   readonly open: () => Promise<Readable>;
 }
 
-
 /**
  * Re-exported so the agents service keeps naming the escaping its search
  * depends on, while the implementation is shared with every other name filter.
@@ -108,6 +108,7 @@ export class AgentsService {
     private readonly db: DatabaseService,
     @Optional() private readonly fileStorage?: FileStorageService,
     @Optional() private readonly appConfigService?: AppConfigService,
+    @Optional() private readonly analyticsService?: AnalyticsService,
   ) {}
 
   /**
@@ -212,7 +213,7 @@ export class AgentsService {
    * specific 422 errors naming the invalid reference.
    */
   async create(dto: CreateAgentDto): Promise<AgentResponseDto> {
-    return this.db.transaction(() => {
+    const created = this.db.transaction(() => {
       // Validate modelId foreign key if supplied
       if (dto.modelId) {
         const modelRow = this.db.get<{ id: string }>(
@@ -297,6 +298,18 @@ export class AgentsService {
 
       return mapAgentRowToResponse(persisted);
     });
+
+    // Analytics seam (#74): record agent_created event outside transaction
+    this.analyticsService?.recordAgentCreated({
+      occurredAt: created.createdAt,
+      agentId: created.id,
+      modelId: created.modelId,
+      metadata: {
+        name: created.name,
+      },
+    });
+
+    return created;
   }
 
   /**

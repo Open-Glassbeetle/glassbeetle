@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { newId } from '../../common/persistence/identifiers.js';
@@ -25,6 +26,7 @@ import type {
   CompletionResponse,
   TokenUsage,
 } from '../../model-adapters/types/index.js';
+import { AnalyticsService } from '../analytics/analytics.service.js';
 import { CredentialsService } from '../providers/credentials/credentials.service.js';
 import type {
   ProviderKind,
@@ -96,6 +98,7 @@ export interface CompleteChatOptions {
 @Injectable()
 export class InferenceService {
   private readonly logger = new Logger(InferenceService.name);
+  private readonly analytics: AnalyticsService;
 
   constructor(
     private readonly db: DatabaseService,
@@ -104,7 +107,10 @@ export class InferenceService {
     private readonly contextConstructionService: ContextConstructionService = new ContextConstructionService(
       db,
     ),
-  ) {}
+    @Optional() private readonly analyticsService?: AnalyticsService,
+  ) {
+    this.analytics = analyticsService ?? new AnalyticsService(db);
+  }
 
   /**
    * Executes a non-streaming completion for a chat.
@@ -495,25 +501,22 @@ export class InferenceService {
       const finalInputTokens = reportedUsage?.inputTokens ?? null;
       const finalOutputTokens = reportedUsage?.outputTokens ?? null;
 
-      this.db.run(
-        `INSERT INTO usage_events (
-          id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id,
-          input_tokens, output_tokens, cost_usd, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          newId(),
-          nowIso(),
-          'chat_completion',
-          agent.id,
-          provider.id,
-          model.id,
-          chat.id,
-          finalInputTokens,
-          finalOutputTokens,
-          null,
-          null,
-        ],
-      );
+      // Record usage event (#74)
+      try {
+        this.analytics.recordChatCompletion({
+          occurredAt: pendingRow.created_at,
+          agentId: agent.id,
+          providerId: provider.id,
+          modelId: model.id,
+          chatId: chat.id,
+          inputTokens: finalInputTokens,
+          outputTokens: finalOutputTokens,
+        });
+      } catch (analyticsError) {
+        this.logger.warn(
+          `Failed to record streaming usage event: ${analyticsError instanceof Error ? analyticsError.message : String(analyticsError)}`,
+        );
+      }
 
       // Emit terminal usage event
       if (reportedUsage) {
@@ -1206,9 +1209,7 @@ If you can answer directly without delegation, provide your response directly.`
         const targetQuery = delegateMatch[1].trim().toLowerCase();
         const specialist =
           specialists.find((s) => s.agent_id.toLowerCase() === targetQuery) ??
-          specialists.find(
-            (s) => s.agent_name.toLowerCase() === targetQuery,
-          ) ??
+          specialists.find((s) => s.agent_name.toLowerCase() === targetQuery) ??
           specialists.find(
             (s) =>
               s.agent_name.toLowerCase().includes(targetQuery) ||
@@ -1718,8 +1719,10 @@ When the task is complete and no further response is needed, end with:
             apiKey,
           ]);
           if (normalizedError.cause) {
-            (normalizedError as { cause: unknown }).cause =
-              sanitizeErrorCause(normalizedError.cause, [apiKey]);
+            (normalizedError as { cause: unknown }).cause = sanitizeErrorCause(
+              normalizedError.cause,
+              [apiKey],
+            );
           }
         } else {
           normalizedError = normalizeProviderError({
@@ -1761,25 +1764,22 @@ When the task is complete and no further response is needed, end with:
     const finalInputTokens = reportedUsage?.inputTokens ?? null;
     const finalOutputTokens = reportedUsage?.outputTokens ?? null;
 
-    this.db.run(
-      `INSERT INTO usage_events (
-        id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id,
-        input_tokens, output_tokens, cost_usd, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        newId(),
-        nowIso(),
-        'chat_completion',
-        agent.id,
-        provider.id,
-        model.id,
-        chat.id,
-        finalInputTokens,
-        finalOutputTokens,
-        null,
-        null,
-      ],
-    );
+    // Record usage event (#74)
+    try {
+      this.analytics.recordChatCompletion({
+        occurredAt: pendingRow.created_at,
+        agentId: agent.id,
+        providerId: provider.id,
+        modelId: model.id,
+        chatId: chat.id,
+        inputTokens: finalInputTokens,
+        outputTokens: finalOutputTokens,
+      });
+    } catch (analyticsError) {
+      this.logger.warn(
+        `Failed to record team turn usage event: ${analyticsError instanceof Error ? analyticsError.message : String(analyticsError)}`,
+      );
+    }
 
     yield {
       type: 'message_complete',
@@ -1924,9 +1924,7 @@ If you can answer directly without delegation, provide your response directly.`
         const targetQuery = delegateMatch[1].trim().toLowerCase();
         const specialist =
           specialists.find((s) => s.agent_id.toLowerCase() === targetQuery) ??
-          specialists.find(
-            (s) => s.agent_name.toLowerCase() === targetQuery,
-          ) ??
+          specialists.find((s) => s.agent_name.toLowerCase() === targetQuery) ??
           specialists.find(
             (s) =>
               s.agent_name.toLowerCase().includes(targetQuery) ||
@@ -2391,7 +2389,7 @@ When the task is complete and no further response is needed, end with:
     const newSummary = completionResponse.content.trim();
     const now = nowIso();
 
-    // 8. Atomically update chat and record usage
+    // 8. Atomically update chat
     this.db.transaction(() => {
       this.db.run(
         `UPDATE chats
@@ -2401,29 +2399,26 @@ When the task is complete and no further response is needed, end with:
          WHERE id = ?`,
         [newSummary, newCompactedBeforeSequence, now, chat.id],
       );
+    });
 
-      if (completionResponse.usage) {
-        this.db.run(
-          `INSERT INTO usage_events (
-            id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id,
-            input_tokens, output_tokens, cost_usd, metadata
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            newId(),
-            now,
-            'chat_compaction',
-            agent.id,
-            provider.id,
-            model.id,
-            chat.id,
-            completionResponse.usage.inputTokens ?? null,
-            completionResponse.usage.outputTokens ?? null,
-            null,
-            null,
-          ],
+    // Record compaction usage event (#74) outside transaction
+    if (completionResponse.usage) {
+      try {
+        this.analytics.recordChatCompaction({
+          occurredAt: now,
+          agentId: agent.id,
+          providerId: provider.id,
+          modelId: model.id,
+          chatId: chat.id,
+          inputTokens: completionResponse.usage.inputTokens ?? null,
+          outputTokens: completionResponse.usage.outputTokens ?? null,
+        });
+      } catch (analyticsError) {
+        this.logger.warn(
+          `Failed to record compaction usage event: ${analyticsError instanceof Error ? analyticsError.message : String(analyticsError)}`,
         );
       }
-    });
+    }
 
     // 9. Fetch updated chat row and calculate total compacted messages count
     const updatedChat = this.db.get<ChatRow>(
@@ -2523,27 +2518,6 @@ When the task is complete and no further response is needed, end with:
             chat.id,
           ]);
 
-          // Record usage event seam (#63)
-          this.db.run(
-            `INSERT INTO usage_events (
-              id, occurred_at, event_type, agent_id, provider_id, model_id, chat_id,
-              input_tokens, output_tokens, cost_usd, metadata
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              newId(),
-              now,
-              'chat_completion',
-              agent.id,
-              provider.id,
-              model.id,
-              chat.id,
-              completionResponse.usage?.inputTokens ?? null,
-              completionResponse.usage?.outputTokens ?? null,
-              null,
-              null,
-            ],
-          );
-
           return row ?? null;
         });
 
@@ -2578,6 +2552,23 @@ When the task is complete and no further response is needed, end with:
         code: 'PERSISTENCE_FAILED',
         message: 'Failed to persist completion message to database',
       });
+    }
+
+    // Record usage event (#74) outside of message persistence transaction
+    try {
+      this.analytics.recordChatCompletion({
+        occurredAt: persistedRow.created_at,
+        agentId: agent.id,
+        providerId: provider.id,
+        modelId: model.id,
+        chatId: chat.id,
+        inputTokens: completionResponse.usage?.inputTokens ?? null,
+        outputTokens: completionResponse.usage?.outputTokens ?? null,
+      });
+    } catch (analyticsError) {
+      this.logger.warn(
+        `Failed to record completion usage event: ${analyticsError instanceof Error ? analyticsError.message : String(analyticsError)}`,
+      );
     }
 
     return {

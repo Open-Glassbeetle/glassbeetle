@@ -107,7 +107,9 @@ describe('AgentsService', () => {
       expect(ids).toContain(agentWithModel.id);
       expect(ids).toContain(agentWithoutModel.id);
 
-      const unassigned = result.items.find((a) => a.id === agentWithoutModel.id);
+      const unassigned = result.items.find(
+        (a) => a.id === agentWithoutModel.id,
+      );
       expect(unassigned?.modelId).toBeNull();
     });
 
@@ -116,7 +118,10 @@ describe('AgentsService', () => {
         const model1 = fixtures.createModel({ display_name: 'Model 1' });
         const model2 = fixtures.createModel({ display_name: 'Model 2' });
 
-        const agent1 = fixtures.createAgent({ name: 'Agent 1', model_id: model1.id });
+        const agent1 = fixtures.createAgent({
+          name: 'Agent 1',
+          model_id: model1.id,
+        });
         fixtures.createAgent({ name: 'Agent 2', model_id: model2.id });
         fixtures.createAgent({ name: 'Agent 3', model_id: null });
 
@@ -130,7 +135,10 @@ describe('AgentsService', () => {
       it('filters for agents with unassigned model using modelId="null"', async () => {
         const model = fixtures.createModel();
         fixtures.createAgent({ name: 'Assigned', model_id: model.id });
-        const unassigned = fixtures.createAgent({ name: 'Unassigned', model_id: null });
+        const unassigned = fixtures.createAgent({
+          name: 'Unassigned',
+          model_id: null,
+        });
 
         const result = await service.findAll({ modelId: 'null' });
 
@@ -180,7 +188,9 @@ describe('AgentsService', () => {
 
       it('filters agents by name substring search (case-insensitive)', async () => {
         const match1 = fixtures.createAgent({ name: 'Senior Researcher' });
-        const match2 = fixtures.createAgent({ name: 'Junior research assistant' });
+        const match2 = fixtures.createAgent({
+          name: 'Junior research assistant',
+        });
         fixtures.createAgent({ name: 'Frontend Developer' });
 
         const result = await service.findAll({ name: 'research' });
@@ -218,7 +228,9 @@ describe('AgentsService', () => {
         expect(percentResult.items[0].id).toBe(exactMatchPercent.id);
 
         // Search for "test_special" should only match "test_special_name", not "test-special"
-        const underscoreResult = await service.findAll({ name: 'test_special' });
+        const underscoreResult = await service.findAll({
+          name: 'test_special',
+        });
         expect(underscoreResult.total).toBe(1);
         expect(underscoreResult.items[0].id).toBe(exactMatchUnderscore.id);
       });
@@ -333,7 +345,11 @@ describe('AgentsService', () => {
         expect(asc.items.map((a) => a.name)).toEqual(['Alpha', 'Beta', 'Zeta']);
 
         const desc = await service.findAll({ sort: 'name', order: 'desc' });
-        expect(desc.items.map((a) => a.name)).toEqual(['Zeta', 'Beta', 'Alpha']);
+        expect(desc.items.map((a) => a.name)).toEqual([
+          'Zeta',
+          'Beta',
+          'Alpha',
+        ]);
       });
 
       it('sorts by id ascending and descending', async () => {
@@ -531,6 +547,30 @@ describe('AgentsService', () => {
       );
       expect(rawRow?.model_params).toBe(
         '{"top_p":0.95,"stop":["END"],"metadata":{"version":1}}',
+      );
+    });
+
+    it('records agent_created usage event when AnalyticsService is provided', async () => {
+      const mockAnalytics = {
+        recordAgentCreated: vi.fn(),
+      } as any;
+
+      const agentServiceWithAnalytics = new AgentsService(
+        db,
+        undefined,
+        undefined,
+        mockAnalytics,
+      );
+
+      const created = await agentServiceWithAnalytics.create({
+        name: 'Tracked Agent',
+      });
+
+      expect(mockAnalytics.recordAgentCreated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: created.id,
+          metadata: { name: 'Tracked Agent' },
+        }),
       );
     });
 
@@ -1235,7 +1275,10 @@ describe('AgentsService', () => {
         picture_path: oldPicturePath,
       });
 
-      const file = createMockFile({ buffer: validJpegBuffer, originalname: 'new.jpg' });
+      const file = createMockFile({
+        buffer: validJpegBuffer,
+        originalname: 'new.jpg',
+      });
       const result = await serviceWithStorage.uploadPicture(agent.id, file);
 
       // Verify write was called for the new file
@@ -1511,9 +1554,7 @@ describe('AgentsService', () => {
 
     it('reports 404 AGENT_NOT_FOUND for an unknown agent', async () => {
       await expect(
-        serviceWithStorage.openPicture(
-          '018f3a9e-0000-7000-8000-999999999999',
-        ),
+        serviceWithStorage.openPicture('018f3a9e-0000-7000-8000-999999999999'),
       ).rejects.toMatchObject({
         response: { code: 'AGENT_NOT_FOUND' },
       });
@@ -1596,5 +1637,4 @@ describe('AgentsService', () => {
       });
     });
   });
-
 });

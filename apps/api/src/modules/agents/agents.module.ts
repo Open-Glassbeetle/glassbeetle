@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AnalyticsModule } from '../analytics/analytics.module.js';
 import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import { AgentsController } from './agents.controller.js';
 import { AgentsService } from './agents.service.js';
@@ -14,9 +15,9 @@ import { AgentsService } from './agents.service.js';
  * `@UseInterceptors()` would be constructed without its dependencies.
  */
 @Module({
+  imports: [AnalyticsModule],
   controllers: [AgentsController],
   providers: [AgentsService, PictureUploadInterceptor],
   exports: [AgentsService],
 })
 export class AgentsModule {}
-

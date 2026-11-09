@@ -556,6 +556,51 @@ describe('InferenceService', () => {
       expect(usageRow.output_tokens).toBe(8);
     });
 
+    it('succeeds with completion even when analytics recording fails', async () => {
+      const mockAnalytics = {
+        recordChatCompletion: vi.fn().mockImplementation(() => {
+          throw new Error('Analytics database write failure');
+        }),
+        recordChatCompaction: vi.fn(),
+        recordAgentCreated: vi.fn(),
+        recordArtifactCreated: vi.fn(),
+        record: vi.fn(),
+        findById: vi.fn(),
+      } as any;
+
+      const testService = new InferenceService(
+        db,
+        adapterFactory,
+        mockCredentialsService as unknown as CredentialsService,
+        undefined,
+        mockAnalytics,
+      );
+
+      const provider = fixtures.createProvider({ kind: 'openai', enabled: 1 });
+      const model = fixtures.createModel({
+        provider_id: provider.id,
+        model_identifier: 'gpt-4o',
+        enabled: 1,
+      });
+      const agent = fixtures.createAgent({
+        model_id: model.id,
+      });
+      const chat = fixtures.createChat({
+        agent_id: agent.id,
+      });
+
+      const result = await testService.completeChat(chat.id, {});
+      expect(result).toBeDefined();
+      expect(result.content).toBe('Hello! I am ready to help.');
+      expect(result.status).toBe('complete');
+
+      const savedMsg = db.get<any>('SELECT * FROM messages WHERE id = ?', [
+        result.id,
+      ]);
+      expect(savedMsg).toBeDefined();
+      expect(savedMsg.status).toBe('complete');
+    });
+
     it('records null token_count when provider does not report usage', async () => {
       const noUsageAdapter = new TestDoubleAdapter(
         { providerKind: 'openai' },
@@ -2012,7 +2057,10 @@ describe('InferenceService', () => {
 
     describe('Phase 2: Designated Coordinator (Router Agent)', () => {
       it('answers directly when coordinator does not delegate', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
         const coordinator = fixtures.createAgent({
           name: 'Triage Lead',
@@ -2059,7 +2107,10 @@ describe('InferenceService', () => {
       });
 
       it('delegates to specialist when coordinator outputs [DELEGATE: <Name>]', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
         const coordinator = fixtures.createAgent({
           name: 'Triage Lead',
@@ -2126,7 +2177,10 @@ describe('InferenceService', () => {
       });
 
       it('streams coordinator delegation to specialist with sequential message events', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
         const coordinator = fixtures.createAgent({
           name: 'Triage Lead',
@@ -2207,7 +2261,10 @@ describe('InferenceService', () => {
 
     describe('Phase 3: Broadcast (Parallel / Independent Context)', () => {
       it('executes broadcast ensuring context isolation between concurrent replies', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
         const agentA = fixtures.createAgent({
           name: 'Persp A',
@@ -2257,7 +2314,10 @@ describe('InferenceService', () => {
       });
 
       it('streams broadcast responses independently with aggregated token usage', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
         const agentA = fixtures.createAgent({ name: 'A', model_id: model.id });
         const agentB = fixtures.createAgent({ name: 'B', model_id: model.id });
@@ -2306,9 +2366,15 @@ describe('InferenceService', () => {
 
     describe('Phase 4: Autonomous Dynamic Handoff', () => {
       it('executes dynamic multi-agent handoff loop terminating on [DONE]', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
-        const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+        const alice = fixtures.createAgent({
+          name: 'Alice',
+          model_id: model.id,
+        });
         const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
 
         const team = fixtures.createTeam({
@@ -2358,7 +2424,10 @@ describe('InferenceService', () => {
       });
 
       it('enforces hard turn cap to prevent runaway autonomous loops', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
         const ping = fixtures.createAgent({ name: 'Ping', model_id: model.id });
         const pong = fixtures.createAgent({ name: 'Pong', model_id: model.id });
@@ -2383,7 +2452,8 @@ describe('InferenceService', () => {
         testDouble.complete = vi.fn().mockImplementation(async () => {
           turn++;
           return {
-            content: turn % 2 === 1 ? 'Ping! [NEXT: @Pong]' : 'Pong! [NEXT: @Ping]',
+            content:
+              turn % 2 === 1 ? 'Ping! [NEXT: @Pong]' : 'Pong! [NEXT: @Ping]',
             finishReason: 'stop',
             usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
           };
@@ -2398,9 +2468,15 @@ describe('InferenceService', () => {
       });
 
       it('streams autonomous dynamic handoff correctly terminating on [DONE]', async () => {
-        const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+        const provider = fixtures.createProvider({
+          kind: 'openai',
+          is_local: 0,
+        });
         const model = fixtures.createModel(provider.id);
-        const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+        const alice = fixtures.createAgent({
+          name: 'Alice',
+          model_id: model.id,
+        });
         const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
 
         const team = fixtures.createTeam({
