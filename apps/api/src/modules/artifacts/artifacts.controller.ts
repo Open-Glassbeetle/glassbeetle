@@ -144,7 +144,7 @@ export class ArtifactsController {
   })
   @ApiResponse({
     status: HttpStatus.PARTIAL_CONTENT,
-    description: 'Partial range of artifact file content',
+    description: 'Partial range of artifact content (inline or file)',
   })
   @ApiResponse({
     status: HttpStatus.NOT_MODIFIED,
@@ -293,7 +293,7 @@ export class ArtifactsController {
   })
   @ApiResponse({
     status: HttpStatus.PARTIAL_CONTENT,
-    description: 'Partial range of artifact version file content',
+    description: 'Partial range of artifact version content (inline or file)',
   })
   @ApiResponse({
     status: HttpStatus.NOT_MODIFIED,
@@ -485,16 +485,7 @@ export class ArtifactsController {
       }
     }
 
-    if (artifact.kind === 'inline') {
-      res.status(HttpStatus.OK);
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Length', artifact.size);
-      res.setHeader('Content-Disposition', disposition);
-      res.end(artifact.content);
-      return;
-    }
-
-    // File content with streaming and optional range support
+    // Byte-range support (applies to both inline and file-backed content)
     const ifRange = Array.isArray(req.headers['if-range'])
       ? req.headers['if-range'][0]
       : req.headers['if-range'];
@@ -511,6 +502,33 @@ export class ArtifactsController {
       res.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
       res.setHeader('Content-Range', `bytes */${artifact.size}`);
       res.end();
+      return;
+    }
+
+    if (artifact.kind === 'inline') {
+      // Inline size is the UTF-8 byte length, so ranges are sliced on the
+      // encoded buffer rather than the string.
+      const body = Buffer.from(artifact.content, 'utf-8');
+      if (rangeResult) {
+        const { start, end } = rangeResult;
+        const slice = body.subarray(start, end + 1);
+        res.status(HttpStatus.PARTIAL_CONTENT);
+        res.setHeader(
+          'Content-Range',
+          `bytes ${start}-${end}/${artifact.size}`,
+        );
+        res.setHeader('Content-Length', slice.length);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', disposition);
+        res.end(slice);
+        return;
+      }
+
+      res.status(HttpStatus.OK);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', artifact.size);
+      res.setHeader('Content-Disposition', disposition);
+      res.end(artifact.content);
       return;
     }
 

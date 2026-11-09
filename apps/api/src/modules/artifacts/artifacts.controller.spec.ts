@@ -237,6 +237,98 @@ describe('ArtifactsController', () => {
       expect(res.end).toHaveBeenCalled();
     });
 
+    describe('inline content byte ranges', () => {
+      // "héllo wörld" is 11 characters but 13 UTF-8 bytes.
+      const content = 'h\u00e9llo w\u00f6rld';
+      const size = Buffer.byteLength(content, 'utf-8');
+      const inlineDescriptor = {
+        kind: 'inline' as const,
+        id: mockArtifact.id,
+        title: 'Notes.txt',
+        version: 1,
+        mimeType: 'text/plain',
+        updatedAt: '2026-09-21T09:30:52.000Z',
+        content,
+        size,
+      };
+
+      it('returns 206 with the requested UTF-8 bytes', async () => {
+        vi.spyOn(service, 'openContent').mockResolvedValue(inlineDescriptor);
+        const req = {
+          headers: { range: 'bytes=0-2' },
+        } as unknown as Request;
+        const res = createMockResponse();
+
+        await controller.getContent(mockArtifact.id, req, res);
+
+        expect(size).toBe(13);
+        expect(res.status).toHaveBeenCalledWith(HttpStatus.PARTIAL_CONTENT);
+        expect(res.setHeader).toHaveBeenCalledWith('Accept-Ranges', 'bytes');
+        expect(res.setHeader).toHaveBeenCalledWith(
+          'Content-Range',
+          `bytes 0-2/${size}`,
+        );
+        expect(res.setHeader).toHaveBeenCalledWith('Content-Length', 3);
+        const body = (res.end as ReturnType<typeof vi.fn>).mock
+          .calls[0][0] as Buffer;
+        expect(Buffer.isBuffer(body)).toBe(true);
+        expect(body.equals(Buffer.from(content, 'utf-8').subarray(0, 3))).toBe(
+          true,
+        );
+      });
+
+      it('supports suffix ranges', async () => {
+        vi.spyOn(service, 'openContent').mockResolvedValue(inlineDescriptor);
+        const req = {
+          headers: { range: 'bytes=-5' },
+        } as unknown as Request;
+        const res = createMockResponse();
+
+        await controller.getContent(mockArtifact.id, req, res);
+
+        expect(res.status).toHaveBeenCalledWith(HttpStatus.PARTIAL_CONTENT);
+        expect(res.setHeader).toHaveBeenCalledWith(
+          'Content-Range',
+          `bytes ${size - 5}-${size - 1}/${size}`,
+        );
+        const body = (res.end as ReturnType<typeof vi.fn>).mock
+          .calls[0][0] as Buffer;
+        expect(body.toString('utf-8')).toBe('w\u00f6rld'.slice(-4));
+      });
+
+      it('returns 416 when the range is unsatisfiable', async () => {
+        vi.spyOn(service, 'openContent').mockResolvedValue(inlineDescriptor);
+        const req = {
+          headers: { range: 'bytes=9999-' },
+        } as unknown as Request;
+        const res = createMockResponse();
+
+        await controller.getContent(mockArtifact.id, req, res);
+
+        expect(res.status).toHaveBeenCalledWith(
+          HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+        );
+        expect(res.setHeader).toHaveBeenCalledWith(
+          'Content-Range',
+          `bytes */${size}`,
+        );
+      });
+
+      it('ignores the range and returns 200 when If-Range does not match', async () => {
+        vi.spyOn(service, 'openContent').mockResolvedValue(inlineDescriptor);
+        const req = {
+          headers: { range: 'bytes=0-2', 'if-range': '"0-0"' },
+        } as unknown as Request;
+        const res = createMockResponse();
+
+        await controller.getContent(mockArtifact.id, req, res);
+
+        expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
+        expect(res.setHeader).toHaveBeenCalledWith('Content-Length', size);
+        expect(res.end).toHaveBeenCalledWith(content);
+      });
+    });
+
     it('streams file content without Range header', async () => {
       const stream = Readable.from(['chunk1', 'chunk2']);
       const fileDescriptor = {
