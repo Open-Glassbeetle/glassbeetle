@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AnalyticsModule } from '../analytics/analytics.module.js';
 import { ArtifactsController } from './artifacts.controller.js';
 import { ArtifactsService } from './artifacts.service.js';
 
@@ -11,6 +12,7 @@ import { ArtifactsService } from './artifacts.service.js';
  * artifacts outlive whatever produced them.
  */
 @Module({
+  imports: [AnalyticsModule],
   controllers: [ArtifactsController],
   providers: [ArtifactsService],
   exports: [ArtifactsService],

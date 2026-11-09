@@ -20,6 +20,7 @@ import {
 import { DatabaseService } from '../../database/database.service.js';
 import { FileNotFoundError } from '../../file-storage/file-storage.errors.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
+import { AnalyticsService } from '../analytics/analytics.service.js';
 import { DEFAULT_MAX_ARTIFACT_FILE_SIZE_BYTES } from './artifact-upload.interceptor.js';
 import {
   applyArtifactUpdates,
@@ -140,6 +141,7 @@ export class ArtifactsService {
   constructor(
     private readonly db: DatabaseService,
     @Optional() private readonly fileStorage?: FileStorageService,
+    @Optional() private readonly analyticsService?: AnalyticsService,
   ) {}
 
   /**
@@ -366,7 +368,7 @@ export class ArtifactsService {
       });
     }
 
-    return this.db.transaction(() => {
+    const created = this.db.transaction(() => {
       if (dto.projectId) {
         const project = this.db.get<{ id: string }>(
           'SELECT id FROM projects WHERE id = ?',
@@ -429,6 +431,19 @@ export class ArtifactsService {
 
       return mapArtifactRowToResponse(row, { includeContent: true });
     });
+
+    // Analytics seam (#74): record artifact_created event outside transaction
+    this.analyticsService?.recordArtifactCreated({
+      occurredAt: created.createdAt,
+      agentId: created.agentId,
+      chatId: created.chatId,
+      metadata: {
+        artifactId: created.id,
+        type: created.type,
+      },
+    });
+
+    return created;
   }
 
   /**
