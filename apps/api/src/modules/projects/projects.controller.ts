@@ -11,7 +11,9 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -26,10 +28,13 @@ import {
   ApiOperation,
   ApiParam,
   ApiPayloadTooLargeResponse,
+  ApiProduces,
+  ApiResponse,
   ApiTags,
   ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+import { ApiErrorResponseDto } from '../../common/http/api-error.js';
 import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import {
@@ -41,6 +46,7 @@ import {
   UploadProjectImageDto,
 } from './dto/index.js';
 import { ProjectsService } from './projects.service.js';
+import { matchesEtag } from '../user/user.controller.js';
 
 /**
  * Controller exposing REST CRUD endpoints for project resources.
@@ -178,6 +184,56 @@ export class ProjectsController {
   @ApiNotFoundResponse({ description: 'Project not found' })
   async delete(@Param('projectId') projectId: string): Promise<void> {
     await this.projectsService.delete(projectId);
+  }
+
+  @Get(':projectId/image')
+  @ApiOperation({
+    summary: 'Download a project image',
+    description:
+      'Serves the stored image with a content type detected from its bytes and an ETag for conditional requests.',
+  })
+  @ApiParam({ name: 'projectId', description: 'Unique project identifier' })
+  @ApiProduces('image/jpeg', 'image/png', 'image/webp', 'image/gif')
+  @ApiOkResponse({
+    description: 'The stored project image',
+    schema: { type: 'string', format: 'binary' },
+  })
+  @ApiResponse({ status: HttpStatus.NOT_MODIFIED, description: 'The client already holds this image' })
+  @ApiNotFoundResponse({
+    description: 'No project or image found, or the stored file is missing',
+    type: ApiErrorResponseDto,
+  })
+  async findImage(
+    @Param('projectId') projectId: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile | undefined> {
+    const image = await this.projectsService.openImage(projectId);
+    res.setHeader('ETag', image.etag);
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (matchesEtag(req.headers['if-none-match'], image.etag)) {
+      res.status(HttpStatus.NOT_MODIFIED);
+      return undefined;
+    }
+    return new StreamableFile(await image.open(), {
+      type: image.contentType,
+      length: image.size,
+      disposition: 'inline',
+    });
+  }
+
+  @Delete(':projectId/image')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Remove a project image',
+    description: 'Deletes the stored image. Removing an absent image returns 204.',
+  })
+  @ApiParam({ name: 'projectId', description: 'Unique project identifier' })
+  @ApiNoContentResponse({ description: 'Image removed or project had no image' })
+  @ApiNotFoundResponse({ description: 'Project not found', type: ApiErrorResponseDto })
+  async deleteImage(@Param('projectId') projectId: string): Promise<void> {
+    await this.projectsService.deleteImage(projectId);
   }
 
   /**

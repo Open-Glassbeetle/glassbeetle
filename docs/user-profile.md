@@ -144,9 +144,9 @@ So this endpoint is part of the design, not a follow-up:
   when the column is set but the file is missing — a restored database whose
   storage root did not come along should not produce a `500`.
 
-The identical endpoint now belongs on `/agents/:agentId/picture` and
-`/projects/:projectId/image`, with this one as the template. Until it is added,
-`AgentAvatar` keeps showing a badge on the initials and saying why.
+The agent picture and project image download routes follow the same pattern at
+`/agents/:agentId/picture` and `/projects/:projectId/image`. Their validators
+use the resource's `updated_at`, since those tables have no picture timestamp.
 
 ## The table
 

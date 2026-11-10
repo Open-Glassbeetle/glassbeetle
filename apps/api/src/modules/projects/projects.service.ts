@@ -4,6 +4,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import type { Readable } from 'node:stream';
 import {
   createPaginatedResponse,
   type PaginatedResponse,
@@ -17,6 +18,7 @@ import { nowIso } from '../../common/persistence/timestamps.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { DEFAULT_MAX_PICTURE_SIZE_BYTES } from '../../config/app.config.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { FileNotFoundError } from '../../file-storage/file-storage.errors.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
 import {
   ALLOWED_PICTURE_MIME_TYPES,
@@ -59,11 +61,6 @@ export const ALLOWED_PROJECT_SORT_COLUMNS: Readonly<Record<string, string>> = {
  * When a project is deleted, its associated image file (if present) is unlinked
  * from storage via `FileStorageService`. Row deletion occurs first; any file deletion
  * failure is logged as a warning and does not fail the request.
- *
- * Note on image removal asymmetry:
- * There is no dedicated `DELETE /projects/:projectId/image` endpoint designed in the API,
- * unlike agent pictures which support `DELETE /agents/:agentId/picture`. A project image can
- * thus be uploaded/replaced, but not cleared on its own without deleting the project.
  *
  * Counts decision:
  * Associated chat and artifact counts (`chatCount`, `artifactCount`) are computed
@@ -317,6 +314,84 @@ export class ProjectsService {
         );
       }
     }
+  }
+
+  async openImage(id: string): Promise<{
+    contentType: string;
+    size: number;
+    etag: string;
+    open: () => Promise<Readable>;
+  }> {
+    const existing = this.db.get<{
+      image_path: string | null;
+      updated_at: string;
+    }>('SELECT image_path, updated_at FROM projects WHERE id = ?', [id]);
+
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'PROJECT_NOT_FOUND',
+        message: `Project with ID "${id}" not found`,
+      });
+    }
+    if (!existing.image_path) {
+      throw this.imageNotFound();
+    }
+    if (!this.fileStorage) {
+      throw new Error('FileStorageService is required to serve images');
+    }
+
+    const reference = existing.image_path;
+    const fileStorage = this.fileStorage;
+    try {
+      const stat = await fileStorage.stat(reference);
+      return {
+        contentType: stat.contentType,
+        size: stat.size,
+        etag: `"${existing.updated_at}-${stat.size}"`,
+        open: () => fileStorage.createReadStream(reference),
+      };
+    } catch (err) {
+      if (err instanceof FileNotFoundError) {
+        this.logger.warn(`Project "${id}" names an image that is no longer in storage`);
+        throw this.imageNotFound();
+      }
+      throw err;
+    }
+  }
+
+  async deleteImage(id: string): Promise<void> {
+    const existing = this.db.get<{ image_path: string | null }>(
+      'SELECT image_path FROM projects WHERE id = ?',
+      [id],
+    );
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'PROJECT_NOT_FOUND',
+        message: `Project with ID "${id}" not found`,
+      });
+    }
+    if (!existing.image_path) return;
+
+    this.db.run(
+      'UPDATE projects SET image_path = NULL, updated_at = ? WHERE id = ?',
+      [nowIso(), id],
+    );
+    if (this.fileStorage) {
+      try {
+        await this.fileStorage.delete(existing.image_path);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete image "${existing.image_path}" for project "${id}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
+  private imageNotFound(): NotFoundException {
+    return new NotFoundException({
+      code: 'IMAGE_NOT_FOUND',
+      message: 'No project image is stored',
+    });
   }
 
   /**

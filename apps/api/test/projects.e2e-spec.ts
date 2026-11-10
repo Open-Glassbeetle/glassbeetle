@@ -498,6 +498,46 @@ describe('Projects Endpoints (e2e)', () => {
       0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
     ]);
 
+    it('reads and removes an uploaded project image', async () => {
+      const project = testApp.fixtures.createProject({ name: 'Image lifecycle' });
+      const path = `/api/v1/projects/${project.id}/image`;
+
+      await testApp.request().put(path).attach('file', validPng, 'cover.png').expect(200);
+
+      const image = await testApp.request().get(path).responseType('blob').expect(200);
+      expect(image.headers['content-type']).toBe('image/png');
+      expect(image.headers['x-content-type-options']).toBe('nosniff');
+      expect(Buffer.compare(image.body, validPng)).toBe(0);
+      await testApp.request().get(path).set('If-None-Match', image.headers.etag).expect(304);
+
+      const row = testApp.db.get<{ image_path: string }>(
+        'SELECT image_path FROM projects WHERE id = ?', [project.id],
+      );
+      await testApp.request().delete(path).expect(204);
+      expect(await testApp.app.get(FileStorageService).exists(row!.image_path)).toBe(false);
+      const result = await testApp.request().get(`/api/v1/projects/${project.id}`).expect(200);
+      expect(result.body.hasImage).toBe(false);
+      await testApp.request().get(path).expect(404);
+      await testApp.request().delete(path).expect(204);
+    });
+
+    it('distinguishes missing projects and missing image files', async () => {
+      const missing = '/api/v1/projects/018f3a9e-0000-7000-8000-999999999999/image';
+      expect((await testApp.request().get(missing).expect(404)).body.code).toBe('PROJECT_NOT_FOUND');
+      expect((await testApp.request().delete(missing).expect(404)).body.code).toBe('PROJECT_NOT_FOUND');
+
+      const project = testApp.fixtures.createProject({ name: 'Missing image' });
+      const path = `/api/v1/projects/${project.id}/image`;
+      expect((await testApp.request().get(path).expect(404)).body.code).toBe('IMAGE_NOT_FOUND');
+      testApp.db.run('UPDATE projects SET image_path = ? WHERE id = ?', [
+        'project-images/never-written.png', project.id,
+      ]);
+      const response = await testApp.request().get(path).expect(404);
+      expect(response.body.code).toBe('IMAGE_NOT_FOUND');
+      expect(JSON.stringify(response.body)).not.toContain('never-written');
+      await testApp.request().delete(path).expect(204);
+    });
+
     it('uploads a valid PNG image, stores file in storage, updates database row, and returns 200 OK', async () => {
       const fileStorage = testApp.app.get(FileStorageService);
       const project = testApp.fixtures.createProject({
