@@ -1,6 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, StreamableFile } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import { ProjectsController } from './projects.controller.js';
@@ -49,6 +50,8 @@ describe('ProjectsController', () => {
             uploadImage: vi
               .fn()
               .mockResolvedValue({ ...mockProject, hasImage: true }),
+            openImage: vi.fn(),
+            deleteImage: vi.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -151,6 +154,65 @@ describe('ProjectsController', () => {
           buffer: Buffer.alloc(0),
         } as Express.Multer.File),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('findImage', () => {
+    const etag = '"2026-09-21T09:30:52.000Z-4"';
+
+    function mockRes() {
+      return {
+        setHeader: vi.fn(),
+        status: vi.fn(),
+      } as unknown as Response;
+    }
+
+    beforeEach(() => {
+      vi.mocked(service.openImage).mockResolvedValue({
+        contentType: 'image/png',
+        size: 4,
+        etag,
+        open: vi.fn().mockResolvedValue(Readable.from([Buffer.from('png!')])),
+      });
+    });
+
+    it('sets the validators and streams the image', async () => {
+      const res = mockRes();
+      const req = { headers: {} } as Request;
+
+      const result = await controller.findImage(mockProject.id, req, res);
+
+      expect(service.openImage).toHaveBeenCalledWith(mockProject.id);
+      expect(res.setHeader).toHaveBeenCalledWith('ETag', etag);
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'X-Content-Type-Options',
+        'nosniff',
+      );
+      expect(result).toBeInstanceOf(StreamableFile);
+      expect(result?.getHeaders()).toMatchObject({
+        type: 'image/png',
+        length: 4,
+        disposition: 'inline',
+      });
+    });
+
+    it('answers a matching If-None-Match with 304 and no body', async () => {
+      const res = mockRes();
+      const req = { headers: { 'if-none-match': etag } } as Request;
+
+      const result = await controller.findImage(mockProject.id, req, res);
+
+      expect(res.status).toHaveBeenCalledWith(304);
+      expect(res.setHeader).toHaveBeenCalledWith('ETag', etag);
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('deleteImage', () => {
+    it('delegates to projectsService.deleteImage', async () => {
+      await controller.deleteImage(mockProject.id);
+
+      expect(service.deleteImage).toHaveBeenCalledWith(mockProject.id);
     });
   });
 });

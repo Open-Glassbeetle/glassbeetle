@@ -699,5 +699,200 @@ describe('Projects Endpoints (e2e)', () => {
       expect(await fileStorage.exists(dbRow!.image_path)).toBe(false);
     });
   });
+
+  describe('GET and DELETE /api/v1/projects/:projectId/image', () => {
+    const PNG = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52]),
+      Buffer.alloc(32, 0x01),
+    ]);
+
+    const GIF = Buffer.concat([
+      Buffer.from('GIF89a', 'ascii'),
+      Buffer.alloc(32, 0x02),
+    ]);
+
+    async function upload(
+      projectId: string,
+      bytes: Buffer,
+      filename = 'cover.png',
+    ) {
+      return testApp
+        .request()
+        .put(`/api/v1/projects/${projectId}/image`)
+        .attach('file', bytes, filename)
+        .expect(200);
+    }
+
+    it('serves the uploaded bytes back with the type detected from the file', async () => {
+      const project = testApp.fixtures.createProject({
+        name: 'Image Download',
+      });
+      await upload(project.id, PNG);
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(response.headers['content-type']).toBe('image/png');
+      expect(response.headers['content-length']).toBe(String(PNG.length));
+      expect(response.headers['x-content-type-options']).toBe('nosniff');
+      expect(response.headers['content-disposition']).toBe('inline');
+      expect(Buffer.compare(response.body, PNG)).toBe(0);
+    });
+
+    it('offers a validator and answers a matching conditional request with 304', async () => {
+      const project = testApp.fixtures.createProject({ name: 'Image ETag' });
+      await upload(project.id, PNG);
+
+      const first = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .responseType('blob')
+        .expect(200);
+
+      const etag = first.headers.etag;
+      expect(etag).toBeTruthy();
+      expect(first.headers['cache-control']).toBe(
+        'private, max-age=0, must-revalidate',
+      );
+
+      const second = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .set('If-None-Match', etag)
+        .expect(304);
+
+      expect(second.body).toEqual({});
+      expect(second.headers.etag).toBe(etag);
+    });
+
+    it('replaces the image and changes the validator', async () => {
+      const project = testApp.fixtures.createProject({ name: 'Image Replace' });
+      await upload(project.id, PNG);
+      const before = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .responseType('blob')
+        .expect(200);
+
+      await upload(project.id, GIF, 'second.gif');
+      const after = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(after.headers.etag).not.toBe(before.headers.etag);
+      expect(after.headers['content-type']).toBe('image/gif');
+      expect(Buffer.compare(after.body, GIF)).toBe(0);
+    });
+
+    it('reports 404 with PROJECT_NOT_FOUND for an unknown project', async () => {
+      const response = await testApp
+        .request()
+        .get('/api/v1/projects/018f3a9e-0000-7000-8000-999999999999/image')
+        .expect(404);
+
+      expect(response.body).toMatchObject({
+        statusCode: 404,
+        code: 'PROJECT_NOT_FOUND',
+      });
+    });
+
+    it('reports 404 with IMAGE_NOT_FOUND when no image is stored', async () => {
+      const project = testApp.fixtures.createProject({ name: 'No Image' });
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .expect(404);
+
+      expect(response.body).toMatchObject({
+        statusCode: 404,
+        code: 'IMAGE_NOT_FOUND',
+      });
+    });
+
+    it('reports 404 with IMAGE_NOT_FOUND when the stored file is gone', async () => {
+      const project = testApp.fixtures.createProject({ name: 'Missing File' });
+      await upload(project.id, PNG);
+      testApp.db.run('UPDATE projects SET image_path = ? WHERE id = ?', [
+        'project-images/never-written.png',
+        project.id,
+      ]);
+
+      const response = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .expect(404);
+
+      expect(response.body.code).toBe('IMAGE_NOT_FOUND');
+      expect(JSON.stringify(response.body)).not.toContain('never-written');
+    });
+
+    it('upload, download, delete: the file is removed and hasImage returns to false', async () => {
+      const fileStorage = testApp.app.get(FileStorageService);
+      const project = testApp.fixtures.createProject({ name: 'Round Trip' });
+      await upload(project.id, PNG);
+
+      const downloaded = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .responseType('blob')
+        .expect(200);
+      expect(Buffer.compare(downloaded.body, PNG)).toBe(0);
+
+      const row = testApp.db.get<{ image_path: string }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(await fileStorage.exists(row!.image_path)).toBe(true);
+
+      await testApp
+        .request()
+        .delete(`/api/v1/projects/${project.id}/image`)
+        .expect(204);
+
+      expect(await fileStorage.exists(row!.image_path)).toBe(false);
+
+      const after = await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}`)
+        .expect(200);
+      expect(after.body.hasImage).toBe(false);
+
+      await testApp
+        .request()
+        .get(`/api/v1/projects/${project.id}/image`)
+        .expect(404);
+    });
+
+    it('DELETE is idempotent when the project has no image', async () => {
+      const project = testApp.fixtures.createProject({
+        name: 'Nothing To Remove',
+      });
+
+      await testApp
+        .request()
+        .delete(`/api/v1/projects/${project.id}/image`)
+        .expect(204);
+      await testApp
+        .request()
+        .delete(`/api/v1/projects/${project.id}/image`)
+        .expect(204);
+    });
+
+    it('DELETE reports 404 with PROJECT_NOT_FOUND for an unknown project', async () => {
+      const response = await testApp
+        .request()
+        .delete('/api/v1/projects/018f3a9e-0000-7000-8000-999999999999/image')
+        .expect(404);
+
+      expect(response.body.code).toBe('PROJECT_NOT_FOUND');
+    });
+  });
 });
 

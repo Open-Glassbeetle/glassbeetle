@@ -11,7 +11,9 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -26,10 +28,12 @@ import {
   ApiOperation,
   ApiParam,
   ApiPayloadTooLargeResponse,
+  ApiProduces,
+  ApiResponse,
   ApiTags,
   ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import {
@@ -40,6 +44,7 @@ import {
   UpdateProjectDto,
   UploadProjectImageDto,
 } from './dto/index.js';
+import { matchesEtag } from '../user/user.controller.js';
 import { ProjectsService } from './projects.service.js';
 
 /**
@@ -53,6 +58,9 @@ import { ProjectsService } from './projects.service.js';
  * - `GET /api/v1/projects/:projectId`: Retrieve a single project by ID with chat/artifact counts.
  * - `PATCH /api/v1/projects/:projectId`: Partially update an existing project.
  * - `DELETE /api/v1/projects/:projectId`: Permanently delete a project.
+ * - `PUT /api/v1/projects/:projectId/image`: Upload or replace the project image.
+ * - `GET /api/v1/projects/:projectId/image`: Download the project image.
+ * - `DELETE /api/v1/projects/:projectId/image`: Remove the project image.
  *
  * Deletion cascade behavior:
  * Both `chats.project_id` and `artifacts.project_id` use `ON DELETE SET NULL`.
@@ -236,5 +244,93 @@ export class ProjectsController {
     }
 
     return this.projectsService.uploadImage(projectId, file);
+  }
+
+  /**
+   * `GET /projects/:projectId/image` — the stored image, with revalidation.
+   *
+   * Mirrors `GET /agents/:agentId/picture`: sets the validators before
+   * deciding what to send, so a 304 carries the same `ETag` as the 200 would.
+   * `nosniff` is set because the body is user-supplied bytes rendered inside
+   * the desktop webview.
+   *
+   * @throws NotFoundException (404) when the project does not exist, when no
+   * image is stored, or when the recorded file is missing from the storage
+   * root.
+   */
+  @Get(':projectId/image')
+  @ApiOperation({
+    summary: 'Download a project image',
+    description: `Serves the stored cover image for a project.
+
+The content type is detected from the file's own bytes rather than from anything the uploading client claimed. The URL is stable across replacements, so the response carries an \`ETag\` and revalidates: a conditional request with a matching \`If-None-Match\` gets \`304 Not Modified\`.`,
+  })
+  @ApiParam({
+    name: 'projectId',
+    description: 'Unique project identifier',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiProduces('image/jpeg', 'image/png', 'image/webp', 'image/gif')
+  @ApiOkResponse({
+    description: 'The stored project image',
+    schema: { type: 'string', format: 'binary' },
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_MODIFIED,
+    description: 'The client already holds this image',
+  })
+  @ApiNotFoundResponse({
+    description:
+      'No project found with that ID (PROJECT_NOT_FOUND), or no image is stored / the stored file is missing from the storage root (IMAGE_NOT_FOUND)',
+  })
+  async findImage(
+    @Param('projectId') projectId: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile | undefined> {
+    const image = await this.projectsService.openImage(projectId);
+
+    res.setHeader('ETag', image.etag);
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    if (matchesEtag(req.headers['if-none-match'], image.etag)) {
+      res.status(HttpStatus.NOT_MODIFIED);
+      return undefined;
+    }
+
+    return new StreamableFile(await image.open(), {
+      type: image.contentType,
+      length: image.size,
+      // No filename: the stored name is a generated UUIDv7 and the uploaded
+      // one was discarded, so there is nothing truthful to put in it.
+      disposition: 'inline',
+    });
+  }
+
+  /**
+   * `DELETE /projects/:projectId/image` — remove the project image.
+   *
+   * Idempotent: 204 whether or not the project had one. A missing project is
+   * still a 404, since the path then names nothing.
+   */
+  @Delete(':projectId/image')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Remove a project image',
+    description:
+      'Deletes a project image and unlinks the stored file. Idempotent: removing the image from a project that has none returns 204 No Content.',
+  })
+  @ApiParam({
+    name: 'projectId',
+    description: 'Unique project identifier',
+    example: '018f3a9e-0000-7000-8000-000000000001',
+  })
+  @ApiNoContentResponse({
+    description: 'Image removed successfully or project had no image',
+  })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  async deleteImage(@Param('projectId') projectId: string): Promise<void> {
+    await this.projectsService.deleteImage(projectId);
   }
 }

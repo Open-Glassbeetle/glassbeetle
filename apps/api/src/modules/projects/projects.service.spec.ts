@@ -6,7 +6,10 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfigService } from '../../config/app-config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { UnsupportedMediaTypeError } from '../../file-storage/file-storage.errors.js';
+import {
+  FileNotFoundError,
+  UnsupportedMediaTypeError,
+} from '../../file-storage/file-storage.errors.js';
 import type { FileStorageService } from '../../file-storage/file-storage.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
 import { ProjectsService } from './projects.service.js';
@@ -30,6 +33,8 @@ describe('ProjectsService', () => {
         mimeType: 'image/png',
       })),
       delete: vi.fn().mockResolvedValue(undefined),
+      stat: vi.fn().mockResolvedValue({ size: 68, contentType: 'image/png' }),
+      createReadStream: vi.fn().mockResolvedValue('stream'),
     } as unknown as FileStorageService;
     appConfig = {
       maxPictureSizeBytes: 5 * 1024 * 1024,
@@ -546,6 +551,138 @@ describe('ProjectsService', () => {
       await expect(
         serviceWithoutStorage.uploadImage(project.id, mockFile),
       ).rejects.toThrow('FileStorageService is required for image uploads');
+    });
+  });
+
+  describe('openImage', () => {
+    it('describes the stored image and opens it lazily', async () => {
+      const project = fixtures.createProject({
+        name: 'With Image',
+        image_path: 'project-images/cover.png',
+      });
+      const row = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM projects WHERE id = ?',
+        [project.id],
+      );
+
+      const image = await service.openImage(project.id);
+
+      expect(fileStorage.stat).toHaveBeenCalledWith('project-images/cover.png');
+      expect(image.contentType).toBe('image/png');
+      expect(image.size).toBe(68);
+      expect(image.etag).toBe(`"${row?.updated_at}-68"`);
+      expect(fileStorage.createReadStream).not.toHaveBeenCalled();
+
+      await expect(image.open()).resolves.toBe('stream');
+      expect(fileStorage.createReadStream).toHaveBeenCalledWith(
+        'project-images/cover.png',
+      );
+    });
+
+    it('reports 404 PROJECT_NOT_FOUND for an unknown project', async () => {
+      await expect(
+        service.openImage('018f3a9e-0000-7000-8000-000000000404'),
+      ).rejects.toMatchObject({
+        response: { code: 'PROJECT_NOT_FOUND' },
+      });
+    });
+
+    it('reports 404 IMAGE_NOT_FOUND when no image is stored', async () => {
+      const project = fixtures.createProject({ name: 'No Image' });
+
+      await expect(service.openImage(project.id)).rejects.toMatchObject({
+        response: { code: 'IMAGE_NOT_FOUND' },
+      });
+      expect(fileStorage.stat).not.toHaveBeenCalled();
+    });
+
+    it('reports 404 IMAGE_NOT_FOUND when the stored file is gone', async () => {
+      vi.mocked(fileStorage.stat).mockRejectedValueOnce(
+        new FileNotFoundError('project-images/gone.png'),
+      );
+      const project = fixtures.createProject({
+        name: 'Gone Image',
+        image_path: 'project-images/gone.png',
+      });
+
+      await expect(service.openImage(project.id)).rejects.toMatchObject({
+        response: { code: 'IMAGE_NOT_FOUND' },
+      });
+    });
+
+    it('rethrows storage errors other than a missing file', async () => {
+      vi.mocked(fileStorage.stat).mockRejectedValueOnce(new Error('EACCES'));
+      const project = fixtures.createProject({
+        name: 'Unreadable Image',
+        image_path: 'project-images/locked.png',
+      });
+
+      await expect(service.openImage(project.id)).rejects.toThrow('EACCES');
+    });
+  });
+
+  describe('deleteImage', () => {
+    it('clears image_path, advances updated_at and unlinks the file', async () => {
+      const project = fixtures.createProject({
+        name: 'With Image',
+        image_path: 'project-images/cover.png',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      });
+
+      await service.deleteImage(project.id);
+
+      const row = db.get<{ image_path: string | null; updated_at: string }>(
+        'SELECT image_path, updated_at FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(row?.image_path).toBeNull();
+      expect(row?.updated_at).not.toBe('2026-01-01T00:00:00.000Z');
+      expect(fileStorage.delete).toHaveBeenCalledWith(
+        'project-images/cover.png',
+      );
+      await expect(service.findOne(project.id)).resolves.toMatchObject({
+        hasImage: false,
+      });
+    });
+
+    it('is a no-op when the project has no image', async () => {
+      const project = fixtures.createProject({
+        name: 'No Image',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      });
+
+      await expect(service.deleteImage(project.id)).resolves.toBeUndefined();
+
+      const row = db.get<{ updated_at: string }>(
+        'SELECT updated_at FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(row?.updated_at).toBe('2026-01-01T00:00:00.000Z');
+      expect(fileStorage.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for an unknown project', async () => {
+      await expect(
+        service.deleteImage('018f3a9e-0000-7000-8000-000000000404'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('still clears the row when unlinking the file fails', async () => {
+      vi.mocked(fileStorage.delete).mockRejectedValueOnce(
+        new Error('Disk read-only'),
+      );
+      const project = fixtures.createProject({
+        name: 'Erroring Image',
+        image_path: 'project-images/broken.png',
+      });
+
+      await expect(service.deleteImage(project.id)).resolves.toBeUndefined();
+
+      const row = db.get<{ image_path: string | null }>(
+        'SELECT image_path FROM projects WHERE id = ?',
+        [project.id],
+      );
+      expect(row?.image_path).toBeNull();
     });
   });
 });

@@ -144,9 +144,10 @@ So this endpoint is part of the design, not a follow-up:
   when the column is set but the file is missing — a restored database whose
   storage root did not come along should not produce a `500`.
 
-The identical endpoint now belongs on `/agents/:agentId/picture` and
-`/projects/:projectId/image`, with this one as the template. Until it is added,
-`AgentAvatar` keeps showing a badge on the initials and saying why.
+The identical endpoint is served on `/agents/:agentId/picture` and
+`/projects/:projectId/image`, with this one as the template. The project route
+answers `IMAGE_NOT_FOUND` instead of `PICTURE_NOT_FOUND`, and both have a
+matching `DELETE` that clears the column and unlinks the file.
 
 ## The table
 
