@@ -4,6 +4,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import type { Readable } from 'node:stream';
 import {
   createPaginatedResponse,
   type PaginatedResponse,
@@ -17,6 +18,7 @@ import { nowIso } from '../../common/persistence/timestamps.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { DEFAULT_MAX_PICTURE_SIZE_BYTES } from '../../config/app.config.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { FileNotFoundError } from '../../file-storage/file-storage.errors.js';
 import { FileStorageService } from '../../file-storage/file-storage.service.js';
 import {
   ALLOWED_PICTURE_MIME_TYPES,
@@ -49,6 +51,24 @@ export const ALLOWED_PROJECT_SORT_COLUMNS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * A stored project image, ready to be served.
+ *
+ * The stream is behind `open()` so a conditional request can be answered from
+ * the metadata alone, without opening a file descriptor for bytes that will
+ * never be written to the response.
+ */
+export interface StoredProjectImage {
+  /** Content type detected from the file's own bytes. */
+  readonly contentType: string;
+  /** Size in bytes. */
+  readonly size: number;
+  /** Strong entity tag, including its quotes. */
+  readonly etag: string;
+  /** Opens the file for reading. */
+  readonly open: () => Promise<Readable>;
+}
+
+/**
  * Service managing project entities and their persistence in SQLite.
  *
  * A project is an organizing container for related chats and artifacts.
@@ -60,10 +80,10 @@ export const ALLOWED_PROJECT_SORT_COLUMNS: Readonly<Record<string, string>> = {
  * from storage via `FileStorageService`. Row deletion occurs first; any file deletion
  * failure is logged as a warning and does not fail the request.
  *
- * Note on image removal asymmetry:
- * There is no dedicated `DELETE /projects/:projectId/image` endpoint designed in the API,
- * unlike agent pictures which support `DELETE /agents/:agentId/picture`. A project image can
- * thus be uploaded/replaced, but not cleared on its own without deleting the project.
+ * Image sub-resource:
+ * `PUT`, `GET` and `DELETE /projects/:projectId/image` mirror the agent picture
+ * routes: {@link uploadImage} stores or replaces it, {@link openImage} serves it
+ * and {@link deleteImage} clears it on its own.
  *
  * Counts decision:
  * Associated chat and artifact counts (`chatCount`, `artifactCount`) are computed
@@ -396,5 +416,113 @@ export class ProjectsService {
     }
 
     return this.findOne(id);
+  }
+
+  /**
+   * Removes a project's image and deletes the stored file.
+   *
+   * - Project exists and has an image: clears `image_path`, refreshes
+   *   `updated_at`, then unlinks the file (a failed unlink is logged, not
+   *   raised, since the row no longer references it).
+   * - Project exists but has no image: no-op (idempotent, 204).
+   * - Project does not exist: 404 `PROJECT_NOT_FOUND`.
+   */
+  async deleteImage(id: string): Promise<void> {
+    const existing = this.db.get<{ id: string; image_path: string | null }>(
+      'SELECT id, image_path FROM projects WHERE id = ?',
+      [id],
+    );
+
+    if (!existing) {
+      throw this.projectNotFound(id);
+    }
+
+    if (!existing.image_path) {
+      return;
+    }
+
+    this.db.run(
+      'UPDATE projects SET image_path = NULL, updated_at = ? WHERE id = ?',
+      [nowIso(), id],
+    );
+
+    if (this.fileStorage) {
+      try {
+        await this.fileStorage.delete(existing.image_path);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete image "${existing.image_path}" for project "${id}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Describes the stored project image and offers a reader for its bytes.
+   *
+   * A missing project is `PROJECT_NOT_FOUND`. A row that names no image, or
+   * that names a file the storage root no longer holds, is `IMAGE_NOT_FOUND`.
+   */
+  async openImage(id: string): Promise<StoredProjectImage> {
+    const existing = this.db.get<{
+      id: string;
+      image_path: string | null;
+      updated_at: string;
+    }>('SELECT id, image_path, updated_at FROM projects WHERE id = ?', [id]);
+
+    if (!existing) {
+      throw this.projectNotFound(id);
+    }
+
+    if (!existing.image_path) {
+      throw this.imageNotFound();
+    }
+
+    if (!this.fileStorage) {
+      throw new Error('FileStorageService is required to serve images');
+    }
+
+    const reference = existing.image_path;
+    const fileStorage = this.fileStorage;
+    const updatedAt = existing.updated_at;
+
+    try {
+      const stat = await fileStorage.stat(reference);
+
+      return {
+        contentType: stat.contentType,
+        size: stat.size,
+        // `updated_at` moves on every image write; the size guards a
+        // same-millisecond replace.
+        etag: `"${updatedAt}-${stat.size}"`,
+        open: () => fileStorage.createReadStream(reference),
+      };
+    } catch (err) {
+      if (err instanceof FileNotFoundError) {
+        this.logger.warn(
+          `Project "${id}" names an image that is no longer in storage`,
+        );
+        throw this.imageNotFound();
+      }
+      throw err;
+    }
+  }
+
+  private projectNotFound(id: string): NotFoundException {
+    return new NotFoundException({
+      code: 'PROJECT_NOT_FOUND',
+      message: `Project with ID "${id}" not found`,
+    });
+  }
+
+  /**
+   * The 404 used both for "no image stored" and for a recorded file that is
+   * missing from storage.
+   */
+  private imageNotFound(): NotFoundException {
+    return new NotFoundException({
+      code: 'IMAGE_NOT_FOUND',
+      message: 'No project image is stored',
+    });
   }
 }
