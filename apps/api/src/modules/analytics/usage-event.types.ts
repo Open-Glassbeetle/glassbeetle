@@ -137,16 +137,16 @@ export interface RecordArtifactCreatedParams extends BaseUsageEventParams {
  */
 export type DiscriminatedUsageEvent =
   | ({
-      readonly eventType: typeof USAGE_EVENT_TYPES.CHAT_COMPLETION;
+      readonly eventType: (typeof USAGE_EVENT_TYPES)['CHAT_COMPLETION'];
     } & RecordChatCompletionParams)
   | ({
-      readonly eventType: typeof USAGE_EVENT_TYPES.CHAT_COMPACTION;
+      readonly eventType: (typeof USAGE_EVENT_TYPES)['CHAT_COMPACTION'];
     } & RecordChatCompactionParams)
   | ({
-      readonly eventType: typeof USAGE_EVENT_TYPES.AGENT_CREATED;
+      readonly eventType: (typeof USAGE_EVENT_TYPES)['AGENT_CREATED'];
     } & RecordAgentCreatedParams)
   | ({
-      readonly eventType: typeof USAGE_EVENT_TYPES.ARTIFACT_CREATED;
+      readonly eventType: (typeof USAGE_EVENT_TYPES)['ARTIFACT_CREATED'];
     } & RecordArtifactCreatedParams);
 
 /**
