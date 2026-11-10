@@ -238,10 +238,7 @@ export class ProjectsService {
    *
    * Throws NotFoundException (404) if no project with the given ID exists.
    */
-  async update(
-    id: string,
-    dto: UpdateProjectDto,
-  ): Promise<ProjectResponseDto> {
+  async update(id: string, dto: UpdateProjectDto): Promise<ProjectResponseDto> {
     return this.db.transaction(() => {
       const existing = this.db.get<ProjectRow>(
         'SELECT * FROM projects WHERE id = ?',

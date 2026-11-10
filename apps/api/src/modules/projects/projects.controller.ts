@@ -34,6 +34,7 @@ import {
   ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { ApiErrorResponseDto } from '../../common/http/api-error.js';
 import { PictureUploadInterceptor } from '../../common/http/picture-upload.interceptor.js';
 import type { PaginatedResponse } from '../../common/pagination/paginated-response.dto.js';
 import {
@@ -104,7 +105,10 @@ export class ProjectsController {
     description: 'The requested project resource',
     type: ProjectResponseDto,
   })
-  @ApiNotFoundResponse({ description: 'Project not found' })
+  @ApiNotFoundResponse({
+    description: 'Project not found',
+    type: ApiErrorResponseDto,
+  })
   async findOne(
     @Param('projectId') projectId: string,
   ): Promise<ProjectResponseDto> {
@@ -120,8 +124,7 @@ export class ProjectsController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create a project',
-    description:
-      'Creates a new project with server-managed ID and timestamps.',
+    description: 'Creates a new project with server-managed ID and timestamps.',
   })
   @ApiCreatedResponse({
     description: 'Project created successfully',
@@ -160,7 +163,10 @@ export class ProjectsController {
     description: 'Project updated successfully',
     type: ProjectResponseDto,
   })
-  @ApiNotFoundResponse({ description: 'Project not found' })
+  @ApiNotFoundResponse({
+    description: 'Project not found',
+    type: ApiErrorResponseDto,
+  })
   async update(
     @Param('projectId') projectId: string,
     @Body() dto: UpdateProjectDto,
@@ -183,7 +189,10 @@ export class ProjectsController {
   })
   @ApiParam({ name: 'projectId', description: 'Unique project identifier' })
   @ApiNoContentResponse({ description: 'Project deleted successfully' })
-  @ApiNotFoundResponse({ description: 'Project not found' })
+  @ApiNotFoundResponse({
+    description: 'Project not found',
+    type: ApiErrorResponseDto,
+  })
   async delete(@Param('projectId') projectId: string): Promise<void> {
     await this.projectsService.delete(projectId);
   }
@@ -282,6 +291,7 @@ The content type is detected from the file's own bytes rather than from anything
   @ApiNotFoundResponse({
     description:
       'No project found with that ID (PROJECT_NOT_FOUND), or no image is stored / the stored file is missing from the storage root (IMAGE_NOT_FOUND)',
+    type: ApiErrorResponseDto,
   })
   async findImage(
     @Param('projectId') projectId: string,
@@ -329,7 +339,10 @@ The content type is detected from the file's own bytes rather than from anything
   @ApiNoContentResponse({
     description: 'Image removed successfully or project had no image',
   })
-  @ApiNotFoundResponse({ description: 'Project not found' })
+  @ApiNotFoundResponse({
+    description: 'Project not found',
+    type: ApiErrorResponseDto,
+  })
   async deleteImage(@Param('projectId') projectId: string): Promise<void> {
     await this.projectsService.deleteImage(projectId);
   }

@@ -60,7 +60,7 @@ is no URL that could name a second person.
 Rejected alternatives:
 
 - **`/me`** — the REST idiom for "the current principal", but there is no
-  authentication here, so there is no *current* anything. It also reads as the
+  authentication here, so there is no _current_ anything. It also reads as the
   natural sibling of `/users/:id`, which is precisely the door this design
   closes.
 - **`/users/:id`** — multi-tenancy with one tenant. All of the cost, none of
@@ -71,13 +71,13 @@ Rejected alternatives:
 
 ## Endpoints
 
-| Method   | Path                     | Status                | Notes |
-| -------- | ------------------------ | --------------------- | ----- |
-| `GET`    | `/api/v1/user`           | `200`                 | Always succeeds. Provisions the row on first read. |
-| `PATCH`  | `/api/v1/user`           | `200`                 | Partial update, same null-vs-omitted contract as agents. |
-| `PUT`    | `/api/v1/user/picture`   | `200`                 | `multipart/form-data`, replaces any existing avatar. |
-| `GET`    | `/api/v1/user/picture`   | `200` / `404`         | Serves the image bytes. `404` when none is stored. |
-| `DELETE` | `/api/v1/user/picture`   | `204`                 | Idempotent. |
+| Method   | Path                   | Status        | Notes                                                    |
+| -------- | ---------------------- | ------------- | -------------------------------------------------------- |
+| `GET`    | `/api/v1/user`         | `200`         | Always succeeds. Provisions the row on first read.       |
+| `PATCH`  | `/api/v1/user`         | `200`         | Partial update, same null-vs-omitted contract as agents. |
+| `PUT`    | `/api/v1/user/picture` | `200`         | `multipart/form-data`, replaces any existing avatar.     |
+| `GET`    | `/api/v1/user/picture` | `200` / `404` | Serves the image bytes. `404` when none is stored.       |
+| `DELETE` | `/api/v1/user/picture` | `204`         | Idempotent.                                              |
 
 There is deliberately **no `POST`** — nothing creates a second user — and **no
 `DELETE /user`**. There is no account to close. A user who wants to be forgotten
@@ -110,7 +110,7 @@ What the seed contains is a judgment call worth stating out loud:
 - `display_name` ← `os.userInfo().username`, overridable with
   `GLASSBEETLE_USER_NAME`. The machine already knows whose machine it is, and
   using that is the whole point of local-first: no onboarding form to fill in
-  before the app is useful. It is a *seed*, not a lock — the first `PATCH`
+  before the app is useful. It is a _seed_, not a lock — the first `PATCH`
   replaces it and nothing re-seeds afterwards.
 - `locale` ← `Intl.DateTimeFormat().resolvedOptions().locale`
 - `timezone` ← `Intl.DateTimeFormat().resolvedOptions().timeZone`
@@ -146,8 +146,9 @@ So this endpoint is part of the design, not a follow-up:
 
 The identical endpoint is served on `/agents/:agentId/picture` and
 `/projects/:projectId/image`, with this one as the template. The project route
-answers `IMAGE_NOT_FOUND` instead of `PICTURE_NOT_FOUND`, and both have a
-matching `DELETE` that clears the column and unlinks the file.
+answers `IMAGE_NOT_FOUND` instead of `PICTURE_NOT_FOUND`, their validators
+use the resource's `updated_at` (since those tables have no picture timestamp),
+and both have a matching `DELETE` that clears the column and unlinks the file.
 
 ## The table
 
@@ -183,15 +184,15 @@ independent cache keys.
 
 ## Fields, and why each one earns its place
 
-| Field | Why it exists |
-| --- | --- |
-| `displayName` | What the UI greets and what an agent calls the user. The one field personalization cannot do without. |
-| `pronouns` | Goes into the prompt so an agent does not infer them from a name and get it wrong. Cheap to store, not derivable from anything else. |
-| `about` | The local-first equivalent of user preferences: role, projects, tone to use, things to never do. One text field beats five structured ones nobody fills in. |
-| `locale` | Which language an agent answers in, and how dates and numbers are formatted. |
-| `timezone` | An agent resolving "tomorrow morning" needs it. UTC-only answers are wrong answers. |
-| `includeInPrompts` | See [Privacy](#privacy-the-profile-leaves-the-machine). |
-| `hasPicture` / avatar | The visual half of personalization. |
+| Field                 | Why it exists                                                                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `displayName`         | What the UI greets and what an agent calls the user. The one field personalization cannot do without.                                                       |
+| `pronouns`            | Goes into the prompt so an agent does not infer them from a name and get it wrong. Cheap to store, not derivable from anything else.                        |
+| `about`               | The local-first equivalent of user preferences: role, projects, tone to use, things to never do. One text field beats five structured ones nobody fills in. |
+| `locale`              | Which language an agent answers in, and how dates and numbers are formatted.                                                                                |
+| `timezone`            | An agent resolving "tomorrow morning" needs it. UTC-only answers are wrong answers.                                                                         |
+| `includeInPrompts`    | See [Privacy](#privacy-the-profile-leaves-the-machine).                                                                                                     |
+| `hasPicture` / avatar | The visual half of personalization.                                                                                                                         |
 
 ## Response representation
 
@@ -223,14 +224,14 @@ Nullable fields are emitted as `null`, never omitted, per convention.
 
 `UpdateUserProfileDto` — there is no create DTO, because there is no create.
 
-| Field | Rule |
-| --- | --- |
-| `displayName` | trimmed, 1–120 chars, nullable |
-| `pronouns` | trimmed, ≤ 60 chars, nullable |
-| `about` | ≤ 4000 chars, nullable |
-| `locale` | `Intl.getCanonicalLocales()` must accept it |
-| `timezone` | must appear in `Intl.supportedValuesOf('timeZone')` |
-| `includeInPrompts` | boolean |
+| Field              | Rule                                                |
+| ------------------ | --------------------------------------------------- |
+| `displayName`      | trimmed, 1–120 chars, nullable                      |
+| `pronouns`         | trimmed, ≤ 60 chars, nullable                       |
+| `about`            | ≤ 4000 chars, nullable                              |
+| `locale`           | `Intl.getCanonicalLocales()` must accept it         |
+| `timezone`         | must appear in `Intl.supportedValuesOf('timeZone')` |
+| `includeInPrompts` | boolean                                             |
 
 `about`'s cap is a prompt budget, not a storage concern: this text is prepended
 to every single completion, so 4000 characters is already a meaningful slice of
