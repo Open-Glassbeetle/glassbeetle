@@ -953,6 +953,139 @@ describe('InferenceService', () => {
       expect(row.content).toBe('Generation interrupted');
     });
 
+    it('records a usage event with reported tokens when the provider fails mid-stream after reporting usage', async () => {
+      // #302: a generation that already produced output must leave a usage
+      // event, carrying whatever the provider reported before the failure.
+      const failingAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          cannedStreamEvents: [
+            { type: 'text-delta', delta: 'Part1-' },
+            {
+              type: 'usage',
+              usage: { inputTokens: 11, outputTokens: 4, totalTokens: 15 },
+            },
+            {
+              type: 'error',
+              error: new RateLimitError(
+                'Provider rate limit reached mid-stream',
+                'openai',
+              ),
+            },
+          ],
+        },
+      );
+      adapterFactory.register('openai', () => failingAdapter);
+
+      const { chat } = setupChatEnvironment();
+      const events: any[] = [];
+      for await (const event of service.streamChat(chat.id, {})) {
+        events.push(event);
+      }
+
+      expect(events.find((e) => e.type === 'error')).toBeDefined();
+
+      const usageRow = db.get<any>(
+        "SELECT * FROM usage_events WHERE chat_id = ? AND event_type = 'chat_completion'",
+        [chat.id],
+      );
+      expect(usageRow).toBeDefined();
+      expect(usageRow.input_tokens).toBe(11);
+      expect(usageRow.output_tokens).toBe(4);
+      expect(JSON.parse(usageRow.metadata).outcome).toBe('error');
+    });
+
+    it('records a usage event with null tokens when the provider fails mid-stream before reporting usage', async () => {
+      // #302: no counts were reported, so the row carries nulls (never zero).
+      const failingAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          cannedResponse: { content: 'Part1-Part2-Part3-Part4' },
+          streamChunkSize: 6,
+          failAfterChunks: 2,
+          simulateError: new RateLimitError(
+            'Provider rate limit reached mid-stream',
+            'openai',
+          ),
+        },
+      );
+      adapterFactory.register('openai', () => failingAdapter);
+
+      const { chat } = setupChatEnvironment();
+      for await (const _event of service.streamChat(chat.id, {})) {
+        // consume
+      }
+
+      const usageRow = db.get<any>(
+        "SELECT * FROM usage_events WHERE chat_id = ? AND event_type = 'chat_completion'",
+        [chat.id],
+      );
+      expect(usageRow).toBeDefined();
+      expect(usageRow.input_tokens).toBeNull();
+      expect(usageRow.output_tokens).toBeNull();
+      expect(JSON.parse(usageRow.metadata).outcome).toBe('error');
+    });
+
+    it('records a usage event when the client disconnects after partial content', async () => {
+      // #302: the partial reply is persisted as a completed message, so the
+      // usage log must account for the generation that produced it.
+      const ac = new AbortController();
+      let chunksReceived = 0;
+
+      const { chat } = setupChatEnvironment();
+      const generator = service.streamChat(chat.id, {}, { signal: ac.signal });
+
+      for await (const event of generator) {
+        if (event.type === 'token') {
+          chunksReceived++;
+          if (chunksReceived === 1) {
+            ac.abort(new Error('Client aborted'));
+          }
+        }
+      }
+
+      expect(chunksReceived).toBe(1);
+
+      const usageRow = db.get<any>(
+        "SELECT * FROM usage_events WHERE chat_id = ? AND event_type = 'chat_completion'",
+        [chat.id],
+      );
+      expect(usageRow).toBeDefined();
+      expect(JSON.parse(usageRow.metadata).outcome).toBe('cancelled');
+    });
+
+    it('records a usage event when the client disconnects before any content', async () => {
+      // #302: even with no output, the interrupted row exists, so the event does too.
+      const ac = new AbortController();
+      const { chat } = setupChatEnvironment();
+
+      const delayedAdapter = new TestDoubleAdapter(
+        { providerKind: 'openai' },
+        {
+          streamDelayMs: 50,
+          cannedResponse: { content: 'Slow generation' },
+        },
+      );
+      adapterFactory.register('openai', () => delayedAdapter);
+
+      const generator = service.streamChat(chat.id, {}, { signal: ac.signal });
+
+      for await (const event of generator) {
+        if (event.type === 'message_start') {
+          ac.abort(new Error('Immediate client disconnect'));
+        }
+      }
+
+      const usageRow = db.get<any>(
+        "SELECT * FROM usage_events WHERE chat_id = ? AND event_type = 'chat_completion'",
+        [chat.id],
+      );
+      expect(usageRow).toBeDefined();
+      expect(usageRow.input_tokens).toBeNull();
+      expect(usageRow.output_tokens).toBeNull();
+      expect(JSON.parse(usageRow.metadata).outcome).toBe('cancelled');
+    });
+
     it('checkpoints partial content to SQLite periodically when 200 chars threshold is reached', async () => {
       // 5 chunks of 50 chars = 250 chars total
       const longText =
@@ -2053,6 +2186,75 @@ describe('InferenceService', () => {
       );
       expect(bobMsg.status).toBe('error');
       expect(bobMsg.content).toBe('Bob partial ');
+    });
+
+    it('records a usage event for a team member whose turn fails mid-stream', async () => {
+      // #302: Alice's successful turn and Bob's failed turn each leave one
+      // chat_completion row; Bob's carries the usage he reported plus the
+      // outcome marker, instead of leaving no row at all.
+      const provider = fixtures.createProvider({ kind: 'openai', is_local: 0 });
+      const model = fixtures.createModel(provider.id);
+
+      const alice = fixtures.createAgent({ name: 'Alice', model_id: model.id });
+      const bob = fixtures.createAgent({ name: 'Bob', model_id: model.id });
+
+      const team = fixtures.createTeam({ name: 'Error Team' });
+      fixtures.createTeamMember(team.id, alice.id, { position: 1 });
+      fixtures.createTeamMember(team.id, bob.id, { position: 2 });
+
+      const chat = fixtures.createChat({ agent_id: null, team_id: team.id });
+      fixtures.createMessage({
+        chat_id: chat.id,
+        sequence: 1,
+        role: 'user',
+        content: 'Stream error test',
+      });
+
+      let streamCall = 0;
+      testDouble.stream = vi.fn().mockImplementation(async function* () {
+        streamCall++;
+        if (streamCall === 1) {
+          yield { type: 'text-delta', delta: 'Draft content ' };
+          yield { type: 'text-delta', delta: 'from Alice' };
+          yield {
+            type: 'usage',
+            usage: { inputTokens: 10, outputTokens: 6, totalTokens: 16 },
+          };
+          yield { type: 'complete', finishReason: 'stop' };
+        } else {
+          yield { type: 'text-delta', delta: 'Edited content ' };
+          yield {
+            type: 'usage',
+            usage: { inputTokens: 20, outputTokens: 3, totalTokens: 23 },
+          };
+          throw new RateLimitError('Provider rate limit reached', 'openai');
+        }
+      });
+
+      const generator = service.streamChat(chat.id, { stream: true });
+      const events: any[] = [];
+      for await (const event of generator) {
+        events.push(event);
+      }
+
+      expect(events.find((e) => e.type === 'error')).toBeDefined();
+
+      const usageRows = db.all<any>(
+        "SELECT * FROM usage_events WHERE chat_id = ? AND event_type = 'chat_completion'",
+        [chat.id],
+      );
+      expect(usageRows).toHaveLength(2);
+
+      const aliceRow = usageRows.find((r: any) => r.agent_id === alice.id);
+      expect(aliceRow).toBeDefined();
+      expect(aliceRow.input_tokens).toBe(10);
+      expect(aliceRow.output_tokens).toBe(6);
+
+      const bobRow = usageRows.find((r: any) => r.agent_id === bob.id);
+      expect(bobRow).toBeDefined();
+      expect(bobRow.input_tokens).toBe(20);
+      expect(bobRow.output_tokens).toBe(3);
+      expect(JSON.parse(bobRow.metadata).outcome).toBe('error');
     });
 
     describe('Phase 2: Designated Coordinator (Router Agent)', () => {

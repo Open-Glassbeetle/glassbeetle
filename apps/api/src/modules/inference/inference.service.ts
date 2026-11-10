@@ -256,10 +256,12 @@ export class InferenceService {
    * 5. Periodically checkpoints partial content to SQLite (every 500ms or 200 characters).
    * 6. On normal completion: updates row to status='complete', writes full content and token count,
    *    records `usage_events`, emits `usage`, `message_complete`, and `done`.
-   * 7. On mid-stream failure: updates row to status='error' (preserving partial content), emits in-band
-   *    `error` event with wire-safe payload and `done`.
+   * 7. On mid-stream failure: updates row to status='error' (preserving partial content), records a
+   *    `usage_events` row with outcome 'error', emits in-band `error` event with wire-safe payload
+   *    and `done`.
    * 8. On client disconnect (signal.aborted): aborts upstream adapter, and finalizes the row:
-   *    retains partial content with status='complete' if content was received, or status='error' if not.
+   *    retains partial content with status='complete' if content was received, or status='error' if not,
+   *    and records a `usage_events` row with outcome 'cancelled'.
    *
    * @param chatId - Identifier of the chat to run.
    * @param dto - Optional overrides for model, temperature, maxTokens, and stream.
@@ -491,6 +493,17 @@ export class InferenceService {
           accumulatedContent = 'Generation interrupted';
           flushPartial('error', null);
         }
+        // Record usage for the aborted generation (#302)
+        this.recordIncompleteChatCompletion({
+          occurredAt: pendingRow!.created_at,
+          agentId: agent.id,
+          providerId: provider.id,
+          modelId: model.id,
+          chatId: chat.id,
+          usage: reportedUsage,
+          outcome: 'cancelled',
+          logLabel: 'streaming abort',
+        });
         return;
       }
 
@@ -572,6 +585,17 @@ export class InferenceService {
           accumulatedContent = 'Generation interrupted';
           flushPartial('error', null);
         }
+        // Record usage for the aborted generation (#302)
+        this.recordIncompleteChatCompletion({
+          occurredAt: pendingRow!.created_at,
+          agentId: agent.id,
+          providerId: provider.id,
+          modelId: model.id,
+          chatId: chat.id,
+          usage: reportedUsage,
+          outcome: 'cancelled',
+          logLabel: 'streaming abort',
+        });
         return;
       }
 
@@ -605,6 +629,18 @@ export class InferenceService {
 
       flushPartial('error', reportedUsage?.outputTokens ?? null);
 
+      // Record usage for the failed generation (#302)
+      this.recordIncompleteChatCompletion({
+        occurredAt: pendingRow!.created_at,
+        agentId: agent.id,
+        providerId: provider.id,
+        modelId: model.id,
+        chatId: chat.id,
+        usage: reportedUsage,
+        outcome: 'error',
+        logLabel: 'streaming error',
+      });
+
       yield {
         type: 'error',
         data: toStreamErrorPayload(normalizedError),
@@ -614,6 +650,48 @@ export class InferenceService {
         type: 'done',
         data: '[DONE]',
       };
+    }
+  }
+
+  /**
+   * Records a `chat_completion` usage event for a generation that stopped
+   * early — provider error or client abort (#302).
+   *
+   * A generation that already produced output leaves an assistant message in
+   * the database; without this row the usage log under-counts exactly the
+   * requests that went wrong. Token counts come from whatever the provider
+   * reported before the stop (often nothing, written as null per #74's
+   * null-vs-zero rule), and `metadata.outcome` marks the row so a future
+   * `GET /analytics/usage` can separate it from clean completions.
+   *
+   * Analytics stays non-fatal: a recording failure is logged, never thrown —
+   * an error path is the last place that should be able to throw a second time.
+   */
+  private recordIncompleteChatCompletion(params: {
+    occurredAt: string;
+    agentId: string;
+    providerId: string;
+    modelId: string;
+    chatId: string;
+    usage: TokenUsage | undefined;
+    outcome: 'error' | 'cancelled';
+    logLabel: string;
+  }): void {
+    try {
+      this.analytics.recordChatCompletion({
+        occurredAt: params.occurredAt,
+        agentId: params.agentId,
+        providerId: params.providerId,
+        modelId: params.modelId,
+        chatId: params.chatId,
+        inputTokens: params.usage?.inputTokens ?? null,
+        outputTokens: params.usage?.outputTokens ?? null,
+        metadata: { outcome: params.outcome },
+      });
+    } catch (analyticsError) {
+      this.logger.warn(
+        `Failed to record ${params.logLabel} usage event: ${analyticsError instanceof Error ? analyticsError.message : String(analyticsError)}`,
+      );
     }
   }
 
@@ -1704,6 +1782,17 @@ When the task is complete and no further response is needed, end with:
         accumulatedContent = 'Generation interrupted';
         flushPartial('error', null);
       }
+      // Record usage for the aborted generation (#302)
+      this.recordIncompleteChatCompletion({
+        occurredAt: pendingRow.created_at,
+        agentId: agent.id,
+        providerId: provider.id,
+        modelId: model.id,
+        chatId: chat.id,
+        usage: reportedUsage,
+        outcome: 'cancelled',
+        logLabel: 'team turn abort',
+      });
       return {
         content: accumulatedContent,
         usage: reportedUsage,
@@ -1741,6 +1830,18 @@ When the task is complete and no further response is needed, end with:
       }
 
       flushPartial('error', reportedUsage?.outputTokens ?? null);
+
+      // Record usage for the failed generation (#302)
+      this.recordIncompleteChatCompletion({
+        occurredAt: pendingRow.created_at,
+        agentId: agent.id,
+        providerId: provider.id,
+        modelId: model.id,
+        chatId: chat.id,
+        usage: reportedUsage,
+        outcome: 'error',
+        logLabel: 'team turn error',
+      });
 
       yield {
         type: 'error',
