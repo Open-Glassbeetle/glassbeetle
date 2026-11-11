@@ -1,5 +1,11 @@
 # RFC: Realtime Transport for Streaming Completions and Live Updates
 
+Current implementation note: team control markers are removed from completed
+stored messages and non-streaming completion responses, but streaming `token`
+events still contain raw provider text. A marker can span events, and an
+in-progress stored message can temporarily contain a partial marker. The SSE
+`done` event's `[DONE]` remains the stream terminator.
+
 - **Status**: Proposed / Accepted
 - **Author**: Nathan Schmid
 - **Issue**: [#23](https://github.com/Open-Glassbeetle/glassbeetle/issues/23)

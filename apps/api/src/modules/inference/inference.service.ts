@@ -54,6 +54,20 @@ import type {
   ContextBuildingOptions,
 } from './context-construction.types.js';
 
+const DELEGATE_MARKER = /\[DELEGATE:\s*([^\]]+)\]/i;
+const NEXT_MARKER = /\[NEXT:\s*@?([^\]]+)\]/i;
+
+function stripTeamControlMarkers(content: string): string {
+  let cleaned = content;
+  for (const marker of [DELEGATE_MARKER, NEXT_MARKER]) {
+    cleaned = cleaned.replace(new RegExp(marker.source, 'gi'), '');
+  }
+  cleaned = cleaned
+    .replaceAll('[DONE]', '')
+    .replaceAll('<!-- GB_TEAM_FINISH -->', '');
+  return cleaned === content ? content : cleaned.trim();
+}
+
 /**
  * Options for executing a chat completion.
  */
@@ -1000,7 +1014,7 @@ export class InferenceService {
     options?: CompleteChatOptions,
     contextOptions?: ContextBuildingOptions,
     extraInstructions?: string,
-  ): Promise<CompletionResponseDto> {
+  ): Promise<{ reply: CompletionResponseDto; rawContent: string }> {
     const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
       member.agent_id,
     ])!;
@@ -1092,13 +1106,13 @@ export class InferenceService {
       });
     }
 
-    return this.persistAssistantReply(
-      chat,
-      agent,
-      provider,
-      model,
-      completionResponse,
-    );
+    return {
+      rawContent: completionResponse.content,
+      reply: this.persistAssistantReply(chat, agent, provider, model, {
+        ...completionResponse,
+        content: stripTeamControlMarkers(completionResponse.content),
+      }),
+    };
   }
 
   /**
@@ -1195,9 +1209,9 @@ export class InferenceService {
       }
 
       const member = members[i];
-      let reply: CompletionResponseDto;
+      let turn: { reply: CompletionResponseDto; rawContent: string };
       try {
-        reply = await this.executeMemberTurn(chat, member, dto, options);
+        turn = await this.executeMemberTurn(chat, member, dto, options);
       } catch (err) {
         if (completedMessages.length > 0) {
           this.recordTurnErrorRow(chat.id, member.agent_id);
@@ -1205,9 +1219,9 @@ export class InferenceService {
         throw err;
       }
 
-      completedMessages.push(reply);
+      completedMessages.push(turn.reply);
 
-      if (reply.content.includes('<!-- GB_TEAM_FINISH -->')) {
+      if (turn.rawContent.includes('<!-- GB_TEAM_FINISH -->')) {
         break;
       }
     }
@@ -1277,12 +1291,10 @@ If you can answer directly without delegation, provide your response directly.`
       undefined,
       coordinatorDirective,
     );
-    completedMessages.push(coordReply);
+    completedMessages.push(coordReply.reply);
 
     if (boundedMaxTurns >= 2 && specialists.length > 0) {
-      const delegateMatch = coordReply.content.match(
-        /\[DELEGATE:\s*([^\]]+)\]/i,
-      );
+      const delegateMatch = coordReply.rawContent.match(DELEGATE_MARKER);
       if (delegateMatch) {
         const targetQuery = delegateMatch[1].trim().toLowerCase();
         const specialist =
@@ -1302,7 +1314,7 @@ If you can answer directly without delegation, provide your response directly.`
               dto,
               options,
             );
-            completedMessages.push(specReply);
+            completedMessages.push(specReply.reply);
           } catch (err) {
             this.recordTurnErrorRow(chat.id, specialist.agent_id);
             throw err;
@@ -1354,9 +1366,9 @@ If you can answer directly without delegation, provide your response directly.`
       }
 
       const member = members[i];
-      let reply: CompletionResponseDto;
+      let turn: { reply: CompletionResponseDto; rawContent: string };
       try {
-        reply = await this.executeMemberTurn(
+        turn = await this.executeMemberTurn(
           chat,
           member,
           dto,
@@ -1370,7 +1382,7 @@ If you can answer directly without delegation, provide your response directly.`
         throw err;
       }
 
-      completedMessages.push(reply);
+      completedMessages.push(turn.reply);
     }
 
     const lastMessage = completedMessages[completedMessages.length - 1];
@@ -1438,9 +1450,9 @@ When the task is complete and no further response is needed, end with:
 [DONE] or <!-- GB_TEAM_FINISH -->.`
           : undefined;
 
-      let reply: CompletionResponseDto;
+      let turnResult: { reply: CompletionResponseDto; rawContent: string };
       try {
-        reply = await this.executeMemberTurn(
+        turnResult = await this.executeMemberTurn(
           chat,
           currentMember,
           dto,
@@ -1455,16 +1467,16 @@ When the task is complete and no further response is needed, end with:
         throw err;
       }
 
-      completedMessages.push(reply);
+      completedMessages.push(turnResult.reply);
 
       if (
-        reply.content.includes('[DONE]') ||
-        reply.content.includes('<!-- GB_TEAM_FINISH -->')
+        turnResult.rawContent.includes('[DONE]') ||
+        turnResult.rawContent.includes('<!-- GB_TEAM_FINISH -->')
       ) {
         break;
       }
 
-      const nextMatch = reply.content.match(/\[NEXT:\s*@?([^\]]+)\]/i);
+      const nextMatch = turnResult.rawContent.match(NEXT_MARKER);
       if (!nextMatch) {
         break;
       }
@@ -1589,7 +1601,7 @@ When the task is complete and no further response is needed, end with:
     extraInstructions?: string,
   ): AsyncGenerator<
     SseCompletionEvent,
-    { content: string; usage?: TokenUsage; error?: unknown },
+    { content: string; rawContent: string; usage?: TokenUsage; error?: unknown },
     unknown
   > {
     const agent = this.db.get<AgentRow>('SELECT * FROM agents WHERE id = ?', [
@@ -1684,7 +1696,7 @@ When the task is complete and no further response is needed, end with:
          WHERE id = ?`,
         [
           newStatus,
-          accumulatedContent,
+          stripTeamControlMarkers(accumulatedContent),
           finalOutputTokens !== undefined
             ? finalOutputTokens
             : (reportedUsage?.outputTokens ?? null),
@@ -1794,7 +1806,8 @@ When the task is complete and no further response is needed, end with:
         logLabel: 'team turn abort',
       });
       return {
-        content: accumulatedContent,
+        content: stripTeamControlMarkers(accumulatedContent),
+        rawContent: accumulatedContent,
         usage: reportedUsage,
         error: new RequestAbortedError('Aborted', 'generic'),
       };
@@ -1854,7 +1867,8 @@ When the task is complete and no further response is needed, end with:
       };
 
       return {
-        content: accumulatedContent,
+        content: stripTeamControlMarkers(accumulatedContent),
+        rawContent: accumulatedContent,
         usage: reportedUsage,
         error: normalizedError,
       };
@@ -1899,7 +1913,11 @@ When the task is complete and no further response is needed, end with:
       },
     };
 
-    return { content: accumulatedContent, usage: reportedUsage };
+    return {
+      content: stripTeamControlMarkers(accumulatedContent),
+      rawContent: accumulatedContent,
+      usage: reportedUsage,
+    };
   }
 
   /**
@@ -1939,7 +1957,7 @@ When the task is complete and no further response is needed, end with:
         totals.totalReasoningTokens += res.usage.reasoningTokens ?? 0;
       }
 
-      if (res.content.includes('<!-- GB_TEAM_FINISH -->')) {
+      if (res.rawContent.includes('<!-- GB_TEAM_FINISH -->')) {
         break;
       }
     }
@@ -2020,7 +2038,7 @@ If you can answer directly without delegation, provide your response directly.`
     }
 
     if (boundedMaxTurns >= 2 && specialists.length > 0) {
-      const delegateMatch = coordRes.content.match(/\[DELEGATE:\s*([^\]]+)\]/i);
+      const delegateMatch = coordRes.rawContent.match(DELEGATE_MARKER);
       if (delegateMatch) {
         const targetQuery = delegateMatch[1].trim().toLowerCase();
         const specialist =
@@ -2186,13 +2204,13 @@ When the task is complete and no further response is needed, end with:
       }
 
       if (
-        res.content.includes('[DONE]') ||
-        res.content.includes('<!-- GB_TEAM_FINISH -->')
+        res.rawContent.includes('[DONE]') ||
+        res.rawContent.includes('<!-- GB_TEAM_FINISH -->')
       ) {
         break;
       }
 
-      const nextMatch = res.content.match(/\[NEXT:\s*@?([^\]]+)\]/i);
+      const nextMatch = res.rawContent.match(NEXT_MARKER);
       if (!nextMatch) {
         break;
       }
