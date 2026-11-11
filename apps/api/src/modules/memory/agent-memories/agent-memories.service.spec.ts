@@ -301,7 +301,10 @@ describe('AgentMemoriesService', () => {
       );
 
       // Listing all should not throw and should fallback corrupt tags to []
-      const allResult = await service.findAll(agent.id, { limit: 10, offset: 0 });
+      const allResult = await service.findAll(agent.id, {
+        limit: 10,
+        offset: 0,
+      });
       expect(allResult.total).toBe(2);
       const badRow = allResult.items.find((i) => i.id === 'bad-json-row');
       expect(badRow?.tags).toEqual([]);
@@ -411,12 +414,17 @@ describe('AgentMemoriesService', () => {
       );
     });
 
-    it('throws 404 when memory does not exist for an existing agent', async () => {
+    it('throws 404 with MEMORY_NOT_FOUND when memory does not exist for an existing agent', async () => {
       const agent = fixtures.createAgent();
 
       await expect(service.findOne(agent.id, 'unknown-memory')).rejects.toThrow(
         NotFoundException,
       );
+      await expect(
+        service.findOne(agent.id, 'unknown-memory'),
+      ).rejects.toMatchObject({
+        response: { code: 'MEMORY_NOT_FOUND' },
+      });
     });
 
     it('throws 404 when memory exists but belongs to a different agent (cross-agent isolation)', async () => {
@@ -432,6 +440,11 @@ describe('AgentMemoriesService', () => {
       await expect(service.findOne(agentB.id, memoryA.id)).rejects.toThrow(
         NotFoundException,
       );
+      await expect(
+        service.findOne(agentB.id, memoryA.id),
+      ).rejects.toMatchObject({
+        response: { code: 'MEMORY_NOT_FOUND' },
+      });
     });
 
     it('returns the memory when it exists and belongs to the agent', async () => {
@@ -454,12 +467,17 @@ describe('AgentMemoriesService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('throws 404 when memory does not exist', async () => {
+    it('throws 404 with MEMORY_NOT_FOUND when memory does not exist', async () => {
       const agent = fixtures.createAgent();
 
       await expect(
         service.update(agent.id, 'unknown-memory', { content: 'New text' }),
       ).rejects.toThrow(NotFoundException);
+      await expect(
+        service.update(agent.id, 'unknown-memory', { content: 'New text' }),
+      ).rejects.toMatchObject({
+        response: { code: 'MEMORY_NOT_FOUND' },
+      });
     });
 
     it('throws 404 when updating memory of another agent and leaves database intact (cross-agent isolation)', async () => {
@@ -617,12 +635,17 @@ describe('AgentMemoriesService', () => {
       );
     });
 
-    it('throws 404 when memory does not exist', async () => {
+    it('throws 404 with MEMORY_NOT_FOUND when memory does not exist', async () => {
       const agent = fixtures.createAgent();
 
       await expect(service.remove(agent.id, 'unknown-memory')).rejects.toThrow(
         NotFoundException,
       );
+      await expect(
+        service.remove(agent.id, 'unknown-memory'),
+      ).rejects.toMatchObject({
+        response: { code: 'MEMORY_NOT_FOUND' },
+      });
     });
 
     it('throws 404 when attempting to delete another agent memory and does not delete it (cross-agent isolation)', async () => {
@@ -636,6 +659,11 @@ describe('AgentMemoriesService', () => {
       // Attempt to delete Agent A's memory through Agent B's ID
       await expect(service.remove(agentB.id, memoryA.id)).rejects.toThrow(
         NotFoundException,
+      );
+      await expect(service.remove(agentB.id, memoryA.id)).rejects.toMatchObject(
+        {
+          response: { code: 'MEMORY_NOT_FOUND' },
+        },
       );
 
       // Verify row still exists in DB

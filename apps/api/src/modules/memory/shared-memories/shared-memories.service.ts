@@ -159,6 +159,8 @@ export class SharedMemoriesService {
 
   /**
    * Retrieves a single shared memory by ID.
+   *
+   * @throws NotFoundException (404) with code `MEMORY_NOT_FOUND` when the memory does not exist.
    */
   async findOne(memoryId: string): Promise<SharedMemoryResponseDto> {
     const row = this.db.get<SharedMemoryRow>(
@@ -167,7 +169,10 @@ export class SharedMemoriesService {
     );
 
     if (!row) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+      throw new NotFoundException({
+        code: 'MEMORY_NOT_FOUND',
+        message: `Memory with ID "${memoryId}" not found`,
+      });
     }
 
     return mapSharedMemoryRowToResponse(row);
@@ -179,6 +184,8 @@ export class SharedMemoriesService {
    * Executes a direct UPDATE WHERE id = ? without a prior read to avoid
    * read-then-write races. If no fields are provided, checks existence
    * and returns the current record without advancing updated_at.
+   *
+   * @throws NotFoundException (404) with code `MEMORY_NOT_FOUND` when the memory does not exist.
    */
   async update(
     memoryId: string,
@@ -212,7 +219,10 @@ export class SharedMemoriesService {
     );
 
     if (result.changes === 0) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+      throw new NotFoundException({
+        code: 'MEMORY_NOT_FOUND',
+        message: `Memory with ID "${memoryId}" not found`,
+      });
     }
 
     return this.findOne(memoryId);
@@ -222,6 +232,8 @@ export class SharedMemoriesService {
    * Permanently deletes a shared memory by ID.
    *
    * Executes DELETE WHERE id = ? treating 0 affected rows as not-found.
+   *
+   * @throws NotFoundException (404) with code `MEMORY_NOT_FOUND` when the memory does not exist.
    */
   async remove(memoryId: string): Promise<void> {
     const result = this.db.run('DELETE FROM shared_memories WHERE id = ?', [
@@ -229,7 +241,10 @@ export class SharedMemoriesService {
     ]);
 
     if (result.changes === 0) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+      throw new NotFoundException({
+        code: 'MEMORY_NOT_FOUND',
+        message: `Memory with ID "${memoryId}" not found`,
+      });
     }
   }
 
