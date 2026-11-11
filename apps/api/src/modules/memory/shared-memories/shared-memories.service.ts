@@ -10,6 +10,7 @@ import { buildPaginationSqlFragment } from '../../../common/pagination/sql-query
 import { DatabaseService } from '../../../database/database.service.js';
 import { buildTagFilterPredicate } from '../tags/index.js';
 import {
+  applySharedMemoryUpdates,
   mapSharedMemoryRowToResponse,
   normalizeTagsOnWrite,
   type BulkDeleteResponseDto,
@@ -176,44 +177,42 @@ export class SharedMemoriesService {
   /**
    * Partially updates an existing shared memory by ID.
    *
-   * Executes a direct UPDATE WHERE id = ? without a prior read to avoid
-   * read-then-write races. If no fields are provided, checks existence
-   * and returns the current record without advancing updated_at.
+   * Reads the row first and compares each provided field with what is stored
+   * (tags in their normalised form), the same way `AgentMemoriesService` and
+   * the other resources do. `updated_at` only advances when a value actually
+   * changes: an empty body, or one whose values match the stored row, returns
+   * the current record untouched. A missing memory is reported before anything
+   * is written.
    */
   async update(
     memoryId: string,
     dto: UpdateSharedMemoryDto,
     options?: { readonly now?: string },
   ): Promise<SharedMemoryResponseDto> {
-    const setClauses: string[] = [];
-    const setParams: unknown[] = [];
+    const existing = this.db.get<SharedMemoryRow>(
+      'SELECT * FROM shared_memories WHERE id = ?',
+      [memoryId],
+    );
+
+    if (!existing) {
+      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+    }
+
     const now = options?.now ?? nowIso();
+    const { hasChanges, setClauses, setParams } = applySharedMemoryUpdates(
+      existing,
+      dto,
+      now,
+    );
 
-    if (dto.content !== undefined) {
-      setClauses.push('content = ?');
-      setParams.push(dto.content);
+    if (!hasChanges) {
+      return mapSharedMemoryRowToResponse(existing);
     }
 
-    if (dto.tags !== undefined) {
-      setClauses.push('tags = ?');
-      setParams.push(normalizeTagsOnWrite(dto.tags));
-    }
-
-    if (setClauses.length === 0) {
-      return this.findOne(memoryId);
-    }
-
-    setClauses.push('updated_at = ?');
-    setParams.push(now);
-
-    const result = this.db.run(
+    this.db.run(
       `UPDATE shared_memories SET ${setClauses.join(', ')} WHERE id = ?`,
       [...setParams, memoryId],
     );
-
-    if (result.changes === 0) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
-    }
 
     return this.findOne(memoryId);
   }

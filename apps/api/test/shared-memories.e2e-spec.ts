@@ -765,6 +765,23 @@ describe('Shared Memories Endpoints (e2e)', () => {
       expect(res.body.updatedAt).toBe(createRes.body.updatedAt);
     });
 
+    it('does not bump updatedAt when every value sent matches the stored row', async () => {
+      const createRes = await testApp
+        .request()
+        .post('/api/v1/memories')
+        .send({ content: 'shared noop', tags: ['dup'] })
+        .expect(201);
+
+      const res = await testApp
+        .request()
+        .patch(`/api/v1/memories/${createRes.body.id}`)
+        .send({ content: 'shared noop', tags: ['DUP'] })
+        .expect(200);
+
+      expect(res.body.updatedAt).toBe(createRes.body.updatedAt);
+      expect(res.body.tags).toEqual(['dup']);
+    });
+
     it('advances updatedAt on update while keeping createdAt unchanged', async () => {
       const createRes = await testApp
         .request()
