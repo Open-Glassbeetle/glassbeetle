@@ -504,6 +504,74 @@ describe('SharedMemoriesService', () => {
       expect(updated.updatedAt).toBe('2026-10-04T12:00:00.000Z');
     });
 
+    it('does not bump updatedAt when the content sent equals the stored content', async () => {
+      const created = await service.create(
+        { content: 'shared noop', tags: ['keep'] },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const result = await service.update(
+        created.id,
+        { content: 'shared noop' },
+        { now: '2026-10-04T05:00:00.000Z' },
+      );
+
+      expect(result.updatedAt).toBe('2026-10-04T00:00:00.000Z');
+      const row = db.get<SharedMemoryRow>(
+        'SELECT * FROM shared_memories WHERE id = ?',
+        [created.id],
+      );
+      expect(row?.updated_at).toBe('2026-10-04T00:00:00.000Z');
+    });
+
+    it('compares tags after normalisation, so a differently-cased or duplicated list is no change', async () => {
+      const created = await service.create(
+        { content: 'Tagged', tags: ['dup', 'spaced'] },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const result = await service.update(
+        created.id,
+        { content: 'Tagged', tags: ['DUP', '  spaced  ', 'dup'] },
+        { now: '2026-10-04T05:00:00.000Z' },
+      );
+
+      expect(result.updatedAt).toBe('2026-10-04T00:00:00.000Z');
+      expect(result.tags).toEqual(['dup', 'spaced']);
+    });
+
+    it('treats null tags as no change when no tags are stored', async () => {
+      const created = await service.create(
+        { content: 'Untagged' },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const result = await service.update(
+        created.id,
+        { tags: null },
+        { now: '2026-10-04T05:00:00.000Z' },
+      );
+
+      expect(result.updatedAt).toBe('2026-10-04T00:00:00.000Z');
+    });
+
+    it('writes only the field that differs and advances updatedAt', async () => {
+      const created = await service.create(
+        { content: 'Same', tags: ['old'] },
+        { now: '2026-10-04T00:00:00.000Z' },
+      );
+
+      const result = await service.update(
+        created.id,
+        { content: 'Same', tags: ['new'] },
+        { now: '2026-10-04T05:00:00.000Z' },
+      );
+
+      expect(result.content).toBe('Same');
+      expect(result.tags).toEqual(['new']);
+      expect(result.updatedAt).toBe('2026-10-04T05:00:00.000Z');
+    });
+
     it('returns 404 and leaves agent_memories untouched when an agent memory ID is passed', async () => {
       db.run(
         'INSERT INTO agents (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
