@@ -192,6 +192,8 @@ export class AgentMemoriesService {
 
   /**
    * Retrieves a single private memory scoped by agentId and memoryId.
+   *
+   * @throws NotFoundException (404) with code `MEMORY_NOT_FOUND` when the memory does not exist.
    */
   async findOne(
     agentId: string,
@@ -205,7 +207,10 @@ export class AgentMemoriesService {
     );
 
     if (!row) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+      throw new NotFoundException({
+        code: 'MEMORY_NOT_FOUND',
+        message: `Memory with ID "${memoryId}" not found`,
+      });
     }
 
     return mapAgentMemoryRowToResponse(row);
@@ -213,6 +218,8 @@ export class AgentMemoriesService {
 
   /**
    * Partially updates an existing private memory scoped by agentId and memoryId.
+   *
+   * @throws NotFoundException (404) with code `MEMORY_NOT_FOUND` when the memory does not exist.
    */
   async update(
     agentId: string,
@@ -228,7 +235,10 @@ export class AgentMemoriesService {
     );
 
     if (!existing) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+      throw new NotFoundException({
+        code: 'MEMORY_NOT_FOUND',
+        message: `Memory with ID "${memoryId}" not found`,
+      });
     }
 
     const now = options?.now ?? nowIso();
@@ -248,7 +258,10 @@ export class AgentMemoriesService {
     );
 
     if (result.changes === 0) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+      throw new NotFoundException({
+        code: 'MEMORY_NOT_FOUND',
+        message: `Memory with ID "${memoryId}" not found`,
+      });
     }
 
     const updated = this.db.get<AgentMemoryRow>(
@@ -261,6 +274,8 @@ export class AgentMemoriesService {
 
   /**
    * Deletes a private memory scoped by agentId and memoryId.
+   *
+   * @throws NotFoundException (404) with code `MEMORY_NOT_FOUND` when the memory does not exist.
    */
   async remove(agentId: string, memoryId: string): Promise<void> {
     this.assertAgentExists(agentId);
@@ -271,7 +286,10 @@ export class AgentMemoriesService {
     );
 
     if (result.changes === 0) {
-      throw new NotFoundException(`Memory with ID "${memoryId}" not found`);
+      throw new NotFoundException({
+        code: 'MEMORY_NOT_FOUND',
+        message: `Memory with ID "${memoryId}" not found`,
+      });
     }
   }
 

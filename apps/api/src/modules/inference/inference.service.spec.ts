@@ -1946,6 +1946,11 @@ describe('InferenceService', () => {
       expect(testDouble.complete).toHaveBeenCalledTimes(1); // Only Alice called!
       expect(response.messages).toHaveLength(1);
       expect(response.messages![0].agentId).toBe(alice.id);
+      expect(response.content).toBe('This answers everything directly.');
+      expect(
+        db.get<any>('SELECT content FROM messages WHERE id = ?', [response.id])
+          .content,
+      ).toBe('This answers everything directly.');
     });
 
     it('pauses pipeline gracefully and preserves partial progress on mid-turn failure', async () => {
@@ -2369,11 +2374,16 @@ describe('InferenceService', () => {
         expect(response.content).toBe(
           'Add a compound B-tree index on (user_id, created_at).',
         );
+        expect(response.messages![0].content).toBe(
+          'Please provide index recommendations for PostgreSQL.',
+        );
 
         // Specialist sees coordinator's turn in context
         const specialistRequest = completeCalls[1];
         const peerMessage = specialistRequest.messages.find((m: any) =>
-          m.content.includes('[DELEGATE: DB Specialist]'),
+          m.content.includes(
+            'Please provide index recommendations for PostgreSQL.',
+          ),
         );
         expect(peerMessage).toBeDefined();
       });
@@ -2622,7 +2632,10 @@ describe('InferenceService', () => {
         expect(response.messages).toHaveLength(2);
         expect(response.messages![0].agentId).toBe(alice.id);
         expect(response.messages![1].agentId).toBe(bob.id);
-        expect(response.content).toBe('Bob approved design. [DONE]');
+        expect(response.messages![0].content).toBe(
+          'Alice drafted initial design.',
+        );
+        expect(response.content).toBe('Bob approved design.');
       });
 
       it('enforces hard turn cap to prevent runaway autonomous loops', async () => {
@@ -2700,7 +2713,8 @@ describe('InferenceService', () => {
         testDouble.stream = vi.fn().mockImplementation(async function* () {
           streamTurn++;
           if (streamTurn === 1) {
-            yield { type: 'text-delta', delta: 'Alice starts. [NEXT: @Bob]' };
+            yield { type: 'text-delta', delta: 'Alice starts. [NEXT:' };
+            yield { type: 'text-delta', delta: ' @Bob]' };
             yield {
               type: 'usage',
               usage: { inputTokens: 10, outputTokens: 7, totalTokens: 17 },
@@ -2726,6 +2740,14 @@ describe('InferenceService', () => {
         expect(starts).toHaveLength(2);
         expect(starts[0].data.agentId).toBe(alice.id);
         expect(starts[1].data.agentId).toBe(bob.id);
+        const rows = db.all<any>(
+          "SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY sequence",
+          [chat.id],
+        );
+        expect(rows.map((row) => row.content)).toEqual([
+          'Alice starts.',
+          'Bob concludes.',
+        ]);
 
         const usage = events.find((e) => e.type === 'usage');
         expect(usage).toBeDefined();

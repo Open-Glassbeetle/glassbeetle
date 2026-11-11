@@ -323,10 +323,15 @@ describe('SharedMemoriesService', () => {
   });
 
   describe('findOne', () => {
-    it('throws 404 when shared memory does not exist', async () => {
+    it('throws 404 with MEMORY_NOT_FOUND when shared memory does not exist', async () => {
       await expect(service.findOne('non-existent-memory')).rejects.toThrow(
         NotFoundException,
       );
+      await expect(
+        service.findOne('non-existent-memory'),
+      ).rejects.toMatchObject({
+        response: { code: 'MEMORY_NOT_FOUND' },
+      });
     });
 
     it('returns the memory when it exists', async () => {
@@ -375,10 +380,15 @@ describe('SharedMemoriesService', () => {
   });
 
   describe('update', () => {
-    it('throws 404 when memory does not exist', async () => {
+    it('throws 404 with MEMORY_NOT_FOUND when memory does not exist', async () => {
       await expect(
         service.update('non-existent-memory', { content: 'New text' }),
       ).rejects.toThrow(NotFoundException);
+      await expect(
+        service.update('non-existent-memory', { content: 'New text' }),
+      ).rejects.toMatchObject({
+        response: { code: 'MEMORY_NOT_FOUND' },
+      });
     });
 
     it('updates only content and leaves tags intact', async () => {
@@ -596,9 +606,14 @@ describe('SharedMemoriesService', () => {
   });
 
   describe('remove', () => {
-    it('throws 404 when memory does not exist', async () => {
+    it('throws 404 with MEMORY_NOT_FOUND when memory does not exist', async () => {
       await expect(service.remove('non-existent-memory')).rejects.toThrow(
         NotFoundException,
+      );
+      await expect(service.remove('non-existent-memory')).rejects.toMatchObject(
+        {
+          response: { code: 'MEMORY_NOT_FOUND' },
+        },
       );
     });
 
