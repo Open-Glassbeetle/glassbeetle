@@ -20,6 +20,9 @@ class TestRoute {}
 const HEALTH_URL = `${environment.apiBaseUrl}/health`;
 const AGENTS_URL = `${environment.apiBaseUrl}/agents`;
 const MODELS_URL = `${environment.apiBaseUrl}/models`;
+const CHATS_URL = `${environment.apiBaseUrl}/chats`;
+const TEAMS_URL = `${environment.apiBaseUrl}/teams`;
+const PROJECTS_URL = `${environment.apiBaseUrl}/projects`;
 const USER_URL = `${environment.apiBaseUrl}/user`;
 const BUDGET_URL = `${environment.apiBaseUrl}/budget`;
 
@@ -77,6 +80,43 @@ function agent(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function chat(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'c1',
+    title: 'Release planning',
+    projectId: null,
+    agentId: 'a1',
+    teamId: null,
+    contextSummary: null,
+    createdAt: '2026-10-04T12:00:00.000Z',
+    updatedAt: '2026-10-04T12:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function page(items: unknown[]) {
+  return { items, total: items.length, limit: 100, offset: 0 };
+}
+
+/**
+ * Answers what the rail reads on startup: the conversations, the team and
+ * project names that label them, and the model catalogue.
+ *
+ * The catalogue asks for a full page, which is what tells it apart from the
+ * capability probe against the same URL.
+ */
+function answerRail(
+  httpMock: HttpTestingController,
+  options: { chats?: unknown[]; teams?: unknown[]; projects?: unknown[] } = {},
+) {
+  httpMock.expectOne((req) => req.url === CHATS_URL).flush(page(options.chats ?? []));
+  httpMock.expectOne((req) => req.url === TEAMS_URL).flush(page(options.teams ?? []));
+  httpMock.expectOne((req) => req.url === PROJECTS_URL).flush(page(options.projects ?? []));
+  httpMock
+    .expectOne((req) => req.url === MODELS_URL && req.params.get('limit') === '100')
+    .flush(page([]));
+}
+
 describe('App shell', () => {
   let httpMock: HttpTestingController;
 
@@ -87,6 +127,7 @@ describe('App shell', () => {
         provideRouter([
           { path: 'overview', title: 'Overview · Glassbeetle', component: TestRoute },
           { path: 'teams', title: 'Teams · Glassbeetle', component: TestRoute },
+          { path: 'chats/:chatId', title: 'Chat · Glassbeetle', component: TestRoute },
         ]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -107,7 +148,9 @@ describe('App shell', () => {
    * empty controller, which is what the UI has to behave correctly for.
    */
   function answerProbe(modelsAvailable = false) {
-    const request = httpMock.expectOne((req) => req.url === MODELS_URL);
+    const request = httpMock.expectOne(
+      (req) => req.url === MODELS_URL && req.params.get('limit') === '1',
+    );
 
     if (modelsAvailable) {
       request.flush({ items: [], total: 0, limit: 1, offset: 0 });
@@ -128,10 +171,13 @@ describe('App shell', () => {
     httpMock.expectOne(BUDGET_URL).flush(budget);
   }
 
-  /** Renders the shell and answers the four requests it makes on startup. */
+  /** Renders the shell and answers the requests it makes on startup. */
   function render(
     options: {
       agents?: unknown[];
+      chats?: unknown[];
+      teams?: unknown[];
+      projects?: unknown[];
       health?: unknown;
       modelsAvailable?: boolean;
       profile?: Record<string, unknown>;
@@ -148,13 +194,14 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items, total: items.length, limit: 100, offset: 0 });
+    answerRail(httpMock, options);
     answerProfile(options.profile, options.budget);
 
     fixture.detectChanges();
     return fixture;
   }
 
-  it('loads the roster, the health check, the capability probe, the profile and the budget once each', () => {
+  it('loads the health check, the capability probe, the roster, the conversations, the profile and the budget once each', () => {
     const fixture = render();
     expect(fixture.componentInstance).toBeTruthy();
   });
@@ -224,48 +271,104 @@ describe('App shell', () => {
     expect(element.querySelector('app-spend-meter .meter')?.textContent).toContain('15.88');
   });
 
-  it('links to every implemented surface', () => {
-    const element = render().nativeElement as HTMLElement;
+  function hrefsOf(element: HTMLElement): (string | null)[] {
+    return Array.from(element.querySelectorAll('a[href]')).map((link) => link.getAttribute('href'));
+  }
 
-    const hrefs = Array.from(element.querySelectorAll('a[href]')).map((link) =>
-      link.getAttribute('href'),
-    );
-    expect(hrefs).toContain('/overview');
-    expect(hrefs).toContain('/agents');
+  it('leads with starting a chat and the four places work happens', () => {
+    const element = render().nativeElement as HTMLElement;
+    const rail = element.querySelector('app-conversation-rail') as HTMLElement;
+
+    // In the order they are read: the action first, then the places.
+    expect(hrefsOf(rail).slice(0, 5)).toEqual([
+      '/chats/new',
+      '/chats',
+      '/projects',
+      '/agents',
+      '/artifacts',
+    ]);
+  });
+
+  it('keeps the configuration surfaces folded away until they are asked for', () => {
+    const fixture = render();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(hrefsOf(element)).not.toContain('/teams');
+
+    element.querySelector<HTMLButtonElement>('.workspace__toggle')?.click();
+    fixture.detectChanges();
+
+    const hrefs = hrefsOf(element);
     expect(hrefs).toContain('/teams');
-    expect(hrefs).toContain('/chats');
     expect(hrefs).toContain('/memory');
     expect(hrefs).toContain('/prompts');
+    expect(hrefs).toContain('/overview');
+    expect(hrefs).toContain('/budget');
   });
 
-  it('shows the roster with each agent reachable from the rail', () => {
+  it('unfolds the configuration surfaces while one of them is on screen', async () => {
+    const fixture = render();
+
+    await TestBed.inject(Router).navigateByUrl('/teams');
+    fixture.detectChanges();
+
+    expect(hrefsOf(fixture.nativeElement as HTMLElement)).toContain('/memory');
+  });
+
+  it('lists the conversations, each with who it is held with', () => {
     const element = render({
-      agents: [agent(), agent({ id: 'a2', name: 'Code Reviewer' })],
+      agents: [agent()],
+      teams: [{ id: 't1', name: 'Release Crew', memberCount: 2 }],
+      chats: [
+        chat(),
+        chat({ id: 'c2', title: null, agentId: null, teamId: 't1' }),
+        chat({ id: 'c3', title: 'Orphan', agentId: null }),
+      ],
     }).nativeElement as HTMLElement;
 
-    expect(element.textContent).toContain('Research Assistant');
-    expect(element.textContent).toContain('Code Reviewer');
-
-    const hrefs = Array.from(element.querySelectorAll('a[href]')).map((link) =>
-      link.getAttribute('href'),
+    const rows = Array.from(element.querySelectorAll('.chat')).map((row) =>
+      row.textContent?.replace(/\s+/g, ' ').trim(),
     );
-    expect(hrefs).toContain('/agents/a1');
-    expect(hrefs).toContain('/agents/a2');
+
+    expect(rows[0]).toContain('Release planning');
+    expect(rows[0]).toContain('Research Assistant');
+    // An untitled chat is named rather than left blank, and a team is named
+    // from the teams the shell holds.
+    expect(rows[1]).toContain('Untitled chat');
+    expect(rows[1]).toContain('Release Crew');
+    expect(rows[2]).toContain('Owner deleted');
+    expect(hrefsOf(element)).toContain('/chats/c2');
   });
 
-  it('counts how many agents are configured', () => {
-    // Only the second agent has something steering it. Neither can have a
-    // model, which is why the count must not hold that against them.
+  it('groups a project’s conversations under the project', () => {
     const element = render({
-      agents: [agent(), agent({ id: 'a2', name: 'Ready One', systemPromptId: 'p1' })],
+      agents: [agent()],
+      projects: [{ id: 'p1', name: 'Compiler rewrite' }],
+      chats: [chat({ projectId: 'p1' }), chat({ id: 'c2', title: 'Unfiled' })],
     }).nativeElement as HTMLElement;
 
-    expect(element.textContent).toContain('1/2 ready');
+    const groups = Array.from(element.querySelectorAll('.group'));
+
+    expect(groups[0]?.querySelector('.group__label')?.textContent).toContain('Compiler rewrite');
+    expect(groups[0]?.textContent).toContain('Release planning');
+    expect(groups[0]?.textContent).not.toContain('Unfiled');
+    expect(hrefsOf(element)).toContain('/projects/p1');
   });
 
-  it('offers to create the first agent when the roster is empty', () => {
+  it('says so when there are no conversations yet', () => {
     const element = render().nativeElement as HTMLElement;
-    expect(element.textContent).toContain('No agents yet');
+
+    expect(element.querySelector('.chats')?.textContent).toContain('No conversations yet');
+  });
+
+  it('names the open conversation in the trail', async () => {
+    const fixture = render({ agents: [agent()], chats: [chat()] });
+
+    await TestBed.inject(Router).navigateByUrl('/chats/c1');
+    fixture.detectChanges();
+
+    const here = (fixture.nativeElement as HTMLElement).querySelector('.trail__here');
+    expect(here?.textContent).toContain('Release planning');
   });
 
   /** The deck carries the backend's state on the product mark itself. */
@@ -283,6 +386,7 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerRail(httpMock);
     answerProfile();
     fixture.detectChanges();
 
@@ -305,6 +409,7 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerRail(httpMock);
     answerProfile();
     fixture.detectChanges();
 
@@ -324,12 +429,13 @@ describe('App shell', () => {
     httpMock.expectOne(HEALTH_URL).flush(HEALTHY);
     fixture.detectChanges();
 
-    // The four startup reads that were stale while the API was down come back
+    // The startup reads that were stale while the API was down come back
     // once, on the transition ??not on every poll.
     answerProbe();
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerRail(httpMock);
     answerProfile();
     fixture.detectChanges();
 
@@ -354,11 +460,12 @@ describe('App shell', () => {
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ message: 'boom' }, { status: 500, statusText: 'Server Error' });
+    answerRail(httpMock);
     answerProfile();
     fixture.detectChanges();
 
-    // The rail degrades to its navigation links; the screen the user is on
-    // reports the failure itself.
+    // The rail keeps its places; the screen the user is on reports the
+    // failure itself.
     const hrefs = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll('a[href]'),
     ).map((link) => link.getAttribute('href'));
@@ -411,11 +518,12 @@ describe('App shell on a platform whose controls sit on the right', () => {
 
     httpMock.expectOne(HEALTH_URL).flush(HEALTHY);
     httpMock
-      .expectOne((request) => request.url === MODELS_URL)
+      .expectOne((request) => request.url === MODELS_URL && request.params.get('limit') === '1')
       .flush({}, { status: 404, statusText: 'Not Found' });
     httpMock
       .expectOne((request) => request.url === AGENTS_URL)
       .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerRail(httpMock);
     httpMock.expectOne(USER_URL).flush(PROFILE);
     httpMock.expectOne(BUDGET_URL).flush(BUDGET);
     fixture.detectChanges();

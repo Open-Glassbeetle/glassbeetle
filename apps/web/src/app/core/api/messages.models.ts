@@ -13,10 +13,9 @@ export const MESSAGE_ROLES: readonly MessageRole[] = [
 /**
  * How far a message got (`messages.status`).
  *
- * Everything the API stores today is `complete`: the states in between belong
- * to a generation run, and nothing generates yet. The UI renders them anyway —
- * they are states the column already has, and a transcript that only knows how
- * to draw finished messages would have to be rewritten the day it does.
+ * The states before `complete` belong to a generation run: a turn is
+ * `streaming` while its text arrives and `error` when the run failed, and the
+ * transcript draws each as what it is.
  */
 export type MessageStatus = 'pending' | 'streaming' | 'complete' | 'error';
 

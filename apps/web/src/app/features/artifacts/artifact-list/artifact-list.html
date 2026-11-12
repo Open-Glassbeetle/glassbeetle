@@ -1,0 +1,136 @@
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">Artifacts</h1>
+      <p class="view__subtitle">
+        Documents, code and files agents produced. Each stays here after its conversation moves on.
+      </p>
+    </div>
+  </header>
+
+  <gb-panel flush>
+    <div class="toolbar">
+      <div class="search">
+        <mat-icon class="search__icon">search</mat-icon>
+        <input
+          class="search__input"
+          type="search"
+          placeholder="Filter by title"
+          aria-label="Filter artifacts by title"
+          [value]="list.searchTerm()"
+          (input)="list.setSearch($any($event.target).value)"
+        />
+        @if (list.searchTerm()) {
+          <button
+            matIconButton
+            class="search__clear"
+            aria-label="Clear the filter"
+            (click)="list.clearSearch()"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </div>
+
+      <mat-form-field class="toolbar__select" subscriptSizing="fixed">
+        <mat-label>Type</mat-label>
+        <mat-select [value]="typeFilter()" (valueChange)="setType($event)">
+          <mat-option value="">Every type</mat-option>
+          @for (type of types; track type) {
+            <mat-option [value]="type">{{ type }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <span class="toolbar__count mono">
+        {{ list.total() }} {{ list.total() === 1 ? 'artifact' : 'artifacts' }}
+      </span>
+    </div>
+
+    @if (list.loading() && !list.loadedOnce()) {
+      <ul class="rows">
+        @for (row of [1, 2, 3]; track row) {
+          <li class="row row--skeleton">
+            <gb-skeleton width="1.25rem" height="1.25rem" radius="4px" />
+            <div class="row__skeleton-text">
+              <gb-skeleton [width]="row % 2 ? '12rem' : '9rem'" height="0.8125rem" />
+              <gb-skeleton [width]="row % 2 ? '8rem' : '11rem'" height="0.6875rem" />
+            </div>
+          </li>
+        }
+      </ul>
+    } @else if (list.error(); as error) {
+      <div class="blank">
+        <mat-icon class="blank__icon">cloud_off</mat-icon>
+        <p class="blank__title">Could not load artifacts</p>
+        <p class="blank__text">{{ error.message }}</p>
+        <button matButton="filled" (click)="list.reload()">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+      </div>
+    } @else if (list.isEmpty()) {
+      @if (filtered()) {
+        <div class="blank">
+          <mat-icon class="blank__icon">search_off</mat-icon>
+          <p class="blank__title">No matching artifacts</p>
+          <p class="blank__text">Nothing matches the filters that are set.</p>
+          <button matButton (click)="clearFilters()">Clear filters</button>
+        </div>
+      } @else {
+        <div class="blank">
+          <mat-icon class="blank__icon">inventory_2</mat-icon>
+          <p class="blank__title">No artifacts yet</p>
+          <p class="blank__text">
+            An artifact is something an agent produced that is worth keeping beyond the message it
+            arrived in. They are created from conversations and collect here.
+          </p>
+          <a matButton="filled" routerLink="/chats/new">
+            <mat-icon>edit_square</mat-icon>
+            New chat
+          </a>
+        </div>
+      }
+    } @else {
+      <ul class="rows">
+        @for (entry of entries(); track entry.artifact.id) {
+          <li class="row">
+            <a class="row__main" [routerLink]="['/artifacts', entry.artifact.id]">
+              <mat-icon class="row__icon">{{ entry.icon }}</mat-icon>
+              <span class="row__text">
+                <span class="row__name">{{ entry.artifact.title }}</span>
+                <span class="row__desc">
+                  {{ entry.artifact.type }}
+                  @if (entry.agent) {
+                    · {{ entry.agent }}
+                  }
+                  @if (entry.project) {
+                    · {{ entry.project }}
+                  }
+                </span>
+              </span>
+              <span class="row__counts mono">v{{ entry.artifact.version }}</span>
+              <time
+                class="row__time"
+                [attr.datetime]="entry.artifact.updatedAt"
+                [title]="entry.artifact.updatedAt"
+              >
+                {{ entry.artifact.updatedAt | relativeTime }}
+              </time>
+            </a>
+          </li>
+        }
+      </ul>
+
+      @if (list.total() > list.pageSize()) {
+        <mat-paginator
+          [length]="list.total()"
+          [pageIndex]="list.pageIndex()"
+          [pageSize]="list.pageSize()"
+          [pageSizeOptions]="pageSizeOptions"
+          (page)="list.onPage($event)"
+        />
+      }
+    }
+  </gb-panel>
+</div>

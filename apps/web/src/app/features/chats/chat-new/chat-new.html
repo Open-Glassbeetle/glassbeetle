@@ -1,0 +1,144 @@
+<div class="start">
+  @if (!loaded()) {
+    <div class="start__body">
+      <gb-skeleton width="11rem" height="1.375rem" />
+      <gb-skeleton width="100%" height="6.5rem" radius="10px" />
+    </div>
+  } @else if (!hasOwners()) {
+    <div class="start__body start__body--blank">
+      <mat-icon class="blank__icon">graph_3</mat-icon>
+      <h1 class="start__title">Nobody to talk to yet</h1>
+      <p class="start__hint">
+        A conversation is held with an agent or a team, and this workspace has neither. Create an
+        agent and you can start working with it straight away.
+      </p>
+      <a matButton="filled" routerLink="/agents" [queryParams]="{ new: 1 }">
+        <mat-icon>add</mat-icon>
+        New agent
+      </a>
+    </div>
+  } @else {
+    <div class="start__body">
+      <h1 class="start__title">
+        New chat
+        @if (recipientName()) {
+          <span class="start__with">with {{ recipientName() }}</span>
+        }
+      </h1>
+
+      <gb-composer
+        [(text)]="text"
+        [blocked]="sending()"
+        [minRows]="3"
+        [maxRows]="16"
+        label="First message"
+        placeholder="Describe the task, or ask a question…"
+        (submitted)="start($event)"
+      >
+        <!-- Who the conversation is with. Asked for here because it cannot be
+             changed once the chat exists. -->
+        <button
+          class="pick"
+          type="button"
+          [matMenuTriggerFor]="ownerMenu"
+          aria-label="Choose who the chat is with"
+        >
+          @if (recipient(); as to) {
+            @if (to.kind === 'agent') {
+              <app-agent-avatar [name]="to.agent.name" [agent]="to.agent" size="small" />
+              <span class="pick__name">{{ to.agent.name }}</span>
+              @if (to.model) {
+                <span class="pick__detail mono">{{ to.model }}</span>
+              }
+            } @else {
+              <mat-icon class="pick__icon">groups</mat-icon>
+              <span class="pick__name">{{ to.team.name }}</span>
+              <span class="pick__detail">
+                {{ to.team.memberCount }} {{ to.team.memberCount === 1 ? 'agent' : 'agents' }}
+              </span>
+            }
+          }
+          <mat-icon class="pick__caret">unfold_more</mat-icon>
+        </button>
+
+        <button
+          class="pick pick--quiet"
+          type="button"
+          [matMenuTriggerFor]="projectMenu"
+          aria-label="Choose a project"
+        >
+          <mat-icon class="pick__icon">folder</mat-icon>
+          <span class="pick__name">{{ project()?.name ?? 'No project' }}</span>
+          <mat-icon class="pick__caret">unfold_more</mat-icon>
+        </button>
+      </gb-composer>
+
+      @if (obstacle(); as blocker) {
+        <p class="obstacle">
+          <mat-icon class="obstacle__icon">warning</mat-icon>
+          <span>{{ blocker.text }}</span>
+          <a class="obstacle__link" [routerLink]="blocker.link">{{ blocker.action }}</a>
+        </p>
+      } @else {
+        <p class="start__keys">
+          <kbd>↵</kbd> to send <span aria-hidden="true">·</span> <kbd>⇧↵</kbd> for a new line
+        </p>
+      }
+    </div>
+
+    <mat-menu #ownerMenu>
+      @if (agents().length) {
+        <p class="menu-legend">Agents</p>
+        @for (entry of agents(); track entry.agent.id) {
+          <button mat-menu-item (click)="chooseAgent(entry.agent)">
+            <span class="option">
+              <app-agent-avatar [name]="entry.agent.name" [agent]="entry.agent" size="small" />
+              <span class="option__name">{{ entry.agent.name }}</span>
+              <span class="option__detail mono" [class.option__detail--missing]="!entry.model">
+                {{ entry.model ?? 'no model' }}
+              </span>
+            </span>
+          </button>
+        }
+      }
+      @if (teams().length) {
+        <p class="menu-legend">Teams</p>
+        @for (team of teams(); track team.id) {
+          <button mat-menu-item (click)="chooseTeam(team)">
+            <span class="option">
+              <gb-avatar [name]="team.name" size="small" />
+              <span class="option__name">{{ team.name }}</span>
+              <span class="option__detail">
+                {{ team.memberCount }} {{ team.memberCount === 1 ? 'agent' : 'agents' }}
+              </span>
+            </span>
+          </button>
+        }
+      }
+    </mat-menu>
+
+    <mat-menu #projectMenu>
+      <button mat-menu-item (click)="chooseProject(null)">
+        <span class="option">
+          <span class="option__name">No project</span>
+        </span>
+      </button>
+      @for (entry of conversations.projects(); track entry.id) {
+        <button mat-menu-item (click)="chooseProject(entry.id)">
+          <span class="option">
+            <mat-icon class="option__icon">folder</mat-icon>
+            <span class="option__name">{{ entry.name }}</span>
+          </span>
+        </button>
+      }
+      @if (!conversations.projects().length) {
+        <a mat-menu-item routerLink="/projects" [queryParams]="{ new: 1 }">
+          <span class="option">
+            <mat-icon class="option__icon">add</mat-icon>
+            <span class="option__name">New project…</span>
+          </span>
+        </a>
+      }
+    </mat-menu>
+  }
+</div>

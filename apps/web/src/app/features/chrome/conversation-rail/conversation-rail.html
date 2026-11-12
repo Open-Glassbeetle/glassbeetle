@@ -1,0 +1,206 @@
+<div class="start">
+  <a
+    class="start__button"
+    routerLink="/chats/new"
+    routerLinkActive="start__button--active"
+    (click)="navigated.emit()"
+  >
+    <mat-icon class="start__icon">edit_square</mat-icon>
+    <span class="start__label">New chat</span>
+    <kbd class="start__key">{{ commandKey() }}N</kbd>
+  </a>
+</div>
+
+<ul class="places">
+  @for (link of primaryLinks; track link.path) {
+    <li>
+      <a
+        class="place"
+        [routerLink]="link.path"
+        routerLinkActive="place--active"
+        [routerLinkActiveOptions]="{ exact: !!link.exact }"
+        [matTooltip]="commandKey() + link.shortcut"
+        matTooltipPosition="right"
+        (click)="navigated.emit()"
+      >
+        <mat-icon class="place__icon">{{ link.icon }}</mat-icon>
+        <span class="place__label">{{ link.label }}</span>
+      </a>
+    </li>
+  }
+</ul>
+
+<section class="chats" aria-label="Conversations">
+  <div class="chats__head">
+    <h2 class="chats__title">Conversations</h2>
+    @if (conversations.loaded() && conversations.total()) {
+      <span class="chats__count mono">{{ conversations.total() }}</span>
+    }
+  </div>
+
+  @if (conversations.loaded() && conversations.chats().length > 6) {
+    <div class="filter">
+      <mat-icon class="filter__icon">filter_list</mat-icon>
+      <input
+        class="filter__input"
+        type="search"
+        placeholder="Filter conversations"
+        aria-label="Filter conversations by title or agent"
+        [value]="filter()"
+        (input)="filter.set($any($event.target).value)"
+      />
+    </div>
+  }
+
+  <div class="chats__scroll">
+    @if (!conversations.loaded()) {
+      <div class="chats__loading">
+        @for (row of [1, 2, 3, 4]; track row) {
+          <div class="chats__skeleton">
+            <gb-skeleton [width]="row % 2 ? '75%' : '55%'" height="0.75rem" />
+            <gb-skeleton [width]="row % 2 ? '40%' : '50%'" height="0.5625rem" />
+          </div>
+        }
+      </div>
+    } @else if (!conversations.chats().length) {
+      <p class="chats__empty">
+        @if (conversations.failed()) {
+          The conversations could not be read.
+          <button class="chats__retry" type="button" (click)="conversations.refresh()">
+            Try again
+          </button>
+        } @else {
+          No conversations yet. Whatever you start appears here.
+        }
+      </p>
+    } @else if (!sections().length) {
+      <p class="chats__empty">Nothing here matches “{{ filter() }}”.</p>
+    } @else {
+      @for (section of sections(); track section.key) {
+        <div class="group">
+          <div class="group__head">
+            <button
+              class="group__toggle"
+              type="button"
+              [attr.aria-expanded]="!isCollapsed(section.key)"
+              (click)="toggleSection(section.key)"
+            >
+              <mat-icon
+                class="group__chevron"
+                [class.group__chevron--closed]="isCollapsed(section.key)"
+              >
+                expand_more
+              </mat-icon>
+              @if (section.projectId) {
+                <mat-icon class="group__folder">folder</mat-icon>
+              }
+              <span class="group__label">{{ section.label }}</span>
+            </button>
+            @if (section.projectId) {
+              <a
+                class="group__open"
+                [routerLink]="['/projects', section.projectId]"
+                matTooltip="Open the project"
+                matTooltipPosition="right"
+                [attr.aria-label]="'Open the project ' + section.label"
+                (click)="navigated.emit()"
+              >
+                <mat-icon>arrow_outward</mat-icon>
+              </a>
+            }
+          </div>
+
+          @if (!isCollapsed(section.key)) {
+            <ul class="group__list">
+              @for (entry of section.chats; track entry.chat.id) {
+                <li>
+                  <a
+                    class="chat"
+                    [class.chat--running]="entry.state === 'running'"
+                    [routerLink]="['/chats', entry.chat.id]"
+                    routerLinkActive="chat--active"
+                    (click)="navigated.emit()"
+                  >
+                    <span class="chat__text">
+                      <span class="chat__title" [class.unset]="entry.untitled">
+                        {{ entry.title }}
+                      </span>
+                      <span class="chat__meta">
+                        @if (entry.team) {
+                          <mat-icon class="chat__kind" aria-label="Team">groups</mat-icon>
+                        }
+                        @if (entry.owner) {
+                          <span class="chat__owner">{{ entry.owner }}</span>
+                        } @else {
+                          <span class="chat__owner unset">Owner deleted</span>
+                        }
+                        <span class="chat__sep" aria-hidden="true">·</span>
+                        @if (entry.state === 'running') {
+                          <span class="chat__working">working</span>
+                        } @else {
+                          <time class="chat__time" [attr.datetime]="entry.chat.updatedAt">
+                            {{ entry.chat.updatedAt | relativeTime }}
+                          </time>
+                        }
+                      </span>
+                    </span>
+                    @if (entry.state) {
+                      <span
+                        class="chat__state chat__state--{{ entry.state }}"
+                        [matTooltip]="stateLabel(entry.state)"
+                        matTooltipPosition="right"
+                        role="img"
+                        [attr.aria-label]="stateLabel(entry.state)"
+                      ></span>
+                    }
+                  </a>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      }
+
+      @if (conversations.truncated() && !filtering()) {
+        <a class="chats__all" routerLink="/chats" (click)="navigated.emit()">
+          All {{ conversations.total() }} chats
+          <mat-icon>arrow_forward</mat-icon>
+        </a>
+      }
+    }
+  </div>
+</section>
+
+<section class="workspace" aria-label="Workspace">
+  <button
+    class="workspace__toggle"
+    type="button"
+    [attr.aria-expanded]="workspaceOpen()"
+    (click)="toggleWorkspace()"
+  >
+    <mat-icon class="group__chevron" [class.group__chevron--closed]="!workspaceOpen()">
+      expand_more
+    </mat-icon>
+    <span class="workspace__label">Workspace</span>
+  </button>
+
+  @if (workspaceOpen()) {
+    <ul class="workspace__list">
+      @for (link of workspaceLinks; track link.path) {
+        <li>
+          <a
+            class="place place--quiet"
+            [routerLink]="link.path"
+            routerLinkActive="place--active"
+            [matTooltip]="link.shortcut ? commandKey() + link.shortcut : ''"
+            matTooltipPosition="right"
+            (click)="navigated.emit()"
+          >
+            <mat-icon class="place__icon">{{ link.icon }}</mat-icon>
+            <span class="place__label">{{ link.label }}</span>
+          </a>
+        </li>
+      }
+    </ul>
+  }
+</section>

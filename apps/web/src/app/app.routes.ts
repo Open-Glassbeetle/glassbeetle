@@ -1,15 +1,15 @@
 import { Routes } from '@angular/router';
 
 /**
- * Every surface is lazily loaded. The shell and the overview are what the
- * window opens on; there is no reason for the agent editor's forms to be in
- * that bundle.
+ * Every surface is lazily loaded. The shell and an empty conversation are what
+ * the window opens on; there is no reason for the agent editor's forms to be
+ * in that bundle.
  */
 export const routes: Routes = [
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'overview',
+    redirectTo: 'chats/new',
   },
   {
     path: 'overview',
@@ -33,10 +33,41 @@ export const routes: Routes = [
     loadComponent: () => import('./features/chats/chat-list/chat-list').then((m) => m.ChatList),
   },
   {
+    // Declared ahead of `chats/:chatId`, which would otherwise read `new` as
+    // an identifier.
+    path: 'chats/new',
+    title: 'New chat · Glassbeetle',
+    loadComponent: () => import('./features/chats/chat-new/chat-new').then((m) => m.ChatNew),
+  },
+  {
     path: 'chats/:chatId',
     title: 'Chat · Glassbeetle',
     loadComponent: () =>
       import('./features/chats/chat-detail/chat-detail').then((m) => m.ChatDetail),
+  },
+  {
+    path: 'projects',
+    title: 'Projects · Glassbeetle',
+    loadComponent: () =>
+      import('./features/projects/project-list/project-list').then((m) => m.ProjectList),
+  },
+  {
+    path: 'projects/:projectId',
+    title: 'Project · Glassbeetle',
+    loadComponent: () =>
+      import('./features/projects/project-detail/project-detail').then((m) => m.ProjectDetail),
+  },
+  {
+    path: 'artifacts',
+    title: 'Artifacts · Glassbeetle',
+    loadComponent: () =>
+      import('./features/artifacts/artifact-list/artifact-list').then((m) => m.ArtifactList),
+  },
+  {
+    path: 'artifacts/:artifactId',
+    title: 'Artifact · Glassbeetle',
+    loadComponent: () =>
+      import('./features/artifacts/artifact-detail/artifact-detail').then((m) => m.ArtifactDetail),
   },
   {
     path: 'budget',

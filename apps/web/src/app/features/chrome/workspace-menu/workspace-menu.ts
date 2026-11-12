@@ -56,7 +56,13 @@ export class WorkspaceMenu implements OnInit {
   private readonly shift = this.mac ? '⇧' : 'Shift+';
 
   protected readonly createActions = [
-    { path: '/agents', label: 'Agent', icon: 'graph_3', key: `${this.cmd}N` },
+    { path: '/chats/new', label: 'Chat', icon: 'edit_square', key: `${this.cmd}N`, direct: true },
+    {
+      path: '/agents',
+      label: 'Agent',
+      icon: 'graph_3',
+      key: `${this.cmd}${this.shift}A`,
+    },
     {
       path: '/memory',
       label: 'Shared memory',

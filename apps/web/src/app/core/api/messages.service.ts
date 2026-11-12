@@ -25,8 +25,8 @@ export class MessagesService extends ApiClient {
    * Appends a turn.
    *
    * This call only stores the turn and advances the chat's `updatedAt`. A
-   * reply comes from `POST /chats/:chatId/completions`, which this UI does not
-   * invoke yet — there is no composer to trigger it from.
+   * reply is a separate request (`CompletionsService.stream`), so a turn that
+   * was stored is kept even when the reply to it fails.
    */
   create(chatId: string, input: CreateMessageInput): Observable<Message> {
     return this.http.post<Message>(this.url(`/chats/${chatId}/messages`), input);

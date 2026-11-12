@@ -1,0 +1,102 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+/* Prose keeps the line breaks it was written with: an answer arrives in
+   paragraphs and lists, and reflowing it into one block would lose them. */
+.prose {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.code {
+  margin: 0;
+  min-width: 0;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 7px;
+  background: var(--mat-sys-surface-container-lowest);
+  overflow: hidden;
+}
+
+.code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.1875rem 0.25rem 0.1875rem 0.625rem;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-low);
+}
+
+.code__language {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+}
+
+.code__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--mat-sys-on-surface-variant);
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -2px;
+  }
+
+  mat-icon {
+    font-size: 0.8125rem;
+    width: 0.8125rem;
+    height: 0.8125rem;
+  }
+}
+
+.code__body {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  overflow-x: auto;
+  font-family: var(--gb-font-mono);
+  font-size: 0.78125rem;
+  line-height: 1.55;
+  tab-size: 2;
+
+  code {
+    font: inherit;
+  }
+}
+
+/* Where the next token will land. */
+.caret {
+  display: inline-block;
+  width: 0.4375rem;
+  height: 1em;
+  margin-left: 0.125rem;
+  border-radius: 1px;
+  background: var(--mat-sys-primary);
+  vertical-align: text-bottom;
+  animation: caret 1s steps(2, start) infinite;
+}
+
+@keyframes caret {
+  to {
+    visibility: hidden;
+  }
+}

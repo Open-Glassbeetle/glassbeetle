@@ -14,39 +14,57 @@ npm run format:check -w @glassbeetle/web
 
 ## What the UI covers
 
-The UI shows only what the API implements. Projects, artifacts, analytics and
-backups exist as NestJS modules with empty controllers, so their routes 404 and
-they have no screens. Chats are fully served on the API — including
-`POST /chats/:chatId/completions`, context and compact — but this UI still has
-no composer, so a conversation can be read here without anything on screen
-triggering a reply.
+The workspace is built around conversations. The window opens on an empty
+chat, ready to be typed into; the rail lists the conversations — grouped by
+project, then by when they were last active — on every screen, and the
+configuration surfaces (teams, memory, prompts, overview, spending) sit folded
+at its foot.
 
 | Surface | Endpoints |
 | --- | --- |
-| Overview | `/health`, plus each collection's `total` and `updatedAt` |
-| Profile | `/user`, `/user/picture` |
-| Spending | `/budget` |
+| New chat | `POST /chats`, `POST /chats/:chatId/messages`, then a streamed completion |
+| Chats · conversation | `/chats/:chatId`, `/chats/:chatId/messages`, `POST /chats/:chatId/completions` (SSE), `/chats/:chatId/context`, `POST /chats/:chatId/compact` |
+| Chats · directory | `/chats` |
+| Projects | `/projects`, plus `/chats` and `/artifacts` filtered by `projectId` |
+| Artifacts | `/artifacts`, `/artifacts/:artifactId` |
 | Agents · directory | `/agents` |
 | Agents · workspace | `/agents/:agentId`, `/agents/:agentId/picture` |
 | Agents · memory | `/agents/:agentId/memories` |
 | Teams · directory | `/teams` |
 | Teams · roster | `/teams/:teamId`, `/teams/:teamId/members` |
-| Chats · directory | `/chats` |
-| Chats · conversation | `/chats/:chatId`, `/chats/:chatId/messages` |
 | Shared memory | `/memories` |
 | System prompts | `/system-prompts` |
+| Overview | `/health`, plus each collection's `total` and `updatedAt` |
+| Profile | `/user`, `/user/picture` |
+| Spending | `/budget` |
+
+The model catalogue (`/models`) is read once by the shell so an agent is shown
+with the model it runs on wherever it appears.
+
+## Runs
+
+A turn is sent in two requests the API keeps apart: the message is stored,
+then the reply is streamed from `POST /chats/:chatId/completions`. The run
+belongs to `core/workspace/chat-runs.service.ts`, not to the chat screen, so
+it carries on when another conversation is opened; the rail marks a chat
+while its agent is working, and flags one whose run finished unseen. Stopping
+a run closes the connection, which the API turns into a cancelled model call.
+
+What the transcript says an agent is doing — starting, reasoning, writing — is
+read from the stream's own events, never guessed. A failed run is shown under
+the stored turn with the API's reason and a retry, so nothing has to be typed
+twice.
 
 ## What the UI does *not* invent
 
 The schema in `data/` describes a product with chats, teams, tool calls,
-artifacts and usage events. Almost none of that has endpoints yet. Five places
-where it would have been easy to mock something, and what is shown instead:
+artifacts and usage events. Several places where it would have been easy to mock something, and what is
+shown instead:
 
-**Agent state is readiness, not activity.** There is no inference or chat
-endpoint, so nothing reports whether an agent is doing anything. A "running"
-badge would be a claim the UI could never back up. `core/agents/agent-readiness.ts`
-instead derives readiness from stored configuration — is anything steering this
-agent?
+**Agent state outside a run is readiness, not activity.** A chat shows an
+agent working only while a run it started is streaming. Elsewhere nothing
+reports whether an agent is busy, so `core/agents/agent-readiness.ts` derives
+readiness from stored configuration — is anything steering this agent?
 
 **The feed is recent changes, not a run history.** Nothing serves
 `usage_events` as a feed. `core/activity/activity.service.ts` assembles one
@@ -59,13 +77,6 @@ rows — but with `cost_usd` still NULL until per-token pricing lands, so every
 installation's chargeable count stays zero. The screen says so in as many words
 instead of presenting a full budget as a measurement, and the deck's meter
 draws no value ring until there is a limit to measure against.
-
-**A chat has a transcript but no composer.** The turns are read from
-`GET /chats/:chatId/messages` and shown as the conversation they are.
-`POST /messages` and `POST /completions` both exist, so a typed turn could be
-stored and answered — but this screen has nowhere to type yet. Building that
-input is composer work; the bar below the transcript says so rather than
-blaming the API.
 
 **The agent's Context tab is not a rendered prompt.** `GET /chats/:chatId/context`
 assembles one for a chat, but this tab has no chat — it shows the configured

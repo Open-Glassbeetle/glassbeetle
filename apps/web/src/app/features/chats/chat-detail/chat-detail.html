@@ -1,333 +1,434 @@
-<div class="view">
-  @if (loading() && !chat()) {
-    <header class="masthead">
-      <gb-skeleton width="1.75rem" height="1.75rem" radius="6px" />
-      <div class="masthead__skeleton">
-        <gb-skeleton width="14rem" height="1.25rem" />
-        <gb-skeleton width="18rem" height="0.75rem" />
-      </div>
-    </header>
-
-    <gb-panel icon="forum" title="Conversation">
-      <div class="loading">
-        <gb-skeleton width="70%" height="0.8125rem" />
-        <gb-skeleton width="45%" height="0.8125rem" />
-      </div>
-    </gb-panel>
-  } @else if (error(); as failure) {
-    <div class="blank">
-      <mat-icon class="blank__icon">
-        {{ failure.status === 404 ? 'speaker_notes_off' : 'cloud_off' }}
-      </mat-icon>
-      <p class="blank__title">
-        {{ failure.status === 404 ? 'Chat not found' : 'Could not load this chat' }}
-      </p>
-      <p class="blank__text">
-        {{
-          failure.status === 404 ? 'It may have been deleted in another window.' : describe(failure)
-        }}
-      </p>
-      @if (failure.status === 404) {
-        <a matButton="filled" routerLink="/chats">Back to chats</a>
-      } @else {
-        <div class="blank__actions">
-          <a matButton routerLink="/chats">All chats</a>
-          <button matButton="filled" (click)="load(chatId())">
-            <mat-icon>refresh</mat-icon>
-            Try again
-          </button>
-        </div>
-      }
-    </div>
-  } @else if (chat(); as current) {
-    <header class="view__head">
-      <div class="head__text">
-        <h1 class="view__title" [class.unset]="untitled()">{{ heading() }}</h1>
-
-        <p class="view__subtitle">
-          @if (owner(); as ownerRef) {
-            {{ ownerRef.kind === 'agent' ? 'Agent' : 'Team' }}
-            <a class="owner" [routerLink]="ownerLink()">{{ ownerName() }}</a>
-          } @else {
-            <span class="unset">Owner deleted</span>
-          }
-
-          <span class="dot" aria-hidden="true">·</span>
-
-          <time [attr.datetime]="current.createdAt" [title]="current.createdAt">
-            started {{ current.createdAt | relativeTime }}
-          </time>
-
-          <span class="dot" aria-hidden="true">·</span>
-
-          <time [attr.datetime]="current.updatedAt" [title]="current.updatedAt">
-            updated {{ current.updatedAt | relativeTime }}
-          </time>
-        </p>
-      </div>
-
-      <button matIconButton [matMenuTriggerFor]="menu" aria-label="More actions for this chat">
-        <mat-icon>more_vert</mat-icon>
-      </button>
-
-      <mat-menu #menu>
-        <a mat-menu-item routerLink="/chats">
-          <mat-icon>arrow_back</mat-icon>
-          <span>All chats</span>
-        </a>
-        @if (ownerLink(); as link) {
-          <a mat-menu-item [routerLink]="link">
-            <mat-icon>{{ owner()?.kind === 'agent' ? 'graph_3' : 'groups' }}</mat-icon>
-            <span>Open owner</span>
-          </a>
-        }
-        <button mat-menu-item (click)="load(chatId())">
-          <mat-icon>refresh</mat-icon>
-          <span>Reload</span>
-        </button>
-        <button mat-menu-item class="danger" (click)="remove()">
-          <mat-icon>delete</mat-icon>
-          <span>Delete chat</span>
-        </button>
-      </mat-menu>
-    </header>
-
-    <!-- ── Conversation ─────────────────────────────────────────────── -->
-    <gb-panel
-      icon="forum"
-      title="Conversation"
-      [subtitle]="
-        messageTotal()
-          ? messageTotal() + (messageTotal() === 1 ? ' message' : ' messages')
-          : 'Nothing has been said yet'
-      "
-      flush
-    >
-      @if (messagesLoading()) {
-        <div class="transcript transcript--loading">
+@if (loading() && !chat()) {
+  <div class="chat">
+    <div class="chat__main">
+      <header class="bar">
+        <gb-skeleton width="14rem" height="1rem" />
+      </header>
+      <div class="transcript">
+        <div class="column column--loading">
           @for (row of [1, 2, 3]; track row) {
-            <div class="turn" [class.turn--own]="row === 2">
-              <gb-skeleton width="1.5rem" height="1.5rem" radius="50%" />
-              <div class="turn__skeleton">
-                <gb-skeleton width="5rem" height="0.6875rem" />
-                <gb-skeleton [width]="row === 2 ? '60%' : '85%'" height="0.8125rem" />
-              </div>
+            <div class="skeleton-turn">
+              <gb-skeleton width="6rem" height="0.6875rem" />
+              <gb-skeleton [width]="row === 2 ? '55%' : '85%'" height="0.8125rem" />
+              <gb-skeleton [width]="row === 2 ? '35%' : '70%'" height="0.8125rem" />
             </div>
           }
         </div>
-      } @else if (messagesError(); as failure) {
-        <div class="blank blank--compact">
-          <mat-icon class="blank__icon">cloud_off</mat-icon>
-          <p class="blank__title">Could not load the conversation</p>
-          <p class="blank__text">{{ describe(failure) }}</p>
-          <button matButton="filled" (click)="load(chatId())">
-            <mat-icon>refresh</mat-icon>
-            Try again
+      </div>
+    </div>
+  </div>
+} @else if (error(); as failure) {
+  <div class="blank">
+    <mat-icon class="blank__icon">
+      {{ failure.status === 404 ? 'speaker_notes_off' : 'cloud_off' }}
+    </mat-icon>
+    <p class="blank__title">
+      {{ failure.status === 404 ? 'Chat not found' : 'Could not load this chat' }}
+    </p>
+    <p class="blank__text">
+      {{
+        failure.status === 404 ? 'It may have been deleted in another window.' : describe(failure)
+      }}
+    </p>
+    @if (failure.status === 404) {
+      <a matButton="filled" routerLink="/chats/new">Start a new chat</a>
+    } @else {
+      <div class="blank__actions">
+        <a matButton routerLink="/chats">All chats</a>
+        <button matButton="filled" (click)="load(chatId())">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+      </div>
+    }
+  </div>
+} @else if (chat(); as current) {
+  <div class="chat" [class.chat--inspecting]="inspectorOpen()">
+    <div class="chat__main">
+      <!-- ── Header: which conversation, and who it is with ─────────── -->
+      <header class="bar">
+        <div class="bar__identity">
+          <h1 class="bar__heading">
+            <button
+              class="bar__title"
+              type="button"
+              [class.unset]="untitled()"
+              matTooltip="Rename"
+              (click)="rename()"
+            >
+              {{ heading() }}
+            </button>
+          </h1>
+
+          <div class="bar__facts">
+            @if (participant(); as who) {
+              <a class="who" [routerLink]="who.link" [matTooltip]="'Open ' + who.name">
+                @if (who.kind === 'agent') {
+                  <app-agent-avatar [name]="who.name" [agent]="who.agent" size="small" />
+                } @else {
+                  <mat-icon class="who__icon">groups</mat-icon>
+                }
+                <span class="who__name">{{ who.name }}</span>
+                @if (who.detail) {
+                  <span class="who__detail" [class.mono]="who.kind === 'agent'">
+                    {{ who.detail }}
+                  </span>
+                }
+              </a>
+            } @else {
+              <span class="who who--gone unset">Owner deleted</span>
+            }
+
+            <button
+              class="fact"
+              type="button"
+              [matMenuTriggerFor]="projectMenu"
+              aria-label="Change the project"
+            >
+              <mat-icon class="fact__icon">folder</mat-icon>
+              <span class="fact__label">{{ project()?.name ?? 'No project' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bar__actions">
+          <!-- How full the model's window is: the one figure about a long
+               conversation worth having in view without opening anything. -->
+          <button
+            class="gauge"
+            type="button"
+            [class.gauge--on]="inspectorOpen()"
+            [class.gauge--high]="(contextPercent() ?? 0) >= 80"
+            [attr.aria-expanded]="inspectorOpen()"
+            [attr.aria-label]="inspectorOpen() ? 'Hide the details' : 'Show the details'"
+            [matTooltip]="inspectorOpen() ? 'Hide the details' : 'Context, summary and artifacts'"
+            (click)="toggleInspector()"
+          >
+            @if (contextPercent(); as percent) {
+              <span class="gauge__value mono">{{ percent }}%</span>
+              <span class="gauge__label">context</span>
+            } @else if (context(); as held) {
+              <span class="gauge__value mono">~{{ held.tokenEstimate.totalTokens }}</span>
+              <span class="gauge__label">tokens</span>
+            }
+            <mat-icon class="gauge__icon">right_panel_open</mat-icon>
+          </button>
+
+          <button matIconButton [matMenuTriggerFor]="menu" aria-label="More actions for this chat">
+            <mat-icon>more_vert</mat-icon>
           </button>
         </div>
-      } @else if (!turns().length) {
-        <div class="blank blank--compact">
-          <mat-icon class="blank__icon">forum</mat-icon>
-          <p class="blank__title">No messages yet</p>
-          <p class="blank__text">
-            Nothing has been said in this chat. Turns appear here as they are stored.
-          </p>
-        </div>
-      } @else {
-        <div class="transcript" #scroller>
-          @if (hasOlder()) {
-            <div class="earlier">
-              <button matButton [disabled]="loadingOlder()" (click)="loadOlder()">
-                @if (loadingOlder()) {
-                  Loading…
-                } @else {
-                  <ng-container>
-                    <mat-icon>expand_less</mat-icon>
-                    {{ messageTotal() - messages().length }} earlier
-                    {{ messageTotal() - messages().length === 1 ? 'message' : 'messages' }}
-                  </ng-container>
-                }
-              </button>
-            </div>
+
+        <mat-menu #menu>
+          <button mat-menu-item (click)="rename()">
+            <mat-icon>edit</mat-icon>
+            <span>Rename</span>
+          </button>
+          @if (participant(); as who) {
+            <a mat-menu-item [routerLink]="who.link">
+              <mat-icon>{{ who.kind === 'agent' ? 'graph_3' : 'groups' }}</mat-icon>
+              <span>Open {{ who.kind }}</span>
+            </a>
           }
+          <button mat-menu-item (click)="load(chatId())">
+            <mat-icon>refresh</mat-icon>
+            <span>Reload</span>
+          </button>
+          <button mat-menu-item class="danger" (click)="remove()">
+            <mat-icon>delete</mat-icon>
+            <span>Delete chat</span>
+          </button>
+        </mat-menu>
 
-          @for (turn of turns(); track turn.message.id) {
-            @if (turn.spoken) {
-              <article class="turn" [class.turn--own]="turn.own">
-                @if (turn.own) {
-                  <gb-avatar
-                    class="turn__avatar"
-                    [name]="turn.author"
-                    [imageUrl]="user.pictureUrl()"
-                    size="small"
-                  />
-                } @else if (turn.agent) {
-                  <app-agent-avatar
-                    class="turn__avatar"
-                    [name]="turn.agent.name"
-                    [agent]="turn.agent"
-                    size="small"
-                  />
-                } @else {
-                  <gb-avatar class="turn__avatar" [name]="turn.author" size="small" />
-                }
+        <mat-menu #projectMenu>
+          <button mat-menu-item (click)="moveToProject(null)">
+            <mat-icon>{{ current.projectId ? 'folder_off' : 'check' }}</mat-icon>
+            <span>No project</span>
+          </button>
+          @for (entry of conversations.projects(); track entry.id) {
+            <button mat-menu-item (click)="moveToProject(entry.id)">
+              <mat-icon>{{ entry.id === current.projectId ? 'check' : 'folder' }}</mat-icon>
+              <span>{{ entry.name }}</span>
+            </button>
+          }
+          @if (!conversations.projects().length) {
+            <a mat-menu-item routerLink="/projects" [queryParams]="{ new: 1 }">
+              <mat-icon>add</mat-icon>
+              <span>New project…</span>
+            </a>
+          }
+        </mat-menu>
+      </header>
 
-                <div class="turn__body">
-                  <p class="turn__meta">
+      <!-- ── Transcript ─────────────────────────────────────────────── -->
+      <div class="transcript" #scroller (scroll)="onScroll()">
+        @if (messagesLoading()) {
+          <div class="column column--loading">
+            @for (row of [1, 2, 3]; track row) {
+              <div class="skeleton-turn">
+                <gb-skeleton width="6rem" height="0.6875rem" />
+                <gb-skeleton [width]="row === 2 ? '55%' : '85%'" height="0.8125rem" />
+                <gb-skeleton [width]="row === 2 ? '35%' : '70%'" height="0.8125rem" />
+              </div>
+            }
+          </div>
+        } @else if (messagesError(); as failure) {
+          <div class="blank blank--compact">
+            <mat-icon class="blank__icon">cloud_off</mat-icon>
+            <p class="blank__title">Could not load the conversation</p>
+            <p class="blank__text">{{ describe(failure) }}</p>
+            <button matButton="filled" (click)="load(chatId())">
+              <mat-icon>refresh</mat-icon>
+              Try again
+            </button>
+          </div>
+        } @else {
+          <div class="column">
+            @if (!turns().length && !liveTurns().length && !run()) {
+              <div class="opening">
+                <p class="opening__title">Nothing has been said yet</p>
+                <p class="opening__text">
+                  @if (participant(); as who) {
+                    Say what you want done and {{ who.name }} takes it from there.
+                  } @else {
+                    The agent or team this chat belonged to is gone, so nobody can reply here.
+                  }
+                </p>
+              </div>
+            }
+
+            @if (hasOlder()) {
+              <div class="earlier">
+                <button matButton [disabled]="loadingOlder()" (click)="loadOlder()">
+                  @if (loadingOlder()) {
+                    Loading…
+                  } @else {
+                    <ng-container>
+                      <mat-icon>expand_less</mat-icon>
+                      {{ messageTotal() - messages().length }} earlier
+                      {{ messageTotal() - messages().length === 1 ? 'message' : 'messages' }}
+                    </ng-container>
+                  }
+                </button>
+              </div>
+            }
+
+            @for (turn of turns(); track turn.message.id) {
+              @if (turn.own) {
+                <!-- The person's own turn: set apart as a block, so the eye
+                     finds where each exchange begins. -->
+                <article class="turn turn--own">
+                  <p class="sr-only">{{ turn.author }} said</p>
+                  <div class="request">{{ turn.message.content }}</div>
+                  <p class="turn__foot">
+                    <time [attr.datetime]="turn.message.createdAt" [title]="turn.message.createdAt">
+                      {{ turn.message.createdAt | relativeTime }}
+                    </time>
+                  </p>
+                </article>
+              } @else if (turn.spoken) {
+                <article class="turn">
+                  <header class="turn__head">
                     @if (turn.agent) {
+                      <app-agent-avatar
+                        [name]="turn.agent.name"
+                        [agent]="turn.agent"
+                        size="small"
+                      />
                       <a class="turn__author" [routerLink]="['/agents', turn.agent.id]">
                         {{ turn.author }}
                       </a>
                     } @else {
+                      <gb-avatar [name]="turn.author" size="small" />
                       <span class="turn__author">{{ turn.author }}</span>
                     }
 
-                    <time
-                      class="turn__time"
-                      [attr.datetime]="turn.message.createdAt"
-                      [title]="turn.message.createdAt"
-                    >
-                      {{ turn.message.createdAt | relativeTime }}
-                    </time>
+                    @if (turn.model) {
+                      <span class="turn__model mono">{{ turn.model }}</span>
+                    }
 
                     @if (turn.message.status !== 'complete') {
                       <span class="pill pill--{{ statusTone(turn.message.status) }}">
                         {{ turn.message.status }}
                       </span>
                     }
+                  </header>
 
+                  @if (turn.message.content) {
+                    <gb-message-body class="turn__body" [content]="turn.message.content" />
+                  } @else {
+                    <!-- A run that failed before its first token leaves a turn
+                         with nothing in it; said, rather than left blank. -->
+                    <p class="turn__body turn__nothing">Nothing was generated.</p>
+                  }
+
+                  <footer class="turn__foot">
+                    <time [attr.datetime]="turn.message.createdAt" [title]="turn.message.createdAt">
+                      {{ turn.message.createdAt | relativeTime }}
+                    </time>
                     @if (turn.message.tokenCount !== null) {
-                      <span class="turn__tokens mono" matTooltip="Tokens counted for this message">
-                        {{ turn.message.tokenCount }}t
+                      <span class="mono" matTooltip="Tokens counted for this message">
+                        {{ turn.message.tokenCount }} tok
                       </span>
                     }
-                  </p>
+                    <button
+                      class="turn__copy"
+                      type="button"
+                      aria-label="Copy this message"
+                      matTooltip="Copy"
+                      (click)="copy(turn.message.content)"
+                    >
+                      <mat-icon>content_copy</mat-icon>
+                    </button>
+                  </footer>
+                </article>
+              } @else {
+                <!-- `system` and `tool` turns are what the agent did rather
+                     than what it said: part of the record, shown as a step
+                     that opens to its full content. -->
+                <details class="step">
+                  <summary class="step__summary">
+                    <mat-icon class="step__icon">
+                      {{ turn.message.role === 'tool' ? 'build' : 'settings' }}
+                    </mat-icon>
+                    <span class="step__role mono">{{ turn.message.role }}</span>
+                    <span class="step__preview">{{ turn.message.content }}</span>
+                    <time
+                      class="step__time"
+                      [attr.datetime]="turn.message.createdAt"
+                      [title]="turn.message.createdAt"
+                    >
+                      {{ turn.message.createdAt | relativeTime }}
+                    </time>
+                  </summary>
+                  <pre class="step__content">{{ turn.message.content }}</pre>
+                </details>
+              }
+            }
 
-                  <div class="bubble">{{ turn.message.content }}</div>
-                </div>
+            <!-- ── The run, as it happens ─────────────────────────── -->
+            @for (live of liveTurns(); track live.draft.messageId) {
+              <article class="turn turn--live" [attr.aria-busy]="live.writing">
+                <header class="turn__head">
+                  @if (live.agent) {
+                    <app-agent-avatar [name]="live.agent.name" [agent]="live.agent" size="small" />
+                  } @else {
+                    <gb-avatar [name]="live.author" size="small" />
+                  }
+                  <span class="turn__author">{{ live.author }}</span>
+                  @if (live.model) {
+                    <span class="turn__model mono">{{ live.model }}</span>
+                  }
+                </header>
+
+                @if (live.draft.thought) {
+                  <!-- Open while it is all there is; folded once the answer
+                       starts, since the answer is what was asked for. -->
+                  <details class="reasoning" [open]="!live.draft.text">
+                    <summary class="reasoning__summary">
+                      <mat-icon class="reasoning__icon">psychology</mat-icon>
+                      Reasoning
+                    </summary>
+                    <p class="reasoning__text">{{ live.draft.thought }}</p>
+                  </details>
+                }
+
+                @if (live.draft.text || live.writing) {
+                  <gb-message-body
+                    class="turn__body"
+                    [content]="live.draft.text"
+                    [streaming]="live.writing"
+                  />
+                }
               </article>
-            } @else {
-              <!-- `system` and `tool` turns are machinery, not speech: they are
-                   part of the record and are shown, but they do not get a face
-                   or a side of the conversation. -->
-              <div class="note">
-                <span class="note__role mono">{{ turn.message.role }}</span>
-                <span class="note__content">{{ turn.message.content }}</span>
-                <time
-                  class="note__time"
-                  [attr.datetime]="turn.message.createdAt"
-                  [title]="turn.message.createdAt"
-                >
-                  {{ turn.message.createdAt | relativeTime }}
-                </time>
+            }
+
+            @if (failure(); as problem) {
+              <div class="failure" role="alert">
+                <mat-icon class="failure__icon">error</mat-icon>
+                <div class="failure__text">
+                  <p class="failure__title">The reply could not be generated</p>
+                  <p class="failure__detail">{{ describe(problem) }}</p>
+                </div>
+                <div class="failure__actions">
+                  @if (needsConfiguring(problem) && participant(); as who) {
+                    <a matButton [routerLink]="who.link">Open {{ who.kind }}</a>
+                  }
+                  <button matButton (click)="dismissFailure()">Dismiss</button>
+                  <button matButton="outlined" (click)="requestReply()">
+                    <mat-icon>refresh</mat-icon>
+                    Retry
+                  </button>
+                </div>
+              </div>
+            } @else if (awaitingReply() && participant()) {
+              <div class="pending">
+                <span class="pending__text">This message has no reply.</span>
+                <button matButton (click)="requestReply()">
+                  <mat-icon>play_arrow</mat-icon>
+                  Ask for one
+                </button>
               </div>
             }
-          }
-        </div>
-      }
+          </div>
+        }
+      </div>
 
-      <!-- Where the composer goes. Completions exist (POST /completions),
-           but this screen has nowhere to type yet — an input belongs to
-           composer work, not a padlock blaming the API. -->
-      <footer class="composer">
-        <mat-icon class="composer__icon">lock</mat-icon>
-        <p class="composer__text">
-          Sending is waiting on a composer — completion endpoints would answer, but there is nowhere to type yet.
-        </p>
-      </footer>
-    </gb-panel>
-
-    <!-- ── Summary ──────────────────────────────────────────────────── -->
-    <gb-panel
-      icon="compress"
-      title="Compacted summary"
-      subtitle="Written by compaction, read-only here"
-    >
-      @if (current.contextSummary) {
-        <p class="summary">{{ current.contextSummary }}</p>
-      } @else {
-        <p class="empty">
-          Nothing has been compacted. Once a conversation is long enough to summarise, compaction
-          writes what earlier turns said here — the API keeps this field out of reach of ordinary
-          edits so a summary cannot be rewritten by hand.
-        </p>
-      }
-    </gb-panel>
-
-    <!-- ── Details ──────────────────────────────────────────────────── -->
-    <gb-panel icon="tune" title="Details">
-      <form class="form" [formGroup]="form" (ngSubmit)="save()">
-        <mat-form-field class="form__field">
-          <mat-label>Title</mat-label>
-          <input matInput formControlName="title" placeholder="Untitled chat" />
-          <mat-hint>Clearing the field leaves the chat untitled.</mat-hint>
-          @if (form.controls.title.hasError('maxlength')) {
-            <mat-error>A title may be at most {{ maxTitleLength }} characters.</mat-error>
-          }
-        </mat-form-field>
-
-        <div class="form__actions">
-          <button
-            matButton
-            type="button"
-            [disabled]="saving() || !titleChanged()"
-            (click)="reset()"
-          >
-            Revert
-          </button>
-          <button
-            matButton="filled"
-            type="submit"
-            [disabled]="saving() || form.invalid || !titleChanged()"
-          >
-            Save
-          </button>
-        </div>
-      </form>
-
-      <dl class="facts">
-        <dt>Owner</dt>
-        <dd>
-          @if (owner(); as ownerRef) {
-            <a [routerLink]="ownerLink()">{{ ownerName() }}</a>
-            <span class="facts__note">
-              {{ ownerRef.kind === 'agent' ? 'an agent' : 'a team' }} · cannot be changed, because
-              the history was produced under it
-            </span>
-          } @else {
-            <span class="unset">Deleted</span>
-            <span class="facts__note">
-              the agent or team this chat belonged to is gone; the conversation was kept
-            </span>
-          }
-        </dd>
-
-        <dt>Project</dt>
-        <dd>
-          @if (current.projectId) {
-            <span class="mono">{{ current.projectId }}</span>
-            <button
-              matButton
-              class="facts__action"
-              type="button"
-              [disabled]="saving()"
-              (click)="detachProject()"
-            >
-              Remove from project
+      <!-- ── Dock: what the agent is doing, and where to answer ─────── -->
+      <footer class="dock">
+        <div class="dock__column">
+          @if (!pinned() && (turns().length || liveTurns().length)) {
+            <button class="latest" type="button" (click)="jumpToLatest()">
+              <mat-icon>arrow_downward</mat-icon>
+              Latest
             </button>
-          } @else {
-            <span class="unset">Not in a project</span>
-            <span class="facts__note">
-              projects have no endpoints yet, so there is nothing to assign this to
-            </span>
           }
-        </dd>
 
-        <dt>Identifier</dt>
-        <dd>
-          <span class="mono">{{ current.id }}</span>
-        </dd>
-      </dl>
-    </gb-panel>
-  }
-</div>
+          <!-- Announced politely: a screen reader hears that work started and
+               stopped, not every tick of the clock. -->
+          <div class="activity" aria-live="polite">
+            @if (activity(); as doing) {
+              <span class="activity__pulse" aria-hidden="true"></span>
+              <span class="activity__text">{{ doing.text }}</span>
+              @if (doing.turn) {
+                <span class="activity__meta">turn {{ doing.turn }}</span>
+              }
+              <span class="activity__meta mono" aria-hidden="true">{{ doing.elapsed }}</span>
+            }
+          </div>
+
+          <gb-composer
+            [(text)]="draft"
+            [busy]="running()"
+            [blocked]="sending()"
+            [disabled]="!participant()"
+            label="Message"
+            [placeholder]="
+              participant()
+                ? running()
+                  ? 'Reply in progress — type ahead, or stop it to send now'
+                  : 'Message ' + participant()!.name
+                : 'Nobody can reply in this chat'
+            "
+            (submitted)="send($event)"
+            (stopped)="stop()"
+          />
+        </div>
+      </footer>
+    </div>
+
+    @if (inspectorOpen()) {
+      <aside class="chat__side" aria-label="Chat details">
+        <app-chat-inspector
+          [chat]="current"
+          [context]="context()"
+          [messageTotal]="messageTotal()"
+          [busy]="running()"
+          [revision]="revision()"
+          (compacted)="onCompacted($event)"
+          (closed)="toggleInspector()"
+        />
+      </aside>
+    }
+  </div>
+}

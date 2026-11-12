@@ -1,0 +1,152 @@
+<div class="view">
+  <header class="view__head">
+    <div>
+      <h1 class="view__title">Projects</h1>
+      <p class="view__subtitle">
+        A project keeps the conversations about one piece of work, and what they produced, together.
+      </p>
+    </div>
+
+    <button matButton="filled" (click)="create()">
+      <mat-icon>add</mat-icon>
+      New project
+    </button>
+  </header>
+
+  <gb-panel flush>
+    <div class="toolbar">
+      <div class="search">
+        <mat-icon class="search__icon">search</mat-icon>
+        <input
+          class="search__input"
+          type="search"
+          placeholder="Filter by name"
+          aria-label="Filter projects by name"
+          [value]="list.searchTerm()"
+          (input)="list.setSearch($any($event.target).value)"
+        />
+        @if (list.searchTerm()) {
+          <button
+            matIconButton
+            class="search__clear"
+            aria-label="Clear the filter"
+            (click)="list.clearSearch()"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </div>
+
+      <span class="toolbar__count mono">
+        {{ list.total() }} {{ list.total() === 1 ? 'project' : 'projects' }}
+      </span>
+    </div>
+
+    @if (list.loading() && !list.loadedOnce()) {
+      <ul class="rows">
+        @for (row of [1, 2, 3]; track row) {
+          <li class="row row--skeleton">
+            <gb-skeleton width="1.25rem" height="1.25rem" radius="4px" />
+            <div class="row__skeleton-text">
+              <gb-skeleton [width]="row % 2 ? '9rem' : '12rem'" height="0.8125rem" />
+              <gb-skeleton [width]="row % 2 ? '20rem' : '15rem'" height="0.6875rem" />
+            </div>
+          </li>
+        }
+      </ul>
+    } @else if (list.error(); as error) {
+      <div class="blank">
+        <mat-icon class="blank__icon">cloud_off</mat-icon>
+        <p class="blank__title">Could not load projects</p>
+        <p class="blank__text">{{ error.message }}</p>
+        <button matButton="filled" (click)="list.reload()">
+          <mat-icon>refresh</mat-icon>
+          Try again
+        </button>
+      </div>
+    } @else if (list.isEmpty()) {
+      @if (list.search()) {
+        <div class="blank">
+          <mat-icon class="blank__icon">search_off</mat-icon>
+          <p class="blank__title">No matching projects</p>
+          <p class="blank__text">No project name contains “{{ list.search() }}”.</p>
+          <button matButton (click)="list.clearSearch()">Clear the filter</button>
+        </div>
+      } @else {
+        <div class="blank">
+          <mat-icon class="blank__icon">folder</mat-icon>
+          <p class="blank__title">No projects yet</p>
+          <p class="blank__text">
+            Conversations work without one. A project is worth making once several chats are about
+            the same thing and you want them, and their artifacts, in one place.
+          </p>
+          <button matButton="filled" (click)="create()">
+            <mat-icon>add</mat-icon>
+            New project
+          </button>
+        </div>
+      }
+    } @else {
+      <ul class="rows">
+        @for (project of list.items(); track project.id) {
+          <li class="row">
+            <a class="row__main" [routerLink]="['/projects', project.id]">
+              <mat-icon class="row__icon">folder</mat-icon>
+              <span class="row__text">
+                <span class="row__name">{{ project.name }}</span>
+                <span class="row__desc" [class.row__desc--empty]="!project.description">
+                  {{ project.description || 'No description' }}
+                </span>
+              </span>
+              <span class="row__counts mono">
+                {{ project.chatCount }} {{ project.chatCount === 1 ? 'chat' : 'chats' }} ·
+                {{ project.artifactCount }}
+                {{ project.artifactCount === 1 ? 'artifact' : 'artifacts' }}
+              </span>
+              <time
+                class="row__time"
+                [attr.datetime]="project.updatedAt"
+                [title]="project.updatedAt"
+              >
+                {{ project.updatedAt | relativeTime }}
+              </time>
+            </a>
+
+            <button
+              matIconButton
+              [matMenuTriggerFor]="menu"
+              [attr.aria-label]="'More actions for ' + project.name"
+            >
+              <mat-icon>more_vert</mat-icon>
+            </button>
+
+            <mat-menu #menu>
+              <a mat-menu-item routerLink="/chats/new" [queryParams]="{ projectId: project.id }">
+                <mat-icon>edit_square</mat-icon>
+                <span>New chat here</span>
+              </a>
+              <button mat-menu-item (click)="edit(project)">
+                <mat-icon>edit</mat-icon>
+                <span>Edit</span>
+              </button>
+              <button mat-menu-item class="danger" (click)="remove(project)">
+                <mat-icon>delete</mat-icon>
+                <span>Delete</span>
+              </button>
+            </mat-menu>
+          </li>
+        }
+      </ul>
+
+      @if (list.total() > list.pageSize()) {
+        <mat-paginator
+          [length]="list.total()"
+          [pageIndex]="list.pageIndex()"
+          [pageSize]="list.pageSize()"
+          [pageSizeOptions]="pageSizeOptions"
+          (page)="list.onPage($event)"
+        />
+      }
+    }
+  </gb-panel>
+</div>

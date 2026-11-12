@@ -120,7 +120,11 @@
     <section class="panel__block">
       <p class="panel__legend">Create</p>
       @for (action of createActions; track action.path) {
-        <button class="action" type="button" (click)="go(action.path, { new: 1 })">
+        <button
+          class="action"
+          type="button"
+          (click)="go(action.path, action.direct ? undefined : { new: 1 })"
+        >
           <mat-icon class="action__icon">{{ action.icon }}</mat-icon>
           <span class="action__label">{{ action.label }}</span>
           <kbd class="action__key">{{ action.key }}</kbd>

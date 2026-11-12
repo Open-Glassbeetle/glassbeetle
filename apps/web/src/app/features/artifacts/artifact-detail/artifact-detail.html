@@ -1,0 +1,148 @@
+<div class="view">
+  @if (loading() && !artifact()) {
+    <header class="view__head">
+      <div class="head__skeleton">
+        <gb-skeleton width="16rem" height="1.25rem" />
+        <gb-skeleton width="20rem" height="0.75rem" />
+      </div>
+    </header>
+    <gb-panel icon="description" title="Content">
+      <gb-skeleton width="70%" height="0.8125rem" />
+    </gb-panel>
+  } @else if (error(); as failure) {
+    <div class="blank">
+      <mat-icon class="blank__icon">{{ failure.status === 404 ? 'draft' : 'cloud_off' }}</mat-icon>
+      <p class="blank__title">
+        {{ failure.status === 404 ? 'Artifact not found' : 'Could not load this artifact' }}
+      </p>
+      <p class="blank__text">
+        {{
+          failure.status === 404 ? 'It may have been deleted in another window.' : describe(failure)
+        }}
+      </p>
+      <div class="blank__actions">
+        <a matButton routerLink="/artifacts">All artifacts</a>
+        @if (failure.status !== 404) {
+          <button matButton="filled" (click)="load(artifactId())">
+            <mat-icon>refresh</mat-icon>
+            Try again
+          </button>
+        }
+      </div>
+    </div>
+  } @else if (artifact(); as current) {
+    <header class="view__head">
+      <div class="head__text">
+        <h1 class="view__title">{{ current.title }}</h1>
+        <p class="view__subtitle">
+          <span>{{ current.type }}</span>
+          @if (current.mimeType) {
+            <span class="dot" aria-hidden="true">·</span>
+            <span class="mono">{{ current.mimeType }}</span>
+          }
+          <span class="dot" aria-hidden="true">·</span>
+          <span class="mono">v{{ current.version }}</span>
+          <span class="dot" aria-hidden="true">·</span>
+          <time [attr.datetime]="current.updatedAt" [title]="current.updatedAt">
+            updated {{ current.updatedAt | relativeTime }}
+          </time>
+        </p>
+      </div>
+
+      <button matIconButton [matMenuTriggerFor]="menu" aria-label="More actions for this artifact">
+        <mat-icon>more_vert</mat-icon>
+      </button>
+
+      <mat-menu #menu>
+        <a mat-menu-item routerLink="/artifacts">
+          <mat-icon>arrow_back</mat-icon>
+          <span>All artifacts</span>
+        </a>
+        <button mat-menu-item class="danger" (click)="remove()">
+          <mat-icon>delete</mat-icon>
+          <span>Delete artifact</span>
+        </button>
+      </mat-menu>
+    </header>
+
+    <!-- Where it came from. Each link is offered only while its target still
+         exists: an artifact outlives its chat, its agent and its project. -->
+    <ul class="origin">
+      <li class="origin__item">
+        <span class="origin__label">Conversation</span>
+        @if (current.chatId) {
+          <a class="origin__link" [routerLink]="['/chats', current.chatId]">
+            <mat-icon>chat_bubble</mat-icon>
+            Open the chat
+          </a>
+        } @else {
+          <span class="unset">No longer linked</span>
+        }
+      </li>
+      <li class="origin__item">
+        <span class="origin__label">Produced by</span>
+        @if (current.agentId) {
+          <a class="origin__link" [routerLink]="['/agents', current.agentId]">
+            <mat-icon>graph_3</mat-icon>
+            {{ agentName() }}
+          </a>
+        } @else {
+          <span class="unset">Unknown</span>
+        }
+      </li>
+      <li class="origin__item">
+        <span class="origin__label">Project</span>
+        @if (current.projectId) {
+          <a class="origin__link" [routerLink]="['/projects', current.projectId]">
+            <mat-icon>folder</mat-icon>
+            {{ projectName() }}
+          </a>
+        } @else {
+          <span class="unset">Unfiled</span>
+        }
+      </li>
+    </ul>
+
+    <gb-panel [icon]="icon()" title="Content" flush>
+      <ng-container panel-actions>
+        @if (current.content) {
+          <button matIconButton matTooltip="Copy" aria-label="Copy the content" (click)="copy()">
+            <mat-icon>content_copy</mat-icon>
+          </button>
+        }
+        @if (fileUrl(); as url) {
+          <a
+            matIconButton
+            matTooltip="Open the stored file"
+            aria-label="Open the stored file"
+            [href]="url"
+            target="_blank"
+            rel="noopener"
+          >
+            <mat-icon>open_in_new</mat-icon>
+          </a>
+        }
+      </ng-container>
+
+      @if (current.content) {
+        <pre class="content" [class.content--prose]="current.type === 'document'">{{
+          current.content
+        }}</pre>
+      } @else if (fileUrl()) {
+        <div class="blank blank--compact">
+          <mat-icon class="blank__icon">draft</mat-icon>
+          <p class="blank__title">Stored as a file</p>
+          <p class="blank__text">
+            This artifact is kept as a file rather than as text, so it is opened rather than shown
+            here.
+          </p>
+        </div>
+      } @else {
+        <div class="blank blank--compact">
+          <p class="blank__title">No content</p>
+          <p class="blank__text">Nothing has been stored for this artifact yet.</p>
+        </div>
+      }
+    </gb-panel>
+  }
+</div>
