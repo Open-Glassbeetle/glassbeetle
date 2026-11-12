@@ -1,0 +1,8 @@
+@use '../../../shared/styles/view';
+@use '../../../shared/styles/record-rows';
+
+@include view.view;
+@include view.blank-state;
+@include view.toolbar;
+@include view.rows;
+@include record-rows.record-rows;

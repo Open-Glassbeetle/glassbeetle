@@ -1,0 +1,103 @@
+@use '../../../shared/styles/view';
+@use '../../../shared/styles/record-rows';
+
+@include view.view;
+@include view.blank-state;
+@include record-rows.record-rows;
+
+.head__text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.head__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.view__subtitle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.dot {
+  color: var(--mat-sys-outline);
+}
+
+.blank__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Provenance as one hairline-ruled strip rather than three cards: it is three
+   facts about the same thing. */
+.origin {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 8px;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.origin__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  flex: 1 1 11rem;
+  min-width: 0;
+  padding: 0.5rem 0.875rem;
+
+  & + & {
+    border-left: 1px solid var(--mat-sys-outline-variant);
+  }
+}
+
+.origin__label {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+}
+
+.origin__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  min-width: 0;
+  color: var(--mat-sys-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  mat-icon {
+    flex: none;
+    font-size: 0.9375rem;
+    width: 0.9375rem;
+    height: 0.9375rem;
+  }
+}
+
+.content {
+  margin: 0;
+  padding: 0.875rem;
+  overflow-x: auto;
+  font-family: var(--gb-font-mono);
+  font-size: 0.78125rem;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+/* A document is prose: it wraps, where code scrolls. */
+.content--prose {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

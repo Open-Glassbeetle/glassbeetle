@@ -39,6 +39,30 @@ export const routes: Routes = [
       import('./features/chats/chat-detail/chat-detail').then((m) => m.ChatDetail),
   },
   {
+    path: 'projects',
+    title: 'Projects · Glassbeetle',
+    loadComponent: () =>
+      import('./features/projects/project-list/project-list').then((m) => m.ProjectList),
+  },
+  {
+    path: 'projects/:projectId',
+    title: 'Project · Glassbeetle',
+    loadComponent: () =>
+      import('./features/projects/project-detail/project-detail').then((m) => m.ProjectDetail),
+  },
+  {
+    path: 'artifacts',
+    title: 'Artifacts · Glassbeetle',
+    loadComponent: () =>
+      import('./features/artifacts/artifact-list/artifact-list').then((m) => m.ArtifactList),
+  },
+  {
+    path: 'artifacts/:artifactId',
+    title: 'Artifact · Glassbeetle',
+    loadComponent: () =>
+      import('./features/artifacts/artifact-detail/artifact-detail').then((m) => m.ArtifactDetail),
+  },
+  {
     path: 'budget',
     title: 'Spending · Glassbeetle',
     loadComponent: () => import('./features/budget/budget').then((m) => m.Budget),

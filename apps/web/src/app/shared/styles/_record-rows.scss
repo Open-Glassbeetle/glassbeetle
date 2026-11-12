@@ -1,0 +1,46 @@
+// The trimmings a row of records carries beyond `view.rows`: a leading icon,
+// a count or two, and when it last changed. Shared by the collections that
+// list work — projects, artifacts, a project's conversations — so a row means
+// the same thing wherever it appears.
+@mixin record-rows {
+  .row__icon {
+    flex: none;
+    font-size: 1.125rem;
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .row__desc--empty {
+    font-style: italic;
+    opacity: 0.7;
+  }
+
+  .row__counts {
+    flex: none;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.6875rem;
+    white-space: nowrap;
+
+    @media (max-width: 40rem) {
+      display: none;
+    }
+  }
+
+  .row__time {
+    flex: none;
+    width: 6.5rem;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.6875rem;
+    text-align: right;
+
+    @media (max-width: 48rem) {
+      display: none;
+    }
+  }
+
+  .danger {
+    --mat-menu-item-label-text-color: var(--mat-sys-error);
+    --mat-menu-item-icon-color: var(--mat-sys-error);
+  }
+}

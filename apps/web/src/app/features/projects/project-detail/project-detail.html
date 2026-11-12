@@ -1,0 +1,184 @@
+<div class="view">
+  @if (loading() && !project()) {
+    <header class="view__head">
+      <div class="head__skeleton">
+        <gb-skeleton width="14rem" height="1.25rem" />
+        <gb-skeleton width="22rem" height="0.75rem" />
+      </div>
+    </header>
+    <gb-panel icon="forum" title="Conversations">
+      <gb-skeleton width="60%" height="0.8125rem" />
+    </gb-panel>
+  } @else if (error(); as failure) {
+    <div class="blank">
+      <mat-icon class="blank__icon">
+        {{ failure.status === 404 ? 'folder_off' : 'cloud_off' }}
+      </mat-icon>
+      <p class="blank__title">
+        {{ failure.status === 404 ? 'Project not found' : 'Could not load this project' }}
+      </p>
+      <p class="blank__text">
+        {{
+          failure.status === 404 ? 'It may have been deleted in another window.' : describe(failure)
+        }}
+      </p>
+      <div class="blank__actions">
+        <a matButton routerLink="/projects">All projects</a>
+        @if (failure.status !== 404) {
+          <button matButton="filled" (click)="load(projectId())">
+            <mat-icon>refresh</mat-icon>
+            Try again
+          </button>
+        }
+      </div>
+    </div>
+  } @else if (project(); as current) {
+    <header class="view__head">
+      <div class="head__text">
+        <h1 class="view__title">{{ current.name }}</h1>
+        <p class="view__subtitle">
+          @if (current.description) {
+            {{ current.description }}
+          } @else {
+            <span class="unset">No description</span>
+          }
+        </p>
+      </div>
+
+      <div class="head__actions">
+        <a matButton="filled" routerLink="/chats/new" [queryParams]="{ projectId: current.id }">
+          <mat-icon>edit_square</mat-icon>
+          New chat
+        </a>
+
+        <button matIconButton [matMenuTriggerFor]="menu" aria-label="More actions for this project">
+          <mat-icon>more_vert</mat-icon>
+        </button>
+      </div>
+
+      <mat-menu #menu>
+        <button mat-menu-item (click)="edit()">
+          <mat-icon>edit</mat-icon>
+          <span>Edit</span>
+        </button>
+        <button mat-menu-item (click)="load(projectId())">
+          <mat-icon>refresh</mat-icon>
+          <span>Reload</span>
+        </button>
+        <button mat-menu-item class="danger" (click)="remove()">
+          <mat-icon>delete</mat-icon>
+          <span>Delete project</span>
+        </button>
+      </mat-menu>
+    </header>
+
+    @if (contents(); as held) {
+      <gb-panel
+        icon="forum"
+        title="Conversations"
+        [subtitle]="
+          held.chatTotal ? held.chatTotal + (held.chatTotal === 1 ? ' chat' : ' chats') : undefined
+        "
+        flush
+      >
+        @if (!chats().length) {
+          <div class="blank blank--compact">
+            <p class="blank__title">No conversations in this project</p>
+            <p class="blank__text">
+              Start one here, or file an existing chat under this project from its details.
+            </p>
+            <a matButton routerLink="/chats/new" [queryParams]="{ projectId: current.id }">
+              <mat-icon>edit_square</mat-icon>
+              New chat
+            </a>
+          </div>
+        } @else {
+          <ul class="rows">
+            @for (entry of chats(); track entry.chat.id) {
+              <li class="row">
+                <a class="row__main" [routerLink]="['/chats', entry.chat.id]">
+                  <mat-icon class="row__icon">chat_bubble</mat-icon>
+                  <span class="row__text">
+                    <span class="row__name" [class.unset]="entry.untitled">{{ entry.title }}</span>
+                    <span class="row__desc">
+                      @if (entry.owner) {
+                        {{ entry.owner }}
+                      } @else {
+                        <span class="unset">Owner deleted</span>
+                      }
+                    </span>
+                  </span>
+                  <time
+                    class="row__time"
+                    [attr.datetime]="entry.chat.updatedAt"
+                    [title]="entry.chat.updatedAt"
+                  >
+                    {{ entry.chat.updatedAt | relativeTime }}
+                  </time>
+                </a>
+              </li>
+            }
+          </ul>
+          @if (held.chatTotal > chats().length) {
+            <p class="more">
+              Showing the {{ chats().length }} most recent of {{ held.chatTotal }}.
+            </p>
+          }
+        }
+      </gb-panel>
+
+      <gb-panel
+        icon="inventory_2"
+        title="Artifacts"
+        [subtitle]="
+          held.artifactTotal
+            ? held.artifactTotal + (held.artifactTotal === 1 ? ' artifact' : ' artifacts')
+            : undefined
+        "
+        flush
+      >
+        @if (!artifacts().length) {
+          <div class="blank blank--compact">
+            <p class="blank__title">Nothing produced yet</p>
+            <p class="blank__text">
+              Documents, code and files that agents produce in this project’s conversations are kept
+              here.
+            </p>
+          </div>
+        } @else {
+          <ul class="rows">
+            @for (entry of artifacts(); track entry.artifact.id) {
+              <li class="row">
+                <a class="row__main" [routerLink]="['/artifacts', entry.artifact.id]">
+                  <mat-icon class="row__icon">{{ entry.icon }}</mat-icon>
+                  <span class="row__text">
+                    <span class="row__name">{{ entry.artifact.title }}</span>
+                    <span class="row__desc">
+                      {{ entry.artifact.type }}
+                      @if (entry.artifact.mimeType) {
+                        · <span class="mono">{{ entry.artifact.mimeType }}</span>
+                      }
+                    </span>
+                  </span>
+                  <span class="row__counts mono">v{{ entry.artifact.version }}</span>
+                  <time
+                    class="row__time"
+                    [attr.datetime]="entry.artifact.updatedAt"
+                    [title]="entry.artifact.updatedAt"
+                  >
+                    {{ entry.artifact.updatedAt | relativeTime }}
+                  </time>
+                </a>
+              </li>
+            }
+          </ul>
+          @if (held.artifactTotal > artifacts().length) {
+            <p class="more">
+              Showing the {{ artifacts().length }} most recent of {{ held.artifactTotal }}.
+            </p>
+          }
+        }
+      </gb-panel>
+    }
+  }
+</div>
