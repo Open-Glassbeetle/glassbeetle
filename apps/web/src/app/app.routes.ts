@@ -1,15 +1,15 @@
 import { Routes } from '@angular/router';
 
 /**
- * Every surface is lazily loaded. The shell and the overview are what the
- * window opens on; there is no reason for the agent editor's forms to be in
- * that bundle.
+ * Every surface is lazily loaded. The shell and an empty conversation are what
+ * the window opens on; there is no reason for the agent editor's forms to be
+ * in that bundle.
  */
 export const routes: Routes = [
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'overview',
+    redirectTo: 'chats/new',
   },
   {
     path: 'overview',
@@ -31,6 +31,13 @@ export const routes: Routes = [
     path: 'chats',
     title: 'Chats · Glassbeetle',
     loadComponent: () => import('./features/chats/chat-list/chat-list').then((m) => m.ChatList),
+  },
+  {
+    // Declared ahead of `chats/:chatId`, which would otherwise read `new` as
+    // an identifier.
+    path: 'chats/new',
+    title: 'New chat · Glassbeetle',
+    loadComponent: () => import('./features/chats/chat-new/chat-new').then((m) => m.ChatNew),
   },
   {
     path: 'chats/:chatId',

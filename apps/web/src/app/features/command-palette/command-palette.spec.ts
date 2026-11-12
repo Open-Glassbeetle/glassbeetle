@@ -111,8 +111,10 @@ describe('Command palette active result', () => {
     agents: object[] = [],
     prompts: object[] = [],
     memories: object[] = [],
+    chats: object[] = [],
   ): void {
     for (const [path, items] of [
+      ['/chats', chats],
       ['/agents', agents],
       ['/system-prompts', prompts],
       ['/memories', memories],
@@ -129,7 +131,7 @@ describe('Command palette active result', () => {
   }
 
   it('names the first visible option on opening, with unique nonempty option ids', () => {
-    expectActive(option('Overview'));
+    expectActive(option('New chat'));
     const ids = options().map((element) => element.id);
     expect(ids.every(Boolean)).toBe(true);
     expect(new Set(ids).size).toBe(ids.length);
@@ -137,13 +139,13 @@ describe('Command palette active result', () => {
 
   it('keeps the active descendant and input focus in sync with arrow navigation and wrapping', async () => {
     expect((await key('ArrowDown')).defaultPrevented).toBe(true);
-    expectActive(option('Agents'));
+    expectActive(option('Chats'));
+    await key('ArrowUp');
+    expectActive(option('New chat'));
     await key('ArrowUp');
     expectActive(option('Overview'));
-    await key('ArrowUp');
-    expectActive(option('System prompts'));
     await key('ArrowDown');
-    expectActive(option('Overview'));
+    expectActive(option('New chat'));
     expect(document.activeElement).toBe(input);
   });
 
@@ -158,7 +160,7 @@ describe('Command palette active result', () => {
     expectActive(option('Shared memory'));
     await type('');
     expect(option('Shared memory').id).toBe(id);
-    expectActive(option('Overview'));
+    expectActive(option('New chat'));
   });
 
   it('uses named option groups and keeps headings and options out of the tab order', () => {
@@ -189,7 +191,7 @@ describe('Command palette active result', () => {
     await key('ArrowDown');
     expect((await key('Enter')).defaultPrevented).toBe(true);
     expect(close).toHaveBeenCalledOnce();
-    expect(navigate).toHaveBeenCalledWith(['/agents']);
+    expect(navigate).toHaveBeenCalledWith(['/chats']);
   });
 
   it('omits the active descendant for empty results, including arrow and Enter input', async () => {
@@ -203,7 +205,7 @@ describe('Command palette active result', () => {
     expect(close).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     await type('');
-    expectActive(option('Overview'));
+    expectActive(option('New chat'));
   });
 
   it('omits the active descendant while loading hides otherwise matching navigation', async () => {
@@ -260,7 +262,7 @@ describe('Command palette active result', () => {
   });
 
   it('removes the reference when the dialog starts closing, while its input still exists', async () => {
-    expectActive(option('Overview'));
+    expectActive(option('New chat'));
     closing.next();
     await render();
     expect(root.contains(input)).toBe(true);
@@ -272,8 +274,28 @@ describe('Command palette active result', () => {
     scroll.mockClear();
     await key('ArrowUp');
     expect(scroll).toHaveBeenLastCalledWith({ block: 'nearest' });
-    expect(scroll.mock.contexts.at(-1)).toBe(option('System prompts'));
+    expect(scroll.mock.contexts.at(-1)).toBe(option('Overview'));
     expect(document.activeElement).toBe(input);
+  });
+
+  it('finds conversations by title and opens the one chosen', async () => {
+    await type('needle');
+    await startSearch();
+    answerSearch(
+      [],
+      [],
+      [],
+      [
+        { id: 'c1', title: 'Needle in the lexer' },
+        { id: 'c2', title: null },
+      ],
+    );
+    await render();
+    // An untitled chat is still a result, named the way the rest of the app names it.
+    expect(options().map((element) => element.id)).toHaveLength(2);
+    expectActive(option('Needle in the lexer'));
+    await key('Enter');
+    expect(navigate).toHaveBeenCalledWith(['/chats', 'c1']);
   });
 
   it('leaves Escape handling to the dialog', async () => {

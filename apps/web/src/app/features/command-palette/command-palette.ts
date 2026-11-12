@@ -15,6 +15,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { combineLatest, catchError, map, of } from 'rxjs';
 
 import { AgentsService } from '../../core/api/agents.service';
+import { titleOf } from '../../core/api/chats.models';
+import { ChatsService } from '../../core/api/chats.service';
 import { SharedMemoriesService } from '../../core/api/memories.service';
 import { SystemPromptsService } from '../../core/api/system-prompts.service';
 import { Skeleton } from '../../shared/ui/skeleton';
@@ -31,12 +33,28 @@ interface PaletteItem {
 /** Destinations that are always offered, before anything is typed. */
 const NAVIGATION: readonly PaletteItem[] = [
   {
-    id: 'nav:overview',
-    icon: 'space_dashboard',
-    label: 'Overview',
-    hint: 'Workspace status and recent changes',
+    id: 'nav:new-chat',
+    icon: 'edit_square',
+    label: 'New chat',
+    hint: 'Start a conversation with an agent or a team',
     group: 'Go to',
-    link: ['/overview'],
+    link: ['/chats/new'],
+  },
+  {
+    id: 'nav:chats',
+    icon: 'forum',
+    label: 'Chats',
+    hint: 'Every conversation',
+    group: 'Go to',
+    link: ['/chats'],
+  },
+  {
+    id: 'nav:projects',
+    icon: 'folder',
+    label: 'Projects',
+    hint: 'Conversations and artifacts, by piece of work',
+    group: 'Go to',
+    link: ['/projects'],
   },
   {
     id: 'nav:agents',
@@ -47,12 +65,20 @@ const NAVIGATION: readonly PaletteItem[] = [
     link: ['/agents'],
   },
   {
-    id: 'nav:chats',
-    icon: 'forum',
-    label: 'Chats',
-    hint: 'Conversations with agents and teams',
+    id: 'nav:artifacts',
+    icon: 'inventory_2',
+    label: 'Artifacts',
+    hint: 'What agents produced',
     group: 'Go to',
-    link: ['/chats'],
+    link: ['/artifacts'],
+  },
+  {
+    id: 'nav:teams',
+    icon: 'groups',
+    label: 'Teams',
+    hint: 'Agents that take turns in one chat',
+    group: 'Go to',
+    link: ['/teams'],
   },
   {
     id: 'nav:memory',
@@ -69,6 +95,14 @@ const NAVIGATION: readonly PaletteItem[] = [
     hint: 'Reusable instruction templates',
     group: 'Go to',
     link: ['/prompts'],
+  },
+  {
+    id: 'nav:overview',
+    icon: 'space_dashboard',
+    label: 'Overview',
+    hint: 'Workspace status and recent changes',
+    group: 'Go to',
+    link: ['/overview'],
   },
 ];
 
@@ -88,6 +122,7 @@ const NAVIGATION: readonly PaletteItem[] = [
 })
 export class CommandPalette {
   private readonly agents = inject(AgentsService);
+  private readonly chats = inject(ChatsService);
   private readonly memories = inject(SharedMemoriesService);
   private readonly prompts = inject(SystemPromptsService);
   private readonly router = inject(Router);
@@ -209,7 +244,7 @@ export class CommandPalette {
     return this.items().indexOf(item);
   }
 
-  /** Item ids already include their collection (nav, agent, prompt or memory). */
+  /** Item ids already include their collection (nav, chat, agent, prompt or memory). */
   protected optionId(item: PaletteItem): string {
     return `palette-option-${item.id}`;
   }
@@ -218,6 +253,20 @@ export class CommandPalette {
     const page = { limit: 5, search: term };
 
     return combineLatest([
+      // Conversations first: they are what is most often being looked for.
+      this.chats.list({ ...page, sort: 'updatedAt', order: 'desc' }).pipe(
+        map((result) =>
+          result.items.map((chat): PaletteItem => ({
+            id: `chat:${chat.id}`,
+            icon: 'chat_bubble',
+            label: titleOf(chat),
+            hint: null,
+            group: 'Chats',
+            link: ['/chats', chat.id],
+          })),
+        ),
+        catchError(() => of([] as PaletteItem[])),
+      ),
       this.agents.list({ ...page, sort: 'name', order: 'asc' }).pipe(
         map((result) =>
           result.items.map((agent): PaletteItem => ({

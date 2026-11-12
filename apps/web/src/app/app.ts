@@ -20,12 +20,13 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
 
-import { readinessOf } from './core/agents/agent-readiness';
 import { DesktopService, type ShellAction } from './core/desktop/desktop.service';
 import { CapabilitiesService } from './core/platform/capabilities.service';
 import { ApiStatusService } from './features/api-status/api-status.service';
 import { ThemeService } from './core/theme/theme.service';
 import { AgentRosterService } from './core/workspace/agent-roster.service';
+import { ConversationsService } from './core/workspace/conversations.service';
+import { ModelCatalogService } from './core/workspace/model-catalog.service';
 import { UserProfileService } from './core/workspace/user-profile.service';
 import { SpendService } from './core/workspace/spend.service';
 import { CommandPalette } from './features/command-palette/command-palette';
@@ -34,18 +35,13 @@ import { FleetStatus } from './features/chrome/fleet-status/fleet-status';
 import { WindowControls } from './features/chrome/window-controls/window-controls';
 import { SpendMeter } from './features/chrome/spend-meter/spend-meter';
 import { WorkspaceMenu } from './features/chrome/workspace-menu/workspace-menu';
-import { AgentAvatar } from './features/agents/agent-avatar/agent-avatar';
+import {
+  ConversationRail,
+  PRIMARY_LINKS,
+  WORKSPACE_LINKS,
+} from './features/chrome/conversation-rail/conversation-rail';
+import { titleOf } from './core/api/chats.models';
 import { Avatar } from './shared/ui/avatar';
-import { ReadinessBadge } from './shared/ui/readiness-badge';
-import { Skeleton } from './shared/ui/skeleton';
-
-interface NavItem {
-  readonly path: string;
-  readonly label: string;
-  readonly icon: string;
-  /** The digit this surface answers to, with the platform's command key. */
-  readonly shortcut: string;
-}
 
 interface Crumb {
   readonly label: string;
@@ -56,29 +52,27 @@ interface Crumb {
 const WIDE_LAYOUT = '(min-width: 62rem)';
 
 /**
- * The workspace shell: a top bar, a persistent rail carrying both navigation
- * and the agent roster, and the routed surface.
+ * The workspace shell: the deck along the top, a persistent rail carrying the
+ * conversations, and the routed surface.
  *
- * The roster lives in the rail rather than only on the agents page so the
- * agents are present on every screen — they are the actors the workspace is
- * about, not one section of it.
+ * The conversations live in the rail rather than only on their own page so
+ * they are present on every screen. They are the work; everything else in the
+ * workspace exists to configure who that work is done with.
  */
 @Component({
   selector: 'app-root',
   imports: [
-    AgentAvatar,
     Avatar,
+    ConversationRail,
     FleetSpine,
     FleetStatus,
     MatButtonModule,
     MatDialogModule,
     MatIconModule,
     MatTooltipModule,
-    ReadinessBadge,
     RouterLink,
     RouterLinkActive,
     RouterOutlet,
-    Skeleton,
     SpendMeter,
     WindowControls,
     WorkspaceMenu,
@@ -94,32 +88,26 @@ export class App implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly mainContent = viewChild<ElementRef<HTMLElement>>('mainContent');
 
-  protected readonly roster = inject(AgentRosterService);
+  private readonly roster = inject(AgentRosterService);
+  private readonly conversations = inject(ConversationsService);
+  private readonly models = inject(ModelCatalogService);
   protected readonly user = inject(UserProfileService);
   private readonly spend = inject(SpendService);
   private readonly capabilities = inject(CapabilitiesService);
   protected readonly desktop = inject(DesktopService);
   private readonly status = inject(ApiStatusService);
 
-  protected readonly navItems: readonly NavItem[] = [
-    { path: '/overview', label: 'Overview', icon: 'space_dashboard', shortcut: '1' },
-    { path: '/agents', label: 'Agents', icon: 'graph_3', shortcut: '2' },
-    { path: '/teams', label: 'Teams', icon: 'groups', shortcut: '3' },
-    { path: '/chats', label: 'Chats', icon: 'forum', shortcut: '4' },
-    { path: '/memory', label: 'Shared memory', icon: 'database', shortcut: '5' },
-    { path: '/prompts', label: 'System prompts', icon: 'article', shortcut: '6' },
-  ];
-
   /**
-   * Surfaces reached from the window chrome rather than from the rail.
+   * Every surface the trail can name: the rail's own, plus the ones reached
+   * from the window chrome rather than from the rail.
    *
-   * The trail names where you are, so it has to know about them — otherwise
-   * the profile reads as "Workspace", which is the fallback for a route the
-   * chrome does not recognise.
+   * Without the latter the profile would read as "Workspace", which is the
+   * fallback for a route the chrome does not recognise.
    */
-  private readonly chromeSurfaces: readonly Crumb[] = [
+  private readonly surfaces: readonly Crumb[] = [
+    ...PRIMARY_LINKS,
+    ...WORKSPACE_LINKS,
     { label: 'Profile', path: '/profile' },
-    { label: 'Spending', path: '/budget' },
   ];
 
   protected readonly wideLayout = toSignal(
@@ -160,49 +148,32 @@ export class App implements OnInit {
   /**
    * Where the user is, in the workspace's own words.
    *
-   * An agent's trail shows its name rather than its id, resolved from the
-   * roster the rail has already loaded — which is the one thing a title bar is
+   * A chat's trail shows its title and an agent's its name, both resolved from
+   * what the shell already holds — which is the one thing a title bar is
    * genuinely for, and what makes the chrome feel part of the app rather than
    * a frame around it.
    */
   protected readonly trail = computed<readonly Crumb[]>(() => {
     const url = this.url().split('?')[0] ?? '';
     const segments = url.split('/').filter(Boolean);
+    const [section, id] = segments;
 
-    if (segments.length === 0) {
-      return [{ label: 'Overview', path: '/overview' }];
+    if (!section) {
+      return [{ label: 'Chats', path: '/chats' }];
     }
 
-    const root = `/${segments[0]}`;
-    const item =
-      this.navItems.find((entry) => entry.path === root) ??
-      this.chromeSurfaces.find((entry) => entry.path === root);
+    const root = `/${section}`;
+    const item = this.surfaces.find((entry) => entry.path === root);
     const head: Crumb = {
       label: item?.label ?? 'Workspace',
-      path: item?.path ?? '/overview',
+      path: item?.path ?? '/chats/new',
     };
 
-    if (segments.length < 2) {
+    if (!id) {
       return [head];
     }
 
-    if (segments[0] === 'agents') {
-      const agent = this.roster.agents().find((entry) => entry.id === segments[1]);
-      return [head, { label: agent?.name ?? 'Agent', path: url }];
-    }
-
-    // A team's name is not held by the shell, so the trail says what kind of
-    // thing you are looking at rather than inventing a name it cannot know.
-    if (segments[0] === 'teams') {
-      return [head, { label: 'Team', path: url }];
-    }
-
-    // The same for a chat, which may not have a title at all.
-    if (segments[0] === 'chats') {
-      return [head, { label: 'Chat', path: url }];
-    }
-
-    return [head];
+    return [head, { label: this.nameOf(section, id), path: url }];
   });
 
   protected readonly themeMode = this.theme.mode;
@@ -221,15 +192,6 @@ export class App implements OnInit {
     ? '⌘'
     : 'Ctrl+';
 
-  protected readonly rosterEntries = computed(() => {
-    const context = { modelsAvailable: this.capabilities.modelsAvailable() };
-
-    return this.roster.agents().map((agent) => ({
-      agent,
-      readiness: readinessOf(agent, context),
-    }));
-  });
-
   constructor() {
     // Follow the window: a rail beside the content is right when there is room
     // and wrong when there is not.
@@ -244,19 +206,16 @@ export class App implements OnInit {
 
     // The reachability poll runs on its own. When it reports the API back
     // after an outage, the workspace reads that failed while it was away are
-    // stale: re-read them once on the transition rather than polling all five
-    // continuously, which would be four times the traffic for data that changes
-    // when the user changes it. Coming back up from `checking` is startup, not
-    // a transition, because `ngOnInit` has already asked for all four.
+    // stale: re-read them once on the transition rather than polling them all
+    // continuously, which would be several times the traffic for data that
+    // changes when the user changes it. Coming back up from `checking` is
+    // startup, not a transition, because `ngOnInit` has already asked.
     let previousState = this.status.state();
     effect(() => {
       const state = this.status.state();
 
       if (previousState === 'offline' && (state === 'online' || state === 'degraded')) {
-        this.capabilities.probe();
-        this.roster.refresh();
-        this.user.refresh();
-        this.spend.refresh();
+        this.refreshWorkspace();
       }
 
       previousState = state;
@@ -295,22 +254,61 @@ export class App implements OnInit {
   }
 
   ngOnInit(): void {
-    // The shell owns the workspace-wide reads: the deck shows all three, and a
-    // screen that wanted them again would be fetching what is already on
-    // screen.
+    // The shell owns the workspace-wide reads: the deck and the rail show
+    // them, and a screen that wanted them again would be fetching what is
+    // already on screen.
     this.status.refresh();
+    this.refreshWorkspace();
+    void this.desktop.connect();
+  }
+
+  /** Reads everything the shell holds for the screens below it. */
+  private refreshWorkspace(): void {
     this.capabilities.probe();
     this.roster.refresh();
+    this.conversations.refresh();
+    this.models.refresh();
     this.user.refresh();
     this.spend.refresh();
-    void this.desktop.connect();
+  }
+
+  /**
+   * What to call the thing a detail route is showing.
+   *
+   * Named from what the shell already holds where it can be; otherwise the
+   * trail says what kind of thing it is rather than inventing a name.
+   */
+  private nameOf(section: string, id: string): string {
+    switch (section) {
+      case 'chats': {
+        if (id === 'new') {
+          return 'New chat';
+        }
+
+        const chat = this.conversations.chats().find((entry) => entry.id === id);
+        return chat ? titleOf(chat) : 'Chat';
+      }
+      case 'agents':
+        return this.roster.agents().find((entry) => entry.id === id)?.name ?? 'Agent';
+      case 'projects':
+        return this.conversations.projectName(id) ?? 'Project';
+      case 'teams':
+        return this.conversations.teamName(id) ?? 'Team';
+      case 'artifacts':
+        return 'Artifact';
+      default:
+        return 'Workspace';
+    }
   }
 
   /** Carries out a shell action, wherever it was triggered from. */
   private runAction(action: ShellAction): void {
     switch (action) {
       // The create flows are addressable routes rather than dialogs opened
-      // from here, which is the same path the rail's "New agent" takes.
+      // from here, which is the same path a link in the rail takes.
+      case 'new-chat':
+        void this.router.navigate(['/chats/new']);
+        break;
       case 'new-agent':
         void this.router.navigate(['/agents'], { queryParams: { new: 1 } });
         break;
@@ -333,6 +331,12 @@ export class App implements OnInit {
       case 'go-chats':
         void this.router.navigate(['/chats']);
         break;
+      case 'go-projects':
+        void this.router.navigate(['/projects']);
+        break;
+      case 'go-artifacts':
+        void this.router.navigate(['/artifacts']);
+        break;
       case 'go-memory':
         void this.router.navigate(['/memory']);
         break;
@@ -352,10 +356,7 @@ export class App implements OnInit {
 
       case 'refresh':
         this.status.refresh();
-        this.capabilities.probe();
-        this.roster.refresh();
-        this.user.refresh();
-        this.spend.refresh();
+        this.refreshWorkspace();
         break;
     }
   }
@@ -400,6 +401,8 @@ export class App implements OnInit {
 
     if (event.shiftKey) {
       switch (key) {
+        case 'a':
+          return 'new-agent';
         case 'm':
           return 'new-memory';
         case 'p':
@@ -416,20 +419,27 @@ export class App implements OnInit {
         return 'search';
       case 'b':
         return 'toggle-sidebar';
+      // Starting a conversation is the thing done most, so it gets the key
+      // every app gives to "new".
       case 'n':
-        return 'new-agent';
+        return 'new-chat';
+      // The digits follow the rail from top to bottom.
       case '1':
-        return 'go-overview';
-      case '2':
-        return 'go-agents';
-      case '3':
-        return 'go-teams';
-      case '4':
         return 'go-chats';
+      case '2':
+        return 'go-projects';
+      case '3':
+        return 'go-agents';
+      case '4':
+        return 'go-artifacts';
       case '5':
-        return 'go-memory';
+        return 'go-teams';
       case '6':
+        return 'go-memory';
+      case '7':
         return 'go-prompts';
+      case '8':
+        return 'go-overview';
       default:
         return null;
     }

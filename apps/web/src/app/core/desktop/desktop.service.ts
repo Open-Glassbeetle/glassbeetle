@@ -19,6 +19,7 @@ const READY_EVENT = 'glassbeetle://ready';
  * was reached. Ids shared with Rust are kept in step with `menu.rs`.
  */
 export type ShellAction =
+  | 'new-chat'
   | 'new-agent'
   | 'new-memory'
   | 'new-prompt'
@@ -27,6 +28,8 @@ export type ShellAction =
   | 'go-agents'
   | 'go-teams'
   | 'go-chats'
+  | 'go-projects'
+  | 'go-artifacts'
   | 'go-memory'
   | 'go-prompts'
   | 'search'

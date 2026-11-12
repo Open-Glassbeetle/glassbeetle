@@ -23,12 +23,12 @@ import type { Team } from '../../../core/api/teams.models';
 import { TeamsService } from '../../../core/api/teams.service';
 import { NotificationService } from '../../../core/notifications/notification.service';
 import { AgentRosterService } from '../../../core/workspace/agent-roster.service';
+import { ConversationsService } from '../../../core/workspace/conversations.service';
 import { confirm } from '../../../shared/confirm-dialog/confirm-dialog';
 import { ListState } from '../../../shared/list-state/list-state';
 import { RelativeTimePipe } from '../../../shared/relative-time/relative-time.pipe';
 import { Panel } from '../../../shared/ui/panel';
 import { Skeleton } from '../../../shared/ui/skeleton';
-import { ChatCreateDialog, type ChatCreateData } from '../chat-create/chat-create-dialog';
 import { ChatRenameDialog, type ChatRenameData } from '../chat-rename/chat-rename-dialog';
 
 /** The value the API expects to select rows whose foreign key is NULL. */
@@ -61,6 +61,9 @@ type OwnerFilter = { readonly agentId?: string; readonly teamId?: string };
  *
  * `?agentId=` / `?teamId=` preselect the filter, which is how an agent's or a
  * team's page links to the conversations that belong to it.
+ *
+ * The sidebar already lists the recent conversations; this is the whole
+ * collection, for finding an old one and for renaming and deleting in bulk.
  */
 @Component({
   selector: 'app-chat-list',
@@ -87,6 +90,7 @@ export class ChatList {
   private readonly notify = inject(NotificationService);
   private readonly router = inject(Router);
   private readonly roster = inject(AgentRosterService);
+  private readonly conversations = inject(ConversationsService);
 
   /** Bound from `?new=1`, the same way the other create flows are reached. */
   readonly new = input<string>();
@@ -189,9 +193,10 @@ export class ChatList {
     });
 
     effect(() => {
+      // `?new=1` is how the other collections open their create flow; here
+      // it leads to the screen that starts a conversation.
       if (this.new()) {
-        this.clearNewFlag();
-        this.create();
+        this.create(true);
       }
     });
   }
@@ -232,18 +237,17 @@ export class ChatList {
     this.clearFilter();
   }
 
-  /** Opens the create dialog, pre-pointed at whoever the list is filtered to. */
-  protected create(): void {
-    const ref = this.dialog.open<ChatCreateDialog, ChatCreateData, Chat>(ChatCreateDialog, {
-      data: { defaultOwner: this.selectedOwner() },
-    });
+  /**
+   * Goes to the new-chat screen, pre-pointed at whoever the list is filtered
+   * to. A chat is created by saying something in it, so there is one place
+   * that happens rather than a dialog here that made an empty one.
+   */
+  protected create(replaceUrl = false): void {
+    const owner = this.selectedOwner();
 
-    ref.afterClosed().subscribe((chat) => {
-      if (chat) {
-        // Straight to the chat: it is empty at this moment, and the list would
-        // mean finding the row that was just created.
-        void this.router.navigate(['/chats', chat.id]);
-      }
+    void this.router.navigate(['/chats/new'], {
+      queryParams: owner ? { [owner.kind === 'agent' ? 'agentId' : 'teamId']: owner.id } : {},
+      replaceUrl,
     });
   }
 
@@ -255,6 +259,7 @@ export class ChatList {
     ref.afterClosed().subscribe((updated) => {
       if (updated) {
         this.list.reload();
+        this.conversations.upsert(updated);
       }
     });
   }
@@ -277,6 +282,7 @@ export class ChatList {
       await firstValueFrom(this.chats.remove(chat.id));
       this.notify.success('Chat deleted.');
       this.list.reloadAfterRemoval();
+      this.conversations.drop(chat.id);
     } catch (error) {
       this.notify.error(error, 'Could not delete the chat.');
     }
@@ -329,14 +335,5 @@ export class ChatList {
     }
 
     return owner.kind === 'agent' ? { agentId: owner.id } : { teamId: owner.id };
-  }
-
-  /** Drops `?new=1` so a reload does not reopen the dialog. */
-  private clearNewFlag(): void {
-    void this.router.navigate([], {
-      queryParams: { new: null },
-      queryParamsHandling: 'merge',
-      replaceUrl: true,
-    });
   }
 }

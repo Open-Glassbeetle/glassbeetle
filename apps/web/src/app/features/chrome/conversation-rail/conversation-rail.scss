@@ -1,0 +1,506 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+@mixin focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -2px;
+  }
+}
+
+/* ── Starting a conversation ─────────────────────────────────────────── */
+
+.start {
+  flex: none;
+  padding: 0.5rem 0.5rem 0.25rem;
+}
+
+/* The one filled control in the rail. Everything else here is a place to go;
+   this is the thing to do. */
+.start__button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2rem;
+  padding: 0 0.375rem 0 0.625rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 7px;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    border-color 110ms var(--gb-ease),
+    background-color 110ms var(--gb-ease);
+
+  &:hover {
+    border-color: var(--mat-sys-outline);
+    background: var(--mat-sys-surface-container-highest);
+  }
+
+  &--active {
+    border-color: color-mix(in srgb, var(--mat-sys-primary) 55%, transparent);
+  }
+
+  @include focus-ring;
+}
+
+.start__icon {
+  flex: none;
+  font-size: 1rem;
+  width: 1rem;
+  height: 1rem;
+  color: var(--mat-sys-primary);
+}
+
+.start__label {
+  flex: 1;
+}
+
+.start__key {
+  flex: none;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 4px;
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+}
+
+/* ── Places ──────────────────────────────────────────────────────────── */
+
+.places,
+.workspace__list,
+.group__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.places {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  flex: none;
+  padding: 0.25rem 0.375rem 0.5rem;
+}
+
+.place {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.5rem;
+  border-radius: 6px;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.8125rem;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--mat-sys-surface-container);
+    color: var(--mat-sys-on-surface);
+  }
+
+  &--active {
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface);
+    font-weight: 500;
+  }
+
+  /* The secondary destinations: same shape, a step down in weight. */
+  &--quiet {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    font-size: 0.78125rem;
+  }
+
+  @include focus-ring;
+}
+
+.place__icon {
+  flex: none;
+  font-size: 1.0625rem;
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+
+.place--quiet .place__icon {
+  font-size: 0.9375rem;
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+/* ── Conversations ───────────────────────────────────────────────────── */
+
+.chats {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.chats__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: none;
+  padding: 0.625rem 0.875rem 0.375rem;
+}
+
+.chats__title,
+.workspace__label {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chats__count {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.6875rem;
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: none;
+  margin: 0 0.5rem 0.375rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 6px;
+  background: var(--mat-sys-surface-container-lowest);
+
+  &:focus-within {
+    border-color: var(--mat-sys-primary);
+  }
+}
+
+.filter__icon {
+  flex: none;
+  font-size: 0.875rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.filter__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3125rem 0;
+  border: 0;
+  background: none;
+  color: var(--mat-sys-on-surface);
+  font: inherit;
+  font-size: 0.75rem;
+  outline: none;
+
+  &::placeholder {
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  &::-webkit-search-cancel-button {
+    display: none;
+  }
+}
+
+.chats__scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 0 0.375rem 0.5rem;
+  overflow-y: auto;
+}
+
+.chats__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 0.375rem 0.5rem;
+}
+
+.chats__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.chats__empty {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.chats__retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mat-sys-primary);
+  font: inherit;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.chats__all {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.375rem;
+  padding: 0.3125rem 0.5rem;
+  border-radius: 6px;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+  text-decoration: none;
+
+  &:hover {
+    color: var(--mat-sys-primary);
+  }
+
+  mat-icon {
+    font-size: 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  @include focus-ring;
+}
+
+/* ── A group of conversations ────────────────────────────────────────── */
+
+.group + .group {
+  margin-top: 0.375rem;
+}
+
+.group__head {
+  display: flex;
+  align-items: center;
+}
+
+.group__toggle,
+.workspace__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.1875rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.25rem 0.375rem 0.25rem 0.1875rem;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--mat-sys-on-surface-variant);
+  font: inherit;
+  font-size: 0.6875rem;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--mat-sys-on-surface);
+  }
+
+  @include focus-ring;
+}
+
+.group__chevron {
+  flex: none;
+  font-size: 0.875rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  transition: transform 120ms var(--gb-ease);
+
+  &--closed {
+    transform: rotate(-90deg);
+  }
+}
+
+.group__folder {
+  flex: none;
+  font-size: 0.8125rem;
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+.group__label {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group__open {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 4px;
+  color: var(--mat-sys-on-surface-variant);
+  opacity: 0;
+
+  .group__head:hover &,
+  &:focus-visible {
+    opacity: 1;
+  }
+
+  &:hover {
+    color: var(--mat-sys-primary);
+  }
+
+  mat-icon {
+    font-size: 0.8125rem;
+    width: 0.8125rem;
+    height: 0.8125rem;
+  }
+
+  @include focus-ring;
+
+  @media (hover: none) {
+    opacity: 1;
+  }
+}
+
+/* ── One conversation ────────────────────────────────────────────────── */
+
+.chat {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.5rem 0.3125rem 0.625rem;
+  border-radius: 6px;
+  color: var(--mat-sys-on-surface-variant);
+  text-decoration: none;
+
+  &:hover {
+    background: var(--mat-sys-surface-container);
+  }
+
+  &--active {
+    background: var(--mat-sys-surface-container-high);
+
+    /* The open conversation is marked on the rail's own edge, so it is found
+       by position as well as by tone. */
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0.375rem auto 0.375rem 0;
+      width: 2px;
+      border-radius: 2px;
+      background: var(--mat-sys-primary);
+    }
+  }
+
+  @include focus-ring;
+}
+
+.chat__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat__title {
+  overflow: hidden;
+  color: var(--mat-sys-on-surface);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.chat__kind {
+  flex: none;
+  font-size: 0.75rem;
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.chat__owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__sep,
+.chat__time,
+.chat__working {
+  flex: none;
+}
+
+.chat__sep {
+  color: var(--mat-sys-outline);
+}
+
+.chat__working {
+  color: var(--mat-sys-primary);
+}
+
+/* What the conversation's agent is doing, as one dot: the rail has no room
+   for more, and needs no more. */
+.chat__state {
+  flex: none;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+
+  &--running {
+    background: var(--mat-sys-primary);
+    animation: working 1.4s ease-in-out infinite;
+  }
+
+  &--unseen {
+    background: var(--mat-sys-primary);
+  }
+
+  &--failed {
+    background: var(--gb-attention);
+  }
+}
+
+@keyframes working {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* ── Workspace ───────────────────────────────────────────────────────── */
+
+.workspace {
+  flex: none;
+  padding: 0.25rem 0.375rem 0.375rem;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.workspace__toggle {
+  width: 100%;
+  padding-top: 0.3125rem;
+  padding-bottom: 0.3125rem;
+}
+
+.workspace__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  padding-top: 0.125rem;
+}

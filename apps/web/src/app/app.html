@@ -1,5 +1,5 @@
 <!-- Before the chrome: a keyboard user should be able to step over the whole
-     rail, which grows one entry per agent, and land in the content. -->
+     rail, which grows one entry per conversation, and land in the content. -->
 <a class="skip-link" href="#main-content" (click)="skipToContent()">Skip to main content</a>
 
 <!-- The deck: this app's window chrome. The window is undecorated, so the
@@ -53,12 +53,12 @@
 
     <button
       class="command"
-      matTooltip="Search agents, memory and prompts"
+      matTooltip="Search chats, agents and memory"
       matTooltipPosition="below"
       (click)="openPalette()"
     >
       <mat-icon class="command__icon">search</mat-icon>
-      <span class="command__label">Search agents, memory and prompts</span>
+      <span class="command__label">Search chats, agents and memory</span>
       <kbd class="command__key">{{ commandKey }}K</kbd>
     </button>
 
@@ -110,91 +110,11 @@
   }
 
   <nav class="rail" [class.rail--overlay]="!wideLayout()" aria-label="Workspace">
-    <ul class="rail__nav">
-      @for (item of navItems; track item.path) {
-        <li>
-          <a
-            class="rail__link"
-            [routerLink]="item.path"
-            routerLinkActive="rail__link--active"
-            [matTooltip]="commandKey + item.shortcut"
-            matTooltipPosition="right"
-            (click)="closeRailOnNarrow()"
-          >
-            <mat-icon class="rail__link-icon">{{ item.icon }}</mat-icon>
-            <span class="rail__link-label">{{ item.label }}</span>
-          </a>
-        </li>
-      }
-    </ul>
-
-    <div class="roster">
-      <div class="roster__head">
-        <span class="roster__title">Agents</span>
-        @if (roster.loaded()) {
-          <span class="roster__count mono">
-            {{ roster.readyCount() }}/{{ roster.total() }} ready
-          </span>
-        }
-      </div>
-
-      @if (!roster.loaded()) {
-        <div class="roster__loading">
-          @for (row of [1, 2, 3]; track row) {
-            <div class="roster__skeleton">
-              <gb-skeleton width="1.5rem" height="1.5rem" radius="50%" />
-              <gb-skeleton [width]="row === 2 ? '50%' : '70%'" height="0.75rem" />
-            </div>
-          }
-        </div>
-      } @else if (!roster.total()) {
-        <p class="roster__empty">
-          No agents yet.
-          <a routerLink="/agents" [queryParams]="{ new: 1 }" (click)="closeRailOnNarrow()">
-            Create one</a
-          >.
-        </p>
-      } @else {
-        <ul class="roster__list">
-          @for (entry of rosterEntries(); track entry.agent.id) {
-            <li>
-              <a
-                class="roster__item"
-                [routerLink]="['/agents', entry.agent.id]"
-                routerLinkActive="roster__item--active"
-                [matTooltip]="entry.readiness.detail"
-                matTooltipPosition="right"
-                (click)="closeRailOnNarrow()"
-              >
-                <app-agent-avatar
-                  [name]="entry.agent.name"
-                  [agent]="entry.agent"
-                  size="small"
-                />
-                <span class="roster__name">{{ entry.agent.name }}</span>
-                <gb-readiness-badge [readiness]="entry.readiness" compact />
-              </a>
-            </li>
-          }
-        </ul>
-      }
-    </div>
-
-    <footer class="rail__foot">
-      <a
-        class="rail__new"
-        routerLink="/agents"
-        [queryParams]="{ new: 1 }"
-        [matTooltip]="commandKey + 'N'"
-        matTooltipPosition="right"
-        (click)="closeRailOnNarrow()"
-      >
-        <mat-icon>add</mat-icon>
-        New agent
-      </a>
-    </footer>
+    <app-conversation-rail [commandKey]="commandKey" (navigated)="closeRailOnNarrow()" />
   </nav>
 
+  <!-- The routed surface scrolls as a whole for a page, and not at all for a
+       conversation, which fills it and scrolls its own transcript. -->
   <main #mainContent id="main-content" class="surface" tabindex="-1">
     <router-outlet />
   </main>
