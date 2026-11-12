@@ -6,6 +6,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
 } from '../errors/model-adapter-error.js';
 import { AdapterFactoryService } from '../adapter-factory/adapter-factory.service.js';
 import type { AdapterConfig } from '../types/index.js';
@@ -658,11 +659,57 @@ describe('OllamaAdapter', () => {
         const error = err as ProviderUnavailableError;
         expect(error.message).toContain('Ollama is not running at http://localhost:11434');
         expect(error.message).toContain('connection timed out');
+        expect(error.code).toBe('PROVIDER_UNAVAILABLE');
+        expect(error.statusCode).toBe(503);
       }
+    });
+
+    it('reports a generation timeout as RequestTimeoutError (504), not an unavailable daemon', async () => {
+      const adapter = new OllamaAdapter(defaultOllamaConfig, {
+        connectTimeoutMs: 10_000,
+        generationTimeoutMs: 25,
+      });
+
+      fetchMock.mockImplementationOnce(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              reject(init.signal?.reason);
+            });
+          }),
+      );
+
+      const promise = adapter.complete({
+        messages: [{ role: 'user', content: 'Hi' }],
+      });
+      await expect(promise).rejects.toThrow(RequestTimeoutError);
+      await promise.catch((err: RequestTimeoutError) => {
+        expect(err.code).toBe('REQUEST_TIMEOUT');
+        expect(err.statusCode).toBe(504);
+        expect(err.retryable).toBe(true);
+        expect(err.message).toBe('Ollama generation timed out after 25ms');
+      });
     });
   });
 
   describe('Actionable Local Error Mapping', () => {
+    it('keeps the status mapping when the error body is not Ollama-shaped', async () => {
+      const adapter = new OllamaAdapter(defaultOllamaConfig);
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { message: 'The model does not exist' } }),
+          { status: 404 },
+        ),
+      );
+
+      await expect(
+        adapter.complete({
+          model: 'qwen2.5:14b',
+          messages: [{ role: 'user', content: 'Hi' }],
+        }),
+      ).rejects.toThrow(ModelNotFoundError);
+    });
+
     it('produces actionable error naming the server and URL when connection is refused (ECONNREFUSED)', async () => {
       const adapter = new OllamaAdapter(defaultOllamaConfig);
       const networkError = new TypeError('fetch failed');

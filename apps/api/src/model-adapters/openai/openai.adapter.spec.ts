@@ -7,6 +7,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
   UnsupportedCapabilityError,
 } from '../errors/model-adapter-error.js';
 import { AdapterFactoryService } from '../adapter-factory/adapter-factory.service.js';
@@ -1136,9 +1137,11 @@ describe('OpenAiAdapter', () => {
       const promise = adapter.complete({
         messages: [{ role: 'user', content: 'Hi' }],
       });
-      await expect(promise).rejects.toThrow(ProviderUnavailableError);
-      await promise.catch((err: ProviderUnavailableError) => {
+      await expect(promise).rejects.toThrow(RequestTimeoutError);
+      await promise.catch((err: RequestTimeoutError) => {
         expect(err.message).toContain('timed out after 50ms');
+        expect(err.code).toBe('REQUEST_TIMEOUT');
+        expect(err.statusCode).toBe(504);
         expect(err.retryable).toBe(true);
       });
     });

@@ -7,6 +7,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
   UnsupportedCapabilityError,
 } from '../errors/model-adapter-error.js';
 import type { ModelAdapter } from '../model-adapter.interface.js';
@@ -600,7 +601,7 @@ export class OpenAiAdapter implements ModelAdapter {
       }
 
       if (timedOut) {
-        throw new ProviderUnavailableError(
+        throw new RequestTimeoutError(
           `Request to OpenAI timed out after ${this.timeoutMs}ms`,
           this.config.providerKind,
         );
