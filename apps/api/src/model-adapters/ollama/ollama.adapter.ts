@@ -6,6 +6,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
 } from '../errors/model-adapter-error.js';
 import type { ModelAdapter } from '../model-adapter.interface.js';
 import type {
@@ -536,6 +537,7 @@ export class OllamaAdapter implements ModelAdapter {
     const controller = new AbortController();
     let isConnected = false;
     let connectTimedOut = false;
+    let generationTimedOut = false;
 
     // Fast connection timer: triggers only if connection/headers take too long
     const connectTimer = setTimeout(() => {
@@ -551,6 +553,7 @@ export class OllamaAdapter implements ModelAdapter {
     let generationTimer: ReturnType<typeof setTimeout> | undefined = undefined;
     if (this.generationTimeoutMs > 0) {
       generationTimer = setTimeout(() => {
+        generationTimedOut = true;
         controller.abort(
           new Error(`Ollama generation timed out after ${this.generationTimeoutMs}ms`),
         );
@@ -603,6 +606,15 @@ export class OllamaAdapter implements ModelAdapter {
         );
       }
 
+      // The daemon answered but did not finish within the generation budget:
+      // a timeout (504), not an unavailable provider (503).
+      if (generationTimedOut) {
+        throw new RequestTimeoutError(
+          `Ollama generation timed out after ${this.generationTimeoutMs}ms`,
+          'ollama',
+        );
+      }
+
       const rawMsg = err instanceof Error ? err.message : String(err);
       const lower = rawMsg.toLowerCase();
 
@@ -643,8 +655,8 @@ export class OllamaAdapter implements ModelAdapter {
     let upstreamMessage = `HTTP ${res.status}`;
 
     try {
-      const body = (await res.json()) as { error?: string };
-      if (body?.error) {
+      const body = (await res.json()) as { error?: unknown };
+      if (typeof body?.error === 'string' && body.error) {
         upstreamMessage = body.error;
       }
     } catch {

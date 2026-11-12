@@ -7,6 +7,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
   UnsupportedCapabilityError,
 } from '../errors/model-adapter-error.js';
 import { AdapterFactoryService } from '../adapter-factory/adapter-factory.service.js';
@@ -1166,6 +1167,55 @@ describe('GoogleAdapter', () => {
       );
       expect(adapter.sanitizeUrl(rawUrl1)).not.toContain(secretKey);
       expect(adapter.sanitizeUrl(rawUrl2)).not.toContain(secretKey);
+    });
+  });
+
+  describe('Timeouts', () => {
+    it('rejects with RequestTimeoutError when the provider accepts and never responds', async () => {
+      const adapter = new GoogleAdapter(defaultGoogleConfig, { timeoutMs: 30 });
+      fetchMock.mockImplementationOnce(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              reject(init.signal?.reason);
+            });
+          }),
+      );
+
+      const promise = adapter.complete({
+        messages: [{ role: 'user', content: 'Hi' }],
+      });
+      await expect(promise).rejects.toThrow(RequestTimeoutError);
+      await promise.catch((err: RequestTimeoutError) => {
+        expect(err.code).toBe('REQUEST_TIMEOUT');
+        expect(err.statusCode).toBe(504);
+        expect(err.retryable).toBe(true);
+        expect(err.message).toBe(
+          'Request to Google Gemini timed out after 30ms',
+        );
+      });
+    });
+
+    it('still maps a caller cancellation to RequestAbortedError', async () => {
+      const adapter = new GoogleAdapter(defaultGoogleConfig, {
+        timeoutMs: 10_000,
+      });
+      const caller = new AbortController();
+      fetchMock.mockImplementationOnce(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              reject(init.signal?.reason);
+            });
+          }),
+      );
+
+      const promise = adapter.complete(
+        { messages: [{ role: 'user', content: 'Hi' }] },
+        { signal: caller.signal },
+      );
+      caller.abort();
+      await expect(promise).rejects.toThrow(RequestAbortedError);
     });
   });
 

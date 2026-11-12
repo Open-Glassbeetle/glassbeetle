@@ -7,6 +7,7 @@ import {
   ProviderUnavailableError,
   RateLimitError,
   RequestAbortedError,
+  RequestTimeoutError,
   UnsupportedCapabilityError,
 } from '../errors/model-adapter-error.js';
 import type { ModelAdapter } from '../model-adapter.interface.js';
@@ -718,10 +719,12 @@ export class GoogleAdapter implements ModelAdapter {
     callerSignal?: AbortSignal,
   ): Promise<Response> {
     const controller = new AbortController();
+    let timedOut = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
     if (this.timeoutMs > 0) {
       timeoutId = setTimeout(() => {
+        timedOut = true;
         controller.abort(new Error(`Gemini request timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
     }
@@ -752,6 +755,13 @@ export class GoogleAdapter implements ModelAdapter {
     } catch (err: unknown) {
       if (err instanceof ModelAdapterError) {
         throw err;
+      }
+
+      if (timedOut) {
+        throw new RequestTimeoutError(
+          `Request to Google Gemini timed out after ${this.timeoutMs}ms`,
+          'google',
+        );
       }
 
       if (
