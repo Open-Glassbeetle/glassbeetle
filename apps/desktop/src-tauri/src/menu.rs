@@ -32,8 +32,13 @@ const REPOSITORY_URL: &str = "https://github.com/Open-Glassbeetle/glassbeetle";
 /// Accelerators match what the shell already binds, so the menu reflects the
 /// keyboard rather than competing with it.
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let new_agent = MenuItemBuilder::with_id("new-agent", "New Agent…")
+    // Starting a conversation is what the app is for, so it takes the key every
+    // app gives to "new"; creating an agent moves to Shift.
+    let new_chat = MenuItemBuilder::with_id("new-chat", "New Chat")
         .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let new_agent = MenuItemBuilder::with_id("new-agent", "New Agent…")
+        .accelerator("CmdOrCtrl+Shift+A")
         .build(app)?;
     let search = MenuItemBuilder::with_id("search", "Search Workspace…")
         .accelerator("CmdOrCtrl+K")
@@ -73,6 +78,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     #[allow(unused_mut)]
     let mut workspace = SubmenuBuilder::new(app, "Workspace")
+        .item(&new_chat)
         .item(&new_agent)
         .item(&search)
         .separator()
