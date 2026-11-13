@@ -192,6 +192,11 @@ export class AnthropicAdapter implements ModelAdapter {
     let outputTokens = 0;
     let finishReason: FinishReason = 'stop';
     let completed = false;
+    // Set once any provider event has been parsed from this body. A body that
+    // ends without one was never a stream of this provider's events (an HTML
+    // error page from a proxy, a wrong baseUrl), and must not end as an empty
+    // successful completion.
+    let sawAnyEvent = false;
 
     let buffer = '';
     // The event being assembled lives beside `buffer`, not inside the read
@@ -233,6 +238,9 @@ export class AnthropicAdapter implements ModelAdapter {
                 },
                 onComplete: () => {
                   completed = true;
+                },
+                onParsed: () => {
+                  sawAnyEvent = true;
                 },
                 getUsage: () => ({
                   inputTokens,
@@ -289,6 +297,9 @@ export class AnthropicAdapter implements ModelAdapter {
           onComplete: () => {
             completed = true;
           },
+          onParsed: () => {
+            sawAnyEvent = true;
+          },
           getUsage: () => ({
             inputTokens,
             outputTokens,
@@ -305,6 +316,12 @@ export class AnthropicAdapter implements ModelAdapter {
 
       // Final complete event if stream closed without explicit message_stop
       if (!completed) {
+        if (!sawAnyEvent) {
+          throw new ProviderUnavailableError(
+            'Anthropic returned no stream events',
+            'anthropic',
+          );
+        }
         yield {
           type: 'complete',
           finishReason,
@@ -723,6 +740,7 @@ export class AnthropicAdapter implements ModelAdapter {
       onFinishReason: (reason: FinishReason) => void;
       onUsage: (inputTokens?: number, outputTokens?: number) => void;
       onComplete: () => void;
+      onParsed: () => void;
       getUsage: () => { inputTokens: number; outputTokens: number; totalTokens: number };
       getModel: () => string;
       getFinishReason: () => FinishReason;
@@ -751,6 +769,7 @@ export class AnthropicAdapter implements ModelAdapter {
       // Non-JSON SSE payload (e.g. keep-alive or ping)
       return [];
     }
+    ctx.onParsed();
 
     const type = eventName || parsed.type;
     const events: StreamEvent[] = [];

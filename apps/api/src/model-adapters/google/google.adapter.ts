@@ -287,6 +287,11 @@ export class GoogleAdapter implements ModelAdapter {
     let inputTokens = 0;
     let outputTokens = 0;
     let completed = false;
+    // Set once any provider event has been parsed from this body. A body that
+    // ends without one was never a stream of this provider's events (an HTML
+    // error page from a proxy, a wrong baseUrl), and must not end as an empty
+    // successful completion.
+    let sawAnyEvent = false;
     let buffer = '';
     // The event being assembled lives beside `buffer`, not inside the read
     // loop: a `data:` line and its terminating blank line can arrive in
@@ -328,6 +333,9 @@ export class GoogleAdapter implements ModelAdapter {
                 },
                 onComplete: () => {
                   completed = true;
+                },
+                onParsed: () => {
+                  sawAnyEvent = true;
                 },
                 getUsage: () => ({
                   inputTokens,
@@ -380,6 +388,9 @@ export class GoogleAdapter implements ModelAdapter {
           onComplete: () => {
             completed = true;
           },
+          onParsed: () => {
+            sawAnyEvent = true;
+          },
           getUsage: () => ({
             inputTokens,
             outputTokens,
@@ -398,6 +409,12 @@ export class GoogleAdapter implements ModelAdapter {
       }
 
       if (!completed) {
+        if (!sawAnyEvent) {
+          throw new ProviderUnavailableError(
+            'Google Gemini returned no stream events',
+            'google',
+          );
+        }
         yield {
           type: 'complete',
           finishReason,
@@ -895,6 +912,7 @@ export class GoogleAdapter implements ModelAdapter {
       onFinishReason: (reason: FinishReason) => void;
       onUsage: (inputTokens?: number, outputTokens?: number) => void;
       onComplete: () => void;
+      onParsed: () => void;
       getUsage: () => { inputTokens: number; outputTokens: number; totalTokens: number };
       getModel: () => string;
       getFinishReason: () => FinishReason;
@@ -921,6 +939,7 @@ export class GoogleAdapter implements ModelAdapter {
     } catch {
       return [];
     }
+    ctx.onParsed();
 
     const events: StreamEvent[] = [];
 

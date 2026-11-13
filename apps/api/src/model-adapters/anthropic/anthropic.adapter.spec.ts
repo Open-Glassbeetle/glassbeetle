@@ -907,6 +907,26 @@ describe('AnthropicAdapter', () => {
       expect(emitted[emitted.length - 1].type).toBe('complete');
     });
 
+    // Regression for #315: a body with no parseable events is a provider
+    // failure, not an empty successful completion.
+    it('rejects with ProviderUnavailableError when the body is an HTML page, not a stream', async () => {
+      const err = await collectAnthropic(['<!doctype html><html><body><h1>Service under maintenance</h1></body></html>\n']).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ProviderUnavailableError);
+      expect((err as ProviderUnavailableError).code).toBe('PROVIDER_UNAVAILABLE');
+      expect((err as ProviderUnavailableError).message).toMatch(/no stream events/);
+    });
+
+    it('rejects with ProviderUnavailableError when the body has no bytes', async () => {
+      await expect(collectAnthropic([])).rejects.toBeInstanceOf(ProviderUnavailableError);
+    });
+
+    it('still completes a stream whose only event carries no text', async () => {
+      const emitted = await collectAnthropic(['event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":0}}\n\n']);
+
+      expect(emitted[emitted.length - 1].type).toBe('complete');
+    });
+
     it('joins a multi-line data event split across reads with a newline', async () => {
       const emitted = await collectAnthropic([
         'event: content_block_delta\ndata: {"type":"content_block_delta",\n',
