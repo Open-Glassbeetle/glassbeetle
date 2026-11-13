@@ -250,6 +250,11 @@ export class OllamaAdapter implements ModelAdapter {
     let finishReason: FinishReason = 'stop';
     let currentUsage: TokenUsage | undefined = undefined;
     let completed = false;
+    // Set once any NDJSON object has been parsed from this body. A body that
+    // ends without one was never an Ollama stream (an HTML error page from a
+    // proxy, a wrong baseUrl), and must not end as an empty successful
+    // completion.
+    let sawAnyEvent = false;
     let buffer = '';
 
     try {
@@ -279,6 +284,7 @@ export class OllamaAdapter implements ModelAdapter {
             // Malformed line
             continue;
           }
+          sawAnyEvent = true;
 
           if (chunk.error) {
             const mappedError = this.mapError(res.status, chunk.error, targetModel);
@@ -351,6 +357,7 @@ export class OllamaAdapter implements ModelAdapter {
         const trimmed = buffer.trim();
         try {
           const chunk = JSON.parse(trimmed) as OllamaChatResponse;
+          sawAnyEvent = true;
           if (chunk.message?.content) {
             yield {
               type: 'text-delta',
@@ -389,6 +396,12 @@ export class OllamaAdapter implements ModelAdapter {
       }
 
       if (!completed) {
+        if (!sawAnyEvent) {
+          throw new ProviderUnavailableError(
+            'Ollama returned no stream events',
+            'ollama',
+          );
+        }
         yield {
           type: 'complete',
           finishReason,

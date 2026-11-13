@@ -220,6 +220,11 @@ export class OpenAiAdapter implements ModelAdapter {
     let finishReason: FinishReason = 'stop';
     let currentUsage: TokenUsage | undefined = undefined;
     let completed = false;
+    // Set once any provider event has been parsed from this body. A body that
+    // ends without one was never a stream of this provider's events (an HTML
+    // error page from a proxy, a wrong baseUrl), and must not end as an empty
+    // successful completion.
+    let sawAnyEvent = false;
     let buffer = '';
     // The event being assembled lives beside `buffer`, not inside the read
     // loop: a `data:` line and its terminating blank line can arrive in
@@ -260,6 +265,9 @@ export class OpenAiAdapter implements ModelAdapter {
                 },
                 onComplete: () => {
                   completed = true;
+                },
+                onParsed: () => {
+                  sawAnyEvent = true;
                 },
                 getModel: () => model,
                 getFinishReason: () => finishReason,
@@ -307,6 +315,9 @@ export class OpenAiAdapter implements ModelAdapter {
           onComplete: () => {
             completed = true;
           },
+          onParsed: () => {
+            sawAnyEvent = true;
+          },
           getModel: () => model,
           getFinishReason: () => finishReason,
           getUsage: () => currentUsage,
@@ -322,6 +333,12 @@ export class OpenAiAdapter implements ModelAdapter {
 
       // Stream closed without explicit [DONE] sentinel
       if (!completed) {
+        if (!sawAnyEvent) {
+          throw new ProviderUnavailableError(
+            'OpenAI returned no stream events',
+            this.config.providerKind,
+          );
+        }
         yield {
           type: 'complete',
           finishReason,
@@ -752,6 +769,7 @@ export class OpenAiAdapter implements ModelAdapter {
       onFinishReason: (reason: FinishReason) => void;
       onUsage: (usage: TokenUsage) => void;
       onComplete: () => void;
+      onParsed: () => void;
       getModel: () => string;
       getFinishReason: () => FinishReason;
       getUsage: () => TokenUsage | undefined;
@@ -782,6 +800,7 @@ export class OpenAiAdapter implements ModelAdapter {
       // Non-JSON or corrupt SSE chunk; ignore defensively
       return [];
     }
+    ctx.onParsed();
 
     const events: StreamEvent[] = [];
 

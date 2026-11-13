@@ -521,6 +521,48 @@ describe('OllamaAdapter', () => {
         expect((err as RequestAbortedError).code).toBe('REQUEST_ABORTED');
       }
     });
+    // Regression for #315: a body with no parseable NDJSON objects is a
+    // provider failure, not an empty successful completion.
+    async function collectOllama(chunks: string[]): Promise<any[]> {
+      const adapter = new OllamaAdapter(defaultOllamaConfig);
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(encoder.encode(chunk));
+          }
+          controller.close();
+        },
+      });
+      fetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+      const emitted: any[] = [];
+      for await (const event of adapter.stream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) {
+        emitted.push(event);
+      }
+      return emitted;
+    }
+
+    it('rejects with ProviderUnavailableError when the body is an HTML page, not a stream', async () => {
+      const err = await collectOllama(['<!doctype html><html><body><h1>Service under maintenance</h1></body></html>\n']).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ProviderUnavailableError);
+      expect((err as ProviderUnavailableError).code).toBe('PROVIDER_UNAVAILABLE');
+      expect((err as ProviderUnavailableError).message).toMatch(/no stream events/);
+    });
+
+    it('rejects with ProviderUnavailableError when the body has no bytes', async () => {
+      await expect(collectOllama([])).rejects.toBeInstanceOf(ProviderUnavailableError);
+    });
+
+    it('still completes a stream that ends without done:true after a parsed object', async () => {
+      const emitted = await collectOllama([
+        JSON.stringify({ model: 'qwen2.5:14b', message: { role: 'assistant', content: '' }, done: false }) + '\n',
+      ]);
+
+      expect(emitted[emitted.length - 1].type).toBe('complete');
+    });
   });
 
   describe('Model Discovery', () => {
