@@ -1,10 +1,11 @@
 import http from 'node:http';
 import https from 'node:https';
+import { BadRequestException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
 import { AnalyticsModule } from './analytics.module.js';
-import { AnalyticsService } from './analytics.service.js';
+import { AnalyticsService, MAX_TIME_BUCKETS } from './analytics.service.js';
 import { USAGE_EVENT_TYPES } from './usage-event.types.js';
 
 describe('AnalyticsService', () => {
@@ -39,6 +40,10 @@ describe('AnalyticsService', () => {
         ARTIFACT_CREATED: 'artifact_created',
       });
       expect(Object.isFrozen(USAGE_EVENT_TYPES)).toBe(true);
+    });
+
+    it('exports MAX_TIME_BUCKETS limit constant', () => {
+      expect(MAX_TIME_BUCKETS).toBe(366);
     });
   });
 
@@ -470,6 +475,702 @@ describe('AnalyticsService', () => {
         'SELECT COUNT(*) as count FROM usage_events',
       );
       expect(count?.count).toBe(1);
+    });
+  });
+
+  describe('getUsage aggregations and queries', () => {
+    describe('empty table', () => {
+      it('returns 200 with empty result when there is no data and no groupBy', async () => {
+        const result = await service.getUsage({});
+
+        expect(result.totals).toEqual({
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          costUsd: 0,
+          eventCount: 0,
+          unknownTokensEventCount: 0,
+          unknownCostEventCount: 0,
+        });
+        expect(result.groups).toEqual([]);
+        expect(result.timeZone).toBe('UTC');
+        expect(result.timeRange.from).toBeDefined();
+        expect(result.timeRange.to).toBeDefined();
+      });
+
+      it('returns 200 with empty groups when grouping by entity on an empty table', async () => {
+        const result = await service.getUsage({ groupBy: 'agent' });
+
+        expect(result.totals.eventCount).toBe(0);
+        expect(result.groups).toEqual([]);
+      });
+
+      it('returns zero-activity buckets across queried range when grouping by day on empty table', async () => {
+        const from = '2026-11-01T00:00:00.000Z';
+        const to = '2026-11-03T23:59:59.999Z';
+        const result = await service.getUsage({ from, to, groupBy: 'day' });
+
+        expect(result.totals.eventCount).toBe(0);
+        expect(result.groups).toHaveLength(3);
+        expect(result.groups.map((g) => g.bucket)).toEqual([
+          '2026-11-01',
+          '2026-11-02',
+          '2026-11-03',
+        ]);
+        for (const g of result.groups) {
+          expect(g.inputTokens).toBe(0);
+          expect(g.outputTokens).toBe(0);
+          expect(g.totalTokens).toBe(0);
+          expect(g.costUsd).toBe(0);
+          expect(g.eventCount).toBe(0);
+        }
+      });
+    });
+
+    describe('arithmetic and exact aggregation with hand-verifiable fixture', () => {
+      let agent1Id: string;
+      let agent2Id: string;
+      let prov1Id: string;
+      let prov2Id: string;
+      let model1Id: string;
+      let model2Id: string;
+
+      beforeEach(() => {
+        const prov1 = fixtures.createProvider({
+          name: 'OpenAI',
+          kind: 'openai',
+        });
+        const prov2 = fixtures.createProvider({
+          name: 'Anthropic',
+          kind: 'anthropic',
+        });
+        prov1Id = prov1.id;
+        prov2Id = prov2.id;
+
+        const model1 = fixtures.createModel({
+          provider_id: prov1Id,
+          model_identifier: 'gpt-4o',
+          display_name: 'GPT-4o',
+        });
+        const model2 = fixtures.createModel({
+          provider_id: prov2Id,
+          model_identifier: 'claude-3-5-sonnet',
+          display_name: 'Claude 3.5 Sonnet',
+        });
+        model1Id = model1.id;
+        model2Id = model2.id;
+
+        const agent1 = fixtures.createAgent({
+          name: 'Coder Agent',
+          model_id: model1Id,
+        });
+        const agent2 = fixtures.createAgent({
+          name: 'Reviewer Agent',
+          model_id: model2Id,
+        });
+        agent1Id = agent1.id;
+        agent2Id = agent2.id;
+
+        // Seed 6 hand-verifiable events:
+        // Event 1: Agent1, Prov1, Model1, chat_completion, 100 in, 50 out, 0.005 USD
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-10T10:00:00.000Z',
+          agent_id: agent1Id,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'chat_completion',
+          input_tokens: 100,
+          output_tokens: 50,
+          cost_usd: 0.005,
+        });
+
+        // Event 2: Agent1, Prov1, Model1, chat_completion, 200 in, 100 out, 0.010 USD
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-10T12:00:00.000Z',
+          agent_id: agent1Id,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'chat_completion',
+          input_tokens: 200,
+          output_tokens: 100,
+          cost_usd: 0.01,
+        });
+
+        // Event 3: Agent2, Prov2, Model2, chat_completion, 300 in, 150 out, 0.015 USD
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-11T09:00:00.000Z',
+          agent_id: agent2Id,
+          provider_id: prov2Id,
+          model_id: model2Id,
+          event_type: 'chat_completion',
+          input_tokens: 300,
+          output_tokens: 150,
+          cost_usd: 0.015,
+        });
+
+        // Event 4: Null agent (deleted), Prov1, Model1, chat_compaction, 500 in, 250 out, 0.020 USD
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-12T15:00:00.000Z',
+          agent_id: null,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'chat_compaction',
+          input_tokens: 500,
+          output_tokens: 250,
+          cost_usd: 0.02,
+        });
+
+        // Event 5: Agent2, Prov2, Model2, agent_created, null in, null out, null cost (unmeasured)
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-13T18:00:00.000Z',
+          agent_id: agent2Id,
+          provider_id: prov2Id,
+          model_id: model2Id,
+          event_type: 'agent_created',
+          input_tokens: null,
+          output_tokens: null,
+          cost_usd: null,
+        });
+
+        // Event 6: Agent1, Prov1, Model1, chat_completion, 0 in, 0 out, 0.0 cost (zero usage)
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-14T20:00:00.000Z',
+          agent_id: agent1Id,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'chat_completion',
+          input_tokens: 0,
+          output_tokens: 0,
+          cost_usd: 0,
+        });
+      });
+
+      it('aggregates overall totals correctly across all events', async () => {
+        const result = await service.getUsage({
+          from: '2026-10-01T00:00:00.000Z',
+          to: '2026-10-31T23:59:59.999Z',
+        });
+
+        expect(result.totals).toEqual({
+          inputTokens: 1100, // 100 + 200 + 300 + 500 + 0
+          outputTokens: 550, // 50 + 100 + 150 + 250 + 0
+          totalTokens: 1650,
+          costUsd: 0.05, // 0.005 + 0.010 + 0.015 + 0.020 + 0
+          eventCount: 6,
+          unknownTokensEventCount: 1, // Event 5
+          unknownCostEventCount: 1, // Event 5
+        });
+        expect(result.groups).toEqual([]);
+      });
+
+      it('groups by agent and reconciles grouped totals with overall totals including deleted (null) agents', async () => {
+        const result = await service.getUsage({
+          from: '2026-10-01T00:00:00.000Z',
+          to: '2026-10-31T23:59:59.999Z',
+          groupBy: 'agent',
+        });
+
+        expect(result.groups).toHaveLength(3);
+
+        const nullAgentGroup = result.groups.find((g) => g.agentId === null);
+        expect(nullAgentGroup).toBeDefined();
+        expect(nullAgentGroup).toMatchObject({
+          agentId: null,
+          inputTokens: 500,
+          outputTokens: 250,
+          totalTokens: 750,
+          costUsd: 0.02,
+          eventCount: 1,
+          unknownTokensEventCount: 0,
+          unknownCostEventCount: 0,
+        });
+
+        const agent1Group = result.groups.find((g) => g.agentId === agent1Id);
+        expect(agent1Group).toBeDefined();
+        expect(agent1Group).toMatchObject({
+          agentId: agent1Id,
+          inputTokens: 300,
+          outputTokens: 150,
+          totalTokens: 450,
+          costUsd: 0.015,
+          eventCount: 3,
+          unknownTokensEventCount: 0,
+          unknownCostEventCount: 0,
+        });
+
+        const agent2Group = result.groups.find((g) => g.agentId === agent2Id);
+        expect(agent2Group).toBeDefined();
+        expect(agent2Group).toMatchObject({
+          agentId: agent2Id,
+          inputTokens: 300,
+          outputTokens: 150,
+          totalTokens: 450,
+          costUsd: 0.015,
+          eventCount: 2,
+          unknownTokensEventCount: 1,
+          unknownCostEventCount: 1,
+        });
+
+        // Verify totals reconcile completely:
+        const sumInput = result.groups.reduce(
+          (acc, g) => acc + g.inputTokens,
+          0,
+        );
+        const sumOutput = result.groups.reduce(
+          (acc, g) => acc + g.outputTokens,
+          0,
+        );
+        const sumCost = result.groups.reduce((acc, g) => acc + g.costUsd, 0);
+        const sumEvents = result.groups.reduce(
+          (acc, g) => acc + g.eventCount,
+          0,
+        );
+        const sumUnknownTokens = result.groups.reduce(
+          (acc, g) => acc + g.unknownTokensEventCount,
+          0,
+        );
+        const sumUnknownCost = result.groups.reduce(
+          (acc, g) => acc + g.unknownCostEventCount,
+          0,
+        );
+
+        expect(sumInput).toBe(result.totals.inputTokens);
+        expect(sumOutput).toBe(result.totals.outputTokens);
+        expect(Math.round(sumCost * 1e6) / 1e6).toBe(result.totals.costUsd);
+        expect(sumEvents).toBe(result.totals.eventCount);
+        expect(sumUnknownTokens).toBe(result.totals.unknownTokensEventCount);
+        expect(sumUnknownCost).toBe(result.totals.unknownCostEventCount);
+      });
+
+      it('groups by provider', async () => {
+        const result = await service.getUsage({
+          from: '2026-10-01T00:00:00.000Z',
+          to: '2026-10-31T23:59:59.999Z',
+          groupBy: 'provider',
+        });
+
+        expect(result.groups).toHaveLength(2);
+
+        const prov1Group = result.groups.find((g) => g.providerId === prov1Id);
+        expect(prov1Group).toMatchObject({
+          providerId: prov1Id,
+          inputTokens: 800, // 100 + 200 + 500 + 0
+          outputTokens: 400, // 50 + 100 + 250 + 0
+          totalTokens: 1200,
+          costUsd: 0.035, // 0.005 + 0.010 + 0.020 + 0
+          eventCount: 4,
+          unknownTokensEventCount: 0,
+        });
+
+        const prov2Group = result.groups.find((g) => g.providerId === prov2Id);
+        expect(prov2Group).toMatchObject({
+          providerId: prov2Id,
+          inputTokens: 300,
+          outputTokens: 150,
+          totalTokens: 450,
+          costUsd: 0.015,
+          eventCount: 2,
+          unknownTokensEventCount: 1,
+        });
+      });
+
+      it('groups by model', async () => {
+        const result = await service.getUsage({
+          from: '2026-10-01T00:00:00.000Z',
+          to: '2026-10-31T23:59:59.999Z',
+          groupBy: 'model',
+        });
+
+        expect(result.groups).toHaveLength(2);
+
+        const mod1Group = result.groups.find((g) => g.modelId === model1Id);
+        expect(mod1Group?.eventCount).toBe(4);
+        expect(mod1Group?.inputTokens).toBe(800);
+
+        const mod2Group = result.groups.find((g) => g.modelId === model2Id);
+        expect(mod2Group?.eventCount).toBe(2);
+        expect(mod2Group?.inputTokens).toBe(300);
+      });
+
+      it('groups by day and fills zero-activity time buckets', async () => {
+        const from = '2026-10-09T00:00:00.000Z';
+        const to = '2026-10-15T23:59:59.999Z';
+        const result = await service.getUsage({ from, to, groupBy: 'day' });
+
+        expect(result.groups).toHaveLength(7); // 10-09 through 10-15
+        const buckets = result.groups.map((g) => g.bucket);
+        expect(buckets).toEqual([
+          '2026-10-09',
+          '2026-10-10',
+          '2026-10-11',
+          '2026-10-12',
+          '2026-10-13',
+          '2026-10-14',
+          '2026-10-15',
+        ]);
+
+        // 2026-10-09 has 0 activity:
+        expect(result.groups[0]).toMatchObject({
+          bucket: '2026-10-09',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          eventCount: 0,
+        });
+
+        // 2026-10-10 has events 1 & 2:
+        expect(result.groups[1]).toMatchObject({
+          bucket: '2026-10-10',
+          inputTokens: 300,
+          outputTokens: 150,
+          costUsd: 0.015,
+          eventCount: 2,
+        });
+
+        // 2026-10-11 has event 3:
+        expect(result.groups[2]).toMatchObject({
+          bucket: '2026-10-11',
+          inputTokens: 300,
+          outputTokens: 150,
+          costUsd: 0.015,
+          eventCount: 1,
+        });
+
+        // 2026-10-12 has event 4:
+        expect(result.groups[3]).toMatchObject({
+          bucket: '2026-10-12',
+          inputTokens: 500,
+          outputTokens: 250,
+          costUsd: 0.02,
+          eventCount: 1,
+        });
+
+        // 2026-10-13 has event 5 (unmeasured):
+        expect(result.groups[4]).toMatchObject({
+          bucket: '2026-10-13',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          eventCount: 1,
+          unknownTokensEventCount: 1,
+          unknownCostEventCount: 1,
+        });
+
+        // 2026-10-14 has event 6 (zero tokens, not unmeasured):
+        expect(result.groups[5]).toMatchObject({
+          bucket: '2026-10-14',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          eventCount: 1,
+          unknownTokensEventCount: 0,
+          unknownCostEventCount: 0,
+        });
+
+        // 2026-10-15 has 0 activity:
+        expect(result.groups[6]).toMatchObject({
+          bucket: '2026-10-15',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          eventCount: 0,
+        });
+      });
+
+      it('groups by week and month', async () => {
+        const from = '2026-10-01T00:00:00.000Z';
+        const to = '2026-10-31T23:59:59.999Z';
+
+        const weekResult = await service.getUsage({
+          from,
+          to,
+          groupBy: 'week',
+        });
+        expect(weekResult.groups.length).toBeGreaterThan(0);
+        const weekBuckets = weekResult.groups.map((g) => g.bucket);
+        expect(weekBuckets.every((b) => /^2026-W\d{2}$/.test(b!))).toBe(true);
+
+        const monthResult = await service.getUsage({
+          from,
+          to,
+          groupBy: 'month',
+        });
+        expect(monthResult.groups).toHaveLength(1);
+        expect(monthResult.groups[0].bucket).toBe('2026-10');
+        expect(monthResult.groups[0].inputTokens).toBe(1100);
+      });
+
+      it('supports multi-dimensional combinations (e.g. agent and model)', async () => {
+        const result = await service.getUsage({
+          from: '2026-10-01T00:00:00.000Z',
+          to: '2026-10-31T23:59:59.999Z',
+          groupBy: ['agent', 'model'],
+        });
+
+        expect(result.groups).toHaveLength(3);
+        const tuples = result.groups.map((g) => ({
+          agentId: g.agentId,
+          modelId: g.modelId,
+          events: g.eventCount,
+        }));
+
+        expect(tuples).toContainEqual({
+          agentId: null,
+          modelId: model1Id,
+          events: 1,
+        });
+        expect(tuples).toContainEqual({
+          agentId: agent1Id,
+          modelId: model1Id,
+          events: 3,
+        });
+        expect(tuples).toContainEqual({
+          agentId: agent2Id,
+          modelId: model2Id,
+          events: 2,
+        });
+      });
+
+      it('supports multi-dimensional combinations with a time bucket (e.g. agent and day)', async () => {
+        const result = await service.getUsage({
+          from: '2026-10-01T00:00:00.000Z',
+          to: '2026-10-31T23:59:59.999Z',
+          groupBy: 'agent,day',
+        });
+
+        // Active tuples:
+        // (Agent1, 2026-10-10): 2 events
+        // (Agent2, 2026-10-11): 1 event
+        // (null, 2026-10-12): 1 event
+        // (Agent2, 2026-10-13): 1 event
+        // (Agent1, 2026-10-14): 1 event
+        expect(result.groups).toHaveLength(5);
+        expect(
+          result.groups.find(
+            (g) => g.agentId === agent1Id && g.bucket === '2026-10-10',
+          )?.eventCount,
+        ).toBe(2);
+        expect(
+          result.groups.find(
+            (g) => g.agentId === null && g.bucket === '2026-10-12',
+          )?.eventCount,
+        ).toBe(1);
+      });
+
+      describe('boundary timestamp testing', () => {
+        it('includes events exactly on from and to boundaries, excluding those outside', async () => {
+          // Exactly on from: Event 1 ('2026-10-10T10:00:00.000Z')
+          // Inside: Event 2 ('2026-10-10T12:00:00.000Z')
+          // Exactly on to: Event 3 ('2026-10-11T09:00:00.000Z')
+          const result = await service.getUsage({
+            from: '2026-10-10T10:00:00.000Z',
+            to: '2026-10-11T09:00:00.000Z',
+          });
+
+          expect(result.totals.eventCount).toBe(3);
+          expect(result.totals.inputTokens).toBe(600); // 100 + 200 + 300
+          expect(result.totals.outputTokens).toBe(300); // 50 + 100 + 150
+          expect(result.totals.costUsd).toBe(0.03); // 0.005 + 0.010 + 0.015
+        });
+
+        it('excludes events strictly before from and strictly after to', async () => {
+          const result = await service.getUsage({
+            from: '2026-10-10T10:00:00.001Z', // 1ms after Event 1
+            to: '2026-10-10T11:59:59.999Z', // 1ms before Event 2
+          });
+
+          expect(result.totals.eventCount).toBe(0);
+          expect(result.totals.inputTokens).toBe(0);
+        });
+      });
+
+      describe('filtering by entity and eventType', () => {
+        it('filters by agentId', async () => {
+          const result = await service.getUsage({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            agentId: agent1Id,
+          });
+
+          expect(result.totals.eventCount).toBe(3);
+          expect(result.totals.inputTokens).toBe(300);
+        });
+
+        it('filters by providerId', async () => {
+          const result = await service.getUsage({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            providerId: prov2Id,
+          });
+
+          expect(result.totals.eventCount).toBe(2);
+          expect(result.totals.inputTokens).toBe(300);
+        });
+
+        it('filters by modelId', async () => {
+          const result = await service.getUsage({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            modelId: model1Id,
+          });
+
+          expect(result.totals.eventCount).toBe(4);
+          expect(result.totals.inputTokens).toBe(800);
+        });
+
+        it('filters by eventType', async () => {
+          const result = await service.getUsage({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            eventType: 'chat_compaction',
+          });
+
+          expect(result.totals.eventCount).toBe(1);
+          expect(result.totals.inputTokens).toBe(500);
+        });
+
+        it('combines multiple filters', async () => {
+          const result = await service.getUsage({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            agentId: agent1Id,
+            eventType: 'chat_completion',
+            modelId: model1Id,
+          });
+
+          expect(result.totals.eventCount).toBe(3);
+          expect(result.totals.inputTokens).toBe(300);
+        });
+      });
+
+      describe('timezone shift handling', () => {
+        it('shifts time buckets when timezone offset is supplied', async () => {
+          // Event 1 is at '2026-10-10T10:00:00.000Z'.
+          // Add an event late on 2026-10-10: 23:30:00Z
+          fixtures.createUsageEvent({
+            occurred_at: '2026-10-10T23:30:00.000Z',
+            input_tokens: 42,
+            output_tokens: 21,
+            cost_usd: 0.001,
+          });
+
+          // In UTC (+00:00): falls into '2026-10-10'
+          const utcResult = await service.getUsage({
+            from: '2026-10-10T00:00:00.000Z',
+            to: '2026-10-11T23:59:59.999Z',
+            groupBy: 'day',
+            timezone: 'UTC',
+          });
+          const day10Utc = utcResult.groups.find(
+            (g) => g.bucket === '2026-10-10',
+          );
+          expect(day10Utc?.eventCount).toBe(3); // Events 1, 2, and the late event
+
+          // In UTC+02:00: 23:30Z + 2h is 01:30 on 2026-10-11!
+          const tzResult = await service.getUsage({
+            from: '2026-10-10T00:00:00.000Z',
+            to: '2026-10-11T23:59:59.999Z',
+            groupBy: 'day',
+            timezone: '+02:00',
+          });
+          const day10Tz = tzResult.groups.find(
+            (g) => g.bucket === '2026-10-10',
+          );
+          const day11Tz = tzResult.groups.find(
+            (g) => g.bucket === '2026-10-11',
+          );
+          expect(day10Tz?.eventCount).toBe(2); // Events 1 and 2
+          expect(day11Tz?.eventCount).toBe(2); // Event 3 and the shifted late event!
+        });
+
+        it('accepts IANA timezones (e.g. Europe/Zurich)', async () => {
+          const result = await service.getUsage({
+            from: '2026-10-10T00:00:00.000Z',
+            to: '2026-10-11T23:59:59.999Z',
+            groupBy: 'day',
+            timezone: 'Europe/Zurich',
+          });
+
+          expect(result.timeZone).toBe('Europe/Zurich');
+          // In CEST (UTC+2), 23:59:59 UTC on 10-11 extends to 01:59 on 10-12, covering 3 local civil days
+          expect(result.groups).toHaveLength(3);
+          expect(result.groups.map((g) => g.bucket)).toEqual([
+            '2026-10-10',
+            '2026-10-11',
+            '2026-10-12',
+          ]);
+        });
+      });
+    });
+
+    describe('validation, bad requests, and security', () => {
+      it('rejects an unknown groupBy value with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({ groupBy: 'invalid_dimension' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects SQL injection attempts in groupBy with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({ groupBy: 'agent; DROP TABLE usage_events; --' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects an inverted time range with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({
+            from: '2026-10-20T00:00:00.000Z',
+            to: '2026-10-10T00:00:00.000Z',
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid from timestamp strings with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({ from: 'not-a-valid-date' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid to timestamp strings with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({ to: 'invalid-to-date' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid eventType filter with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({ eventType: 'unknown_event_type' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects multiple simultaneous time bucket intervals with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({ groupBy: ['day', 'week'] }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects a request that exceeds the maximum bucket limit with 400 Bad Request', async () => {
+        // Daily grouping over 2 years (~730 days) exceeds MAX_TIME_BUCKETS (366)
+        await expect(
+          service.getUsage({
+            from: '2024-01-01T00:00:00.000Z',
+            to: '2026-01-01T00:00:00.000Z',
+            groupBy: 'day',
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid timezone string with 400 Bad Request', async () => {
+        await expect(
+          service.getUsage({ timezone: 'Invalid/Non_Existent_Timezone' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid timezone offset hours or minutes with 400 Bad Request', async () => {
+        await expect(service.getUsage({ timezone: '+99:99' })).rejects.toThrow(
+          BadRequestException,
+        );
+      });
     });
   });
 });
