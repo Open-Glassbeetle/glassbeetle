@@ -1,15 +1,17 @@
 import { Module } from '@nestjs/common';
+import { UserModule } from '../user/user.module.js';
 import { AnalyticsController } from './analytics.controller.js';
 import { AnalyticsService } from './analytics.service.js';
 
 /**
- * Will wire the `/analytics` resource.
+ * Wires the `/analytics` resource and usage telemetry aggregation path.
  *
- * A placeholder: no routes and no service implementation. `usage_events`,
- * the table it reports on, is read today only by `BudgetService` and is
- * written by nothing.
+ * Exposes {@link AnalyticsController} and exports {@link AnalyticsService}.
+ * Imports {@link UserModule} to resolve the user-configured time zone for
+ * time-bucketing aggregations.
  */
 @Module({
+  imports: [UserModule],
   controllers: [AnalyticsController],
   providers: [AnalyticsService],
   exports: [AnalyticsService],
