@@ -9,6 +9,15 @@ import { toIso } from '../../common/persistence/timestamps.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { UserService } from '../user/user.service.js';
 import {
+  ALLOWED_ACTIVITY_INTERVALS,
+  type ActivityInterval,
+  type ActivityQueryDto,
+} from './dto/activity-query.dto.js';
+import type {
+  ActivityBucketDto,
+  ActivityResponseDto,
+} from './dto/activity-response.dto.js';
+import {
   ALLOWED_GROUP_BY_DIMENSIONS,
   TIME_BUCKET_DIMENSIONS,
   type GroupByDimension,
@@ -43,12 +52,20 @@ export {
 };
 
 /**
- * Maximum number of time buckets permitted in a single request.
+ * Maximum number of time buckets permitted in a single usage request.
  *
  * Prevents denial-of-service and unmanageably large payloads (e.g. daily bucketing
  * across several years). A request that exceeds this limit returns HTTP 400.
  */
 export const MAX_TIME_BUCKETS = 366;
+
+/**
+ * Maximum number of time buckets permitted in an activity request.
+ *
+ * Prevents memory exhaustion and unmanageably large series (e.g. hourly bucketing
+ * across an entire year). A request that exceeds this limit returns HTTP 400.
+ */
+export const MAX_ACTIVITY_BUCKETS = 1000;
 
 /**
  * Sensitive user data keys that must never be recorded in `usage_events.metadata`.
@@ -177,10 +194,15 @@ function resolveTimezone(
  * Estimates the bucket count for a time range and interval.
  */
 function countTimeBuckets(
-  bucketType: TimeBucketDimension,
+  bucketType: TimeBucketDimension | ActivityInterval,
   fromDate: Date,
   toDate: Date,
 ): number {
+  if (bucketType === 'hour') {
+    return (
+      Math.ceil((toDate.getTime() - fromDate.getTime()) / (3600 * 1000)) + 1
+    );
+  }
   if (bucketType === 'day') {
     return (
       Math.ceil(
@@ -210,7 +232,7 @@ function countTimeBuckets(
  * taking into account the civil time shift from `offsetModifier`.
  */
 function generateTimeBuckets(
-  bucketType: TimeBucketDimension,
+  bucketType: TimeBucketDimension | ActivityInterval,
   fromDate: Date,
   toDate: Date,
   offsetModifier: string,
@@ -218,6 +240,41 @@ function generateTimeBuckets(
   const offsetMs = parseOffsetToMs(offsetModifier);
   const fromShifted = new Date(fromDate.getTime() + offsetMs);
   const toShifted = new Date(toDate.getTime() + offsetMs);
+
+  if (bucketType === 'hour') {
+    const cur = new Date(
+      Date.UTC(
+        fromShifted.getUTCFullYear(),
+        fromShifted.getUTCMonth(),
+        fromShifted.getUTCDate(),
+        fromShifted.getUTCHours(),
+        0,
+        0,
+        0,
+      ),
+    );
+    const end = new Date(
+      Date.UTC(
+        toShifted.getUTCFullYear(),
+        toShifted.getUTCMonth(),
+        toShifted.getUTCDate(),
+        toShifted.getUTCHours(),
+        0,
+        0,
+        0,
+      ),
+    );
+    const buckets: string[] = [];
+    while (cur <= end) {
+      const y = cur.getUTCFullYear();
+      const m = String(cur.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(cur.getUTCDate()).padStart(2, '0');
+      const h = String(cur.getUTCHours()).padStart(2, '0');
+      buckets.push(`${y}-${m}-${d}T${h}:00`);
+      cur.setUTCHours(cur.getUTCHours() + 1);
+    }
+    return buckets;
+  }
 
   if (bucketType === 'day') {
     const cur = new Date(
@@ -603,6 +660,245 @@ export class AnalyticsService {
       timeZone: timeZoneName,
       totals,
       groups,
+    };
+  }
+
+  /**
+   * Aggregates event activity over time buckets (hour, day, week, month) broken down by event type.
+   *
+   * Implements a time-series aggregation model over `usage_events`.
+   * All time buckets in `[from, to]` appear in the returned series with zeroes for inactive periods.
+   *
+   * @param query - Activity time range, interval, and filter options.
+   * @returns Chronological activity time series and summary totals.
+   */
+  public async getActivity(
+    query: ActivityQueryDto,
+  ): Promise<ActivityResponseDto> {
+    // 1. Time range validation & defaulting
+    let toDate: Date;
+    let effectiveTo: string;
+    if (query.to !== undefined && query.to !== null && query.to !== '') {
+      toDate = new Date(query.to);
+      if (Number.isNaN(toDate.getTime())) {
+        throw new BadRequestException(
+          'Invalid "to" timestamp: must be a valid ISO-8601 date string',
+        );
+      }
+      effectiveTo = query.to;
+    } else {
+      toDate = new Date();
+      effectiveTo = toIso(toDate);
+    }
+
+    let fromDate: Date;
+    let effectiveFrom: string;
+    if (query.from !== undefined && query.from !== null && query.from !== '') {
+      fromDate = new Date(query.from);
+      if (Number.isNaN(fromDate.getTime())) {
+        throw new BadRequestException(
+          'Invalid "from" timestamp: must be a valid ISO-8601 date string',
+        );
+      }
+      effectiveFrom = query.from;
+    } else {
+      fromDate = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+      effectiveFrom = toIso(fromDate);
+    }
+
+    if (fromDate.getTime() > toDate.getTime()) {
+      throw new BadRequestException(
+        'Inverted time range: "from" must be earlier than or equal to "to"',
+      );
+    }
+
+    // 2. Timezone resolution
+    const userZone = this.userService?.timezone();
+    const { timeZoneName, offsetModifier } = resolveTimezone(
+      query.timezone,
+      userZone,
+      toDate,
+    );
+
+    // 3. Interval validation
+    const rawInterval = query.interval?.trim() || 'day';
+    const allowed = ALLOWED_ACTIVITY_INTERVALS as readonly string[];
+    if (!allowed.includes(rawInterval)) {
+      throw new BadRequestException(
+        `Invalid interval: "${query.interval}". Allowed intervals are: ${ALLOWED_ACTIVITY_INTERVALS.join(', ')}.`,
+      );
+    }
+    const interval = rawInterval as ActivityInterval;
+
+    // 4. Maximum bucket limit enforcement
+    const bucketCount = countTimeBuckets(interval, fromDate, toDate);
+    if (bucketCount > MAX_ACTIVITY_BUCKETS) {
+      throw new BadRequestException(
+        `Requested time range produces ${bucketCount} ${interval} buckets, which exceeds the maximum allowed limit of ${MAX_ACTIVITY_BUCKETS}. Narrow the time range or use a coarser interval (e.g. day or week).`,
+      );
+    }
+
+    // 5. Validate filter eventType
+    if (
+      query.eventType !== undefined &&
+      query.eventType !== null &&
+      query.eventType !== ''
+    ) {
+      const validEventTypes = Object.values(USAGE_EVENT_TYPES);
+      if (!validEventTypes.includes(query.eventType as UsageEventType)) {
+        throw new BadRequestException(
+          `Invalid eventType: "${query.eventType}". Allowed values are: ${validEventTypes.join(', ')}.`,
+        );
+      }
+    }
+
+    // 6. Build WHERE clause with bound parameters
+    const whereConditions: string[] = ['occurred_at >= ?', 'occurred_at <= ?'];
+    const whereParams: any[] = [effectiveFrom, effectiveTo];
+
+    if (query.agentId) {
+      whereConditions.push('agent_id = ?');
+      whereParams.push(query.agentId);
+    }
+    if (query.providerId) {
+      whereConditions.push('provider_id = ?');
+      whereParams.push(query.providerId);
+    }
+    if (query.modelId) {
+      whereConditions.push('model_id = ?');
+      whereParams.push(query.modelId);
+    }
+    if (query.eventType) {
+      whereConditions.push('event_type = ?');
+      whereParams.push(query.eventType);
+    }
+
+    const whereSql = `WHERE ${whereConditions.join(' AND ')}`;
+
+    // 7. Query overall totals in SQL
+    const totalsRows = this.db.all<{ event_type: string; count: number }>(
+      `SELECT event_type, COUNT(*) AS count
+       FROM usage_events
+       ${whereSql}
+       GROUP BY event_type`,
+      whereParams,
+    );
+
+    const canonicalTypes = Object.values(USAGE_EVENT_TYPES);
+    const totalsByEventType: Record<string, number> = {};
+    for (const t of canonicalTypes) {
+      totalsByEventType[t] = 0;
+    }
+    let totalCount = 0;
+    for (const row of totalsRows) {
+      totalsByEventType[row.event_type] = Number(row.count);
+      totalCount += Number(row.count);
+    }
+
+    // 8. Query bucket breakdown in SQL
+    let formatStr: string;
+    if (interval === 'hour') {
+      formatStr = '%Y-%m-%dT%H:00';
+    } else if (interval === 'day') {
+      formatStr = '%Y-%m-%d';
+    } else if (interval === 'week') {
+      formatStr = '%Y-W%W';
+    } else {
+      formatStr = '%Y-%m';
+    }
+
+    const bucketRows = this.db.all<{
+      bucket: string;
+      event_type: string;
+      count: number;
+    }>(
+      `SELECT
+         strftime('${formatStr}', occurred_at, ?) AS bucket,
+         event_type,
+         COUNT(*) AS count
+       FROM usage_events
+       ${whereSql}
+       GROUP BY bucket, event_type
+       ORDER BY bucket ASC`,
+      [offsetModifier, ...whereParams],
+    );
+
+    const bucketMap = new Map<string, Record<string, number>>();
+    for (const row of bucketRows) {
+      if (!row.bucket) {
+        continue;
+      }
+      let breakdown = bucketMap.get(row.bucket);
+      if (!breakdown) {
+        breakdown = {};
+        for (const t of canonicalTypes) {
+          breakdown[t] = 0;
+        }
+        bucketMap.set(row.bucket, breakdown);
+      }
+      breakdown[row.event_type] =
+        (breakdown[row.event_type] ?? 0) + Number(row.count);
+    }
+
+    // 9. Generate zero-activity buckets for full range continuity
+    const generatedBuckets = generateTimeBuckets(
+      interval,
+      fromDate,
+      toDate,
+      offsetModifier,
+    );
+
+    const series: ActivityBucketDto[] = generatedBuckets.map((b) => {
+      const existing = bucketMap.get(b);
+      const byEventType: Record<string, number> = {};
+      for (const t of canonicalTypes) {
+        byEventType[t] = existing ? (existing[t] ?? 0) : 0;
+      }
+      if (existing) {
+        for (const [k, v] of Object.entries(existing)) {
+          byEventType[k] = v;
+        }
+      }
+      const bucketTotal = Object.values(byEventType).reduce((a, c) => a + c, 0);
+      return {
+        bucket: b,
+        totalCount: bucketTotal,
+        byEventType,
+      };
+    });
+
+    // Append any extra bucket returned by SQL outside generated range
+    for (const [b, existing] of bucketMap.entries()) {
+      if (!generatedBuckets.includes(b)) {
+        const byEventType: Record<string, number> = {};
+        for (const t of canonicalTypes) {
+          byEventType[t] = existing[t] ?? 0;
+        }
+        for (const [k, v] of Object.entries(existing)) {
+          byEventType[k] = v;
+        }
+        const bucketTotal = Object.values(byEventType).reduce(
+          (a, c) => a + c,
+          0,
+        );
+        series.push({
+          bucket: b,
+          totalCount: bucketTotal,
+          byEventType,
+        });
+      }
+    }
+    series.sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+    return {
+      timeRange: { from: effectiveFrom, to: effectiveTo },
+      timeZone: timeZoneName,
+      interval,
+      totals: {
+        totalCount,
+        byEventType: totalsByEventType,
+      },
+      series,
     };
   }
 

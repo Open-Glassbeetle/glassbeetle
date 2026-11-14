@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from '../../database/database.service.js';
 import { TestFixtures } from '../../../test/harness/fixtures.js';
 import { AnalyticsModule } from './analytics.module.js';
-import { AnalyticsService, MAX_TIME_BUCKETS } from './analytics.service.js';
+import {
+  AnalyticsService,
+  MAX_ACTIVITY_BUCKETS,
+  MAX_TIME_BUCKETS,
+} from './analytics.service.js';
 import { USAGE_EVENT_TYPES } from './usage-event.types.js';
 
 describe('AnalyticsService', () => {
@@ -44,6 +48,10 @@ describe('AnalyticsService', () => {
 
     it('exports MAX_TIME_BUCKETS limit constant', () => {
       expect(MAX_TIME_BUCKETS).toBe(366);
+    });
+
+    it('exports MAX_ACTIVITY_BUCKETS limit constant', () => {
+      expect(MAX_ACTIVITY_BUCKETS).toBe(1000);
     });
   });
 
@@ -1170,6 +1178,493 @@ describe('AnalyticsService', () => {
         await expect(service.getUsage({ timezone: '+99:99' })).rejects.toThrow(
           BadRequestException,
         );
+      });
+    });
+  });
+
+  describe('getActivity aggregations and timeline series', () => {
+    describe('empty table', () => {
+      it('returns 200 with empty totals and zero-activity buckets when table is empty', async () => {
+        const from = '2026-11-01T00:00:00.000Z';
+        const to = '2026-11-03T23:59:59.999Z';
+        const result = await service.getActivity({ from, to, interval: 'day' });
+
+        expect(result.interval).toBe('day');
+        expect(result.timeZone).toBe('UTC');
+        expect(result.totals).toEqual({
+          totalCount: 0,
+          byEventType: {
+            chat_completion: 0,
+            chat_compaction: 0,
+            agent_created: 0,
+            artifact_created: 0,
+          },
+        });
+        expect(result.series).toHaveLength(3);
+        expect(result.series.map((b) => b.bucket)).toEqual([
+          '2026-11-01',
+          '2026-11-02',
+          '2026-11-03',
+        ]);
+        for (const bucket of result.series) {
+          expect(bucket.totalCount).toBe(0);
+          expect(bucket.byEventType).toEqual({
+            chat_completion: 0,
+            chat_compaction: 0,
+            agent_created: 0,
+            artifact_created: 0,
+          });
+        }
+      });
+
+      it('defaults interval to day and time range to trailing 30 days when omitted', async () => {
+        const result = await service.getActivity({});
+
+        expect(result.interval).toBe('day');
+        expect(result.timeRange.from).toBeDefined();
+        expect(result.timeRange.to).toBeDefined();
+        expect(result.totals.totalCount).toBe(0);
+        expect(result.series.length).toBeGreaterThanOrEqual(30);
+      });
+    });
+
+    describe('hand-verifiable activity fixtures across multiple intervals', () => {
+      let agent1Id: string;
+      let agent2Id: string;
+      let prov1Id: string;
+      let prov2Id: string;
+      let model1Id: string;
+      let model2Id: string;
+
+      beforeEach(() => {
+        const prov1 = fixtures.createProvider({
+          name: 'OpenAI',
+          kind: 'openai',
+        });
+        const prov2 = fixtures.createProvider({
+          name: 'Anthropic',
+          kind: 'anthropic',
+        });
+        prov1Id = prov1.id;
+        prov2Id = prov2.id;
+
+        const model1 = fixtures.createModel({
+          provider_id: prov1Id,
+          model_identifier: 'gpt-4o',
+          display_name: 'GPT-4o',
+        });
+        const model2 = fixtures.createModel({
+          provider_id: prov2Id,
+          model_identifier: 'claude-3-5-sonnet',
+          display_name: 'Claude 3.5 Sonnet',
+        });
+        model1Id = model1.id;
+        model2Id = model2.id;
+
+        const agent1 = fixtures.createAgent({
+          name: 'Coder Agent',
+          model_id: model1Id,
+        });
+        const agent2 = fixtures.createAgent({
+          name: 'Reviewer Agent',
+          model_id: model2Id,
+        });
+        agent1Id = agent1.id;
+        agent2Id = agent2.id;
+
+        // Event 1: 2026-10-10 14:10 UTC - chat_completion (Agent1, Prov1, Model1)
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-10T14:10:00.000Z',
+          agent_id: agent1Id,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'chat_completion',
+        });
+
+        // Event 2: 2026-10-10 14:40 UTC - chat_completion (Agent1, Prov1, Model1)
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-10T14:40:00.000Z',
+          agent_id: agent1Id,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'chat_completion',
+        });
+
+        // Event 3: 2026-10-10 15:20 UTC - artifact_created (Agent1, Prov1, Model1)
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-10T15:20:00.000Z',
+          agent_id: agent1Id,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'artifact_created',
+        });
+
+        // Event 4: 2026-10-11 10:00 UTC - agent_created (Agent2, Prov2, Model2)
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-11T10:00:00.000Z',
+          agent_id: agent2Id,
+          provider_id: prov2Id,
+          model_id: model2Id,
+          event_type: 'agent_created',
+        });
+
+        // Event 5: 2026-10-12 08:00 UTC - chat_compaction (null agent / deleted, Prov1, Model1)
+        fixtures.createUsageEvent({
+          occurred_at: '2026-10-12T08:00:00.000Z',
+          agent_id: null,
+          provider_id: prov1Id,
+          model_id: model1Id,
+          event_type: 'chat_compaction',
+        });
+      });
+
+      it('aggregates overall activity totals correctly', async () => {
+        const result = await service.getActivity({
+          from: '2026-10-10T00:00:00.000Z',
+          to: '2026-10-12T23:59:59.999Z',
+          interval: 'day',
+        });
+
+        expect(result.totals).toEqual({
+          totalCount: 5,
+          byEventType: {
+            chat_completion: 2,
+            artifact_created: 1,
+            agent_created: 1,
+            chat_compaction: 1,
+          },
+        });
+      });
+
+      it('aggregates with hour interval and fills zero-activity hour buckets', async () => {
+        const from = '2026-10-10T13:00:00.000Z';
+        const to = '2026-10-10T16:00:00.000Z';
+        const result = await service.getActivity({
+          from,
+          to,
+          interval: 'hour',
+        });
+
+        expect(result.interval).toBe('hour');
+        expect(result.series).toHaveLength(4); // 13:00, 14:00, 15:00, 16:00
+        expect(result.series.map((b) => b.bucket)).toEqual([
+          '2026-10-10T13:00',
+          '2026-10-10T14:00',
+          '2026-10-10T15:00',
+          '2026-10-10T16:00',
+        ]);
+
+        // 13:00 has 0 events:
+        expect(result.series[0]).toMatchObject({
+          bucket: '2026-10-10T13:00',
+          totalCount: 0,
+          byEventType: {
+            chat_completion: 0,
+            artifact_created: 0,
+            agent_created: 0,
+            chat_compaction: 0,
+          },
+        });
+
+        // 14:00 has 2 completions (Events 1 & 2):
+        expect(result.series[1]).toMatchObject({
+          bucket: '2026-10-10T14:00',
+          totalCount: 2,
+          byEventType: {
+            chat_completion: 2,
+            artifact_created: 0,
+            agent_created: 0,
+            chat_compaction: 0,
+          },
+        });
+
+        // 15:00 has 1 artifact created (Event 3):
+        expect(result.series[2]).toMatchObject({
+          bucket: '2026-10-10T15:00',
+          totalCount: 1,
+          byEventType: {
+            chat_completion: 0,
+            artifact_created: 1,
+            agent_created: 0,
+            chat_compaction: 0,
+          },
+        });
+
+        // 16:00 has 0 events:
+        expect(result.series[3]).toMatchObject({
+          bucket: '2026-10-10T16:00',
+          totalCount: 0,
+          byEventType: {
+            chat_completion: 0,
+            artifact_created: 0,
+            agent_created: 0,
+            chat_compaction: 0,
+          },
+        });
+
+        // Sum of bucket counts equals totalCount
+        const sumCount = result.series.reduce((a, b) => a + b.totalCount, 0);
+        expect(sumCount).toBe(result.totals.totalCount);
+      });
+
+      it('aggregates with day interval and fills zero-activity day buckets', async () => {
+        const from = '2026-10-09T00:00:00.000Z';
+        const to = '2026-10-13T23:59:59.999Z';
+        const result = await service.getActivity({ from, to, interval: 'day' });
+
+        expect(result.series).toHaveLength(5); // 10-09 through 10-13
+        expect(result.series.map((b) => b.bucket)).toEqual([
+          '2026-10-09',
+          '2026-10-10',
+          '2026-10-11',
+          '2026-10-12',
+          '2026-10-13',
+        ]);
+
+        // 10-09: 0 events
+        expect(result.series[0].totalCount).toBe(0);
+
+        // 10-10: 3 events (2 completions, 1 artifact)
+        expect(result.series[1].totalCount).toBe(3);
+        expect(result.series[1].byEventType.chat_completion).toBe(2);
+        expect(result.series[1].byEventType.artifact_created).toBe(1);
+
+        // 10-11: 1 event (agent created)
+        expect(result.series[2].totalCount).toBe(1);
+        expect(result.series[2].byEventType.agent_created).toBe(1);
+
+        // 10-12: 1 event (chat compaction)
+        expect(result.series[3].totalCount).toBe(1);
+        expect(result.series[3].byEventType.chat_compaction).toBe(1);
+
+        // 10-13: 0 events
+        expect(result.series[4].totalCount).toBe(0);
+
+        // Reconciles with totals:
+        const sumBuckets = result.series.reduce((a, b) => a + b.totalCount, 0);
+        expect(sumBuckets).toBe(result.totals.totalCount);
+      });
+
+      it('aggregates with week and month intervals', async () => {
+        const from = '2026-10-01T00:00:00.000Z';
+        const to = '2026-10-31T23:59:59.999Z';
+
+        const weekResult = await service.getActivity({
+          from,
+          to,
+          interval: 'week',
+        });
+        expect(weekResult.series.length).toBeGreaterThan(0);
+        expect(
+          weekResult.series.every((b) => /^2026-W\d{2}$/.test(b.bucket)),
+        ).toBe(true);
+        const sumWeek = weekResult.series.reduce((a, b) => a + b.totalCount, 0);
+        expect(sumWeek).toBe(weekResult.totals.totalCount);
+
+        const monthResult = await service.getActivity({
+          from,
+          to,
+          interval: 'month',
+        });
+        expect(monthResult.series).toHaveLength(1);
+        expect(monthResult.series[0].bucket).toBe('2026-10');
+        expect(monthResult.series[0].totalCount).toBe(5);
+      });
+
+      describe('bucket boundary timestamp conditions', () => {
+        it('assigns boundary events to the exact bucket', () => {
+          // Event exactly at 14:00:00.000Z
+          fixtures.createUsageEvent({
+            occurred_at: '2026-10-10T14:00:00.000Z',
+            event_type: 'chat_completion',
+          });
+          // Event at 14:59:59.999Z
+          fixtures.createUsageEvent({
+            occurred_at: '2026-10-10T14:59:59.999Z',
+            event_type: 'chat_completion',
+          });
+
+          return service
+            .getActivity({
+              from: '2026-10-10T14:00:00.000Z',
+              to: '2026-10-10T14:59:59.999Z',
+              interval: 'hour',
+            })
+            .then((res) => {
+              expect(res.series).toHaveLength(1);
+              expect(res.series[0].bucket).toBe('2026-10-10T14:00');
+              // 2 boundary events + 2 previously seeded in 14:00 = 4
+              expect(res.series[0].totalCount).toBe(4);
+            });
+        });
+      });
+
+      describe('filtering by entity and event type', () => {
+        it('filters by eventType', async () => {
+          const result = await service.getActivity({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            eventType: 'chat_completion',
+          });
+
+          expect(result.totals.totalCount).toBe(2);
+          expect(result.totals.byEventType.chat_completion).toBe(2);
+          expect(result.totals.byEventType.artifact_created).toBe(0);
+          expect(result.totals.byEventType.agent_created).toBe(0);
+        });
+
+        it('filters by agentId', async () => {
+          const result = await service.getActivity({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            agentId: agent1Id,
+          });
+
+          // Events 1, 2, 3 belong to Agent1
+          expect(result.totals.totalCount).toBe(3);
+          expect(result.totals.byEventType.chat_completion).toBe(2);
+          expect(result.totals.byEventType.artifact_created).toBe(1);
+        });
+
+        it('filters by providerId', async () => {
+          const result = await service.getActivity({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            providerId: prov2Id,
+          });
+
+          // Event 4 belongs to Prov2
+          expect(result.totals.totalCount).toBe(1);
+          expect(result.totals.byEventType.agent_created).toBe(1);
+        });
+
+        it('filters by modelId', async () => {
+          const result = await service.getActivity({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            modelId: model1Id,
+          });
+
+          // Events 1, 2, 3, 5 belong to Model1
+          expect(result.totals.totalCount).toBe(4);
+        });
+
+        it('combines filters (agentId + eventType)', async () => {
+          const result = await service.getActivity({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            agentId: agent1Id,
+            eventType: 'artifact_created',
+          });
+
+          expect(result.totals.totalCount).toBe(1);
+          expect(result.totals.byEventType.artifact_created).toBe(1);
+        });
+
+        it('retains unattributed events with null foreign key unless explicitly filtered', async () => {
+          // Event 5 has agent_id: null
+          const allResult = await service.getActivity({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+          });
+          expect(allResult.totals.byEventType.chat_compaction).toBe(1);
+
+          // Filtering by agent1Id excludes Event 5
+          const agent1Result = await service.getActivity({
+            from: '2026-10-01T00:00:00.000Z',
+            to: '2026-10-31T23:59:59.999Z',
+            agentId: agent1Id,
+          });
+          expect(agent1Result.totals.byEventType.chat_compaction).toBe(0);
+        });
+      });
+
+      describe('timezone shift handling', () => {
+        it('shifts bucket hours according to timezone offset modifier', async () => {
+          // Event 1 is at 14:10:00Z.
+          // In UTC (+00:00): bucket is 14:00
+          const utcRes = await service.getActivity({
+            from: '2026-10-10T14:00:00.000Z',
+            to: '2026-10-10T16:00:00.000Z',
+            interval: 'hour',
+            timezone: '+00:00',
+          });
+          expect(
+            utcRes.series.find((b) => b.bucket === '2026-10-10T14:00')
+              ?.totalCount,
+          ).toBe(2);
+
+          // In +02:00: 14:10 UTC becomes 16:10 local!
+          const tzRes = await service.getActivity({
+            from: '2026-10-10T14:00:00.000Z',
+            to: '2026-10-10T16:00:00.000Z',
+            interval: 'hour',
+            timezone: '+02:00',
+          });
+          // In local time (+2h), the query from/to shifted is 16:00 to 18:00
+          expect(
+            tzRes.series.find((b) => b.bucket === '2026-10-10T16:00')
+              ?.totalCount,
+          ).toBe(2);
+        });
+      });
+    });
+
+    describe('validation, bad requests, and error cases', () => {
+      it('rejects an unknown interval with 400 Bad Request', async () => {
+        await expect(
+          service.getActivity({ interval: 'minute' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects SQL injection attempts in interval with 400 Bad Request', async () => {
+        await expect(
+          service.getActivity({ interval: 'day; DROP TABLE usage_events; --' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects an inverted time range with 400 Bad Request', async () => {
+        await expect(
+          service.getActivity({
+            from: '2026-10-20T00:00:00.000Z',
+            to: '2026-10-10T00:00:00.000Z',
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid from timestamp with 400 Bad Request', async () => {
+        await expect(
+          service.getActivity({ from: 'not-a-valid-date' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid to timestamp with 400 Bad Request', async () => {
+        await expect(
+          service.getActivity({ to: 'not-a-valid-date' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid eventType filter with 400 Bad Request', async () => {
+        await expect(
+          service.getActivity({ eventType: 'invalid_event_type' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects a request that exceeds the maximum bucket limit (hourly over a year) with 400 Bad Request', async () => {
+        // Hourly grouping over 1 year (~8760 hours) exceeds MAX_ACTIVITY_BUCKETS (1000)
+        await expect(
+          service.getActivity({
+            from: '2025-01-01T00:00:00.000Z',
+            to: '2026-01-01T00:00:00.000Z',
+            interval: 'hour',
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects invalid timezone with 400 Bad Request', async () => {
+        await expect(
+          service.getActivity({ timezone: 'Invalid/Timezone' }),
+        ).rejects.toThrow(BadRequestException);
       });
     });
   });
