@@ -25,7 +25,7 @@
     "format:check": "npm run format:check --workspaces --if-present"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.7",
     "wait-on": "^9.0.1"
   },
   "engines": {
