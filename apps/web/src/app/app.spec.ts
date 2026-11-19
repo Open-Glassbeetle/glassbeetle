@@ -4,12 +4,12 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
-import { EMPTY } from 'rxjs';
+import { EMPTY, Subject } from 'rxjs';
 import { vi } from 'vitest';
 
 import { environment } from '../environments/environment';
 import { App } from './app';
-import { DesktopService } from './core/desktop/desktop.service';
+import { DesktopService, type ShellAction } from './core/desktop/desktop.service';
 import { ApiStatusService } from './features/api-status/api-status.service';
 
 @Component({ template: '' })
@@ -528,5 +528,73 @@ describe('App shell on a platform whose controls sit on the right', () => {
     // The look is the product's; the position is muscle memory.
     expect(controls).toBe(children.length - 1);
     expect(element.querySelector('.resize')).not.toBeNull();
+  });
+});
+
+describe("App shell receiving the native menu's Help links", () => {
+  let httpMock: HttpTestingController;
+  const actions = new Subject<ShellAction>();
+  const openExternal = vi.fn((_url: string) => Promise.resolve());
+
+  beforeEach(async () => {
+    openExternal.mockClear();
+
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: DesktopService,
+          useValue: {
+            isDesktop: true,
+            isMacOs: true,
+            controlsOnLeft: true,
+            needsResizeEdges: false,
+            menuActions: actions,
+            connect: () => Promise.resolve(),
+            signalReady: () => Promise.resolve(),
+            version: () => Promise.resolve('0.1.0'),
+            isWindowMaximised: () => Promise.resolve(false),
+            minimiseWindow: () => Promise.resolve(),
+            toggleMaximiseWindow: () => Promise.resolve(),
+            closeWindow: () => Promise.resolve(),
+            startResize: () => Promise.resolve(),
+            openExternal,
+          } satisfies Partial<DesktopService>,
+        },
+      ],
+    }).compileComponents();
+
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  it('opens both Help items through openExternal with the configured URLs', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    httpMock.expectOne(HEALTH_URL).flush(HEALTHY);
+    httpMock
+      .expectOne((request) => request.url === MODELS_URL && request.params.get('limit') === '1')
+      .flush({}, { status: 404, statusText: 'Not Found' });
+    httpMock
+      .expectOne((request) => request.url === AGENTS_URL)
+      .flush({ items: [], total: 0, limit: 100, offset: 0 });
+    answerRail(httpMock);
+    httpMock.expectOne(USER_URL).flush(PROFILE);
+    httpMock.expectOne(BUDGET_URL).flush(BUDGET);
+
+    // Rust forwards both Help items as actions rather than opening its own
+    // copy of the URL, so the port is the one this build was configured with.
+    actions.next('api-docs');
+    actions.next('repository');
+
+    expect(openExternal.mock.calls).toEqual([
+      [environment.apiDocsUrl],
+      ['https://github.com/Open-Glassbeetle/glassbeetle'],
+    ]);
   });
 });

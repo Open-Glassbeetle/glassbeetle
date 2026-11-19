@@ -15,6 +15,7 @@ import { catchError, forkJoin, map, of } from 'rxjs';
 import { SharedMemoriesService } from '../../../core/api/memories.service';
 import { SystemPromptsService } from '../../../core/api/system-prompts.service';
 import { DesktopService } from '../../../core/desktop/desktop.service';
+import { API_DOCS_URL, REPOSITORY_URL } from '../../../core/links';
 import { ThemeService } from '../../../core/theme/theme.service';
 import { AgentRosterService } from '../../../core/workspace/agent-roster.service';
 import { SpendService } from '../../../core/workspace/spend.service';
@@ -47,8 +48,8 @@ export class WorkspaceMenu implements OnInit {
   protected readonly theme = inject(ThemeService);
   protected readonly desktop = inject(DesktopService);
 
-  protected readonly apiDocsUrl = 'http://localhost:3000/api/docs';
-  protected readonly repositoryUrl = 'https://github.com/Open-Glassbeetle/glassbeetle';
+  protected readonly apiDocsUrl = API_DOCS_URL;
+  protected readonly repositoryUrl = REPOSITORY_URL;
 
   /** The platform's modifiers, so the panel does not promise macOS chords. */
   private readonly mac = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);

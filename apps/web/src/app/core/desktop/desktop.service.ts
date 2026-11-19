@@ -34,7 +34,9 @@ export type ShellAction =
   | 'go-prompts'
   | 'search'
   | 'toggle-sidebar'
-  | 'toggle-theme';
+  | 'toggle-theme'
+  | 'api-docs'
+  | 'repository';
 
 /**
  * The bridge to the Tauri shell.

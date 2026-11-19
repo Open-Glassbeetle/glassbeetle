@@ -21,6 +21,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter, map } from 'rxjs';
 
 import { DesktopService, type ShellAction } from './core/desktop/desktop.service';
+import { API_DOCS_URL, REPOSITORY_URL } from './core/links';
 import { CapabilitiesService } from './core/platform/capabilities.service';
 import { ApiStatusService } from './features/api-status/api-status.service';
 import { ThemeService } from './core/theme/theme.service';
@@ -267,6 +268,15 @@ export class App implements OnInit {
       case 'refresh':
         this.status.refresh();
         this.refreshWorkspace();
+        break;
+
+      // The native menu's Help links open through the same command the
+      // workspace panel uses, so the URLs live in one place on this side.
+      case 'api-docs':
+        void this.desktop.openExternal(API_DOCS_URL);
+        break;
+      case 'repository':
+        void this.desktop.openExternal(REPOSITORY_URL);
         break;
     }
   }

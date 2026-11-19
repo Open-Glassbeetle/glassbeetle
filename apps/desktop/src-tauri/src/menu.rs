@@ -14,17 +14,17 @@
 //! The few items that *are* product actions exist because macOS users look for
 //! them in the menu bar, and they emit [`MENU_EVENT`] rather than implementing
 //! anything — the Angular shell owns the one implementation, which the keyboard
-//! and the workspace panel reach too.
+//! and the workspace panel reach too. The two links are among them: the shell
+//! knows which port the API is on, and opens them through `open_external`.
 
 use tauri::menu::{AboutMetadataBuilder, Menu, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tauri_plugin_opener::OpenerExt;
 
 /// Event carrying an action id to the frontend.
 pub const MENU_EVENT: &str = "glassbeetle://menu";
 
-/// The API's own interactive documentation, served by the running backend.
-const API_DOCS_URL: &str = "http://localhost:3000/api/docs";
+/// Shown in the macOS About panel, which takes a URL rather than an action.
+#[cfg(target_os = "macos")]
 const REPOSITORY_URL: &str = "https://github.com/Open-Glassbeetle/glassbeetle";
 
 /// Builds the menu.
@@ -142,9 +142,6 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 /// is forwarded to the Angular shell, which owns the single implementation.
 pub fn handle<R: Runtime>(app: &AppHandle<R>, id: &str) {
     match id {
-        "api-docs" => open(app, API_DOCS_URL),
-        "repository" => open(app, REPOSITORY_URL),
-
         #[cfg(debug_assertions)]
         "devtools" => {
             if let Some(window) = app.get_webview_window("main") {
@@ -161,15 +158,5 @@ pub fn handle<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 log::error!("could not deliver menu action '{action}': {error}");
             }
         }
-    }
-}
-
-/// Opens a URL in the user's browser rather than in the app's own window.
-///
-/// The workspace window is the product; replacing its contents with a web page
-/// would be a one-way trip with no way back to where the user was.
-fn open<R: Runtime>(app: &AppHandle<R>, url: &str) {
-    if let Err(error) = app.opener().open_url(url, None::<&str>) {
-        log::error!("could not open {url}: {error}");
     }
 }
