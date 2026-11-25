@@ -129,7 +129,7 @@ jobs:
             libayatana-appindicator3-dev
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.100.0
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy, rustfmt
 
