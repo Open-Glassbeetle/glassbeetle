@@ -69,14 +69,12 @@ export class Overview implements OnInit {
 
   protected readonly entityIcon = ENTITY_ICON;
 
-  /**
-   * Modules that exist in the schema and as empty NestJS controllers, but whose
-   * routes return 404. Listed rather than probed: four extra requests on every
-   * load to confirm what the repository already states would be wasteful, and
-   * the one capability that *changes behaviour* — the model catalogue — is
-   * probed for real.
-   */
-  protected readonly plannedSurfaces = ['Projects', 'Artifacts', 'Analytics'];
+  /** Surfaces whose availability is probed at startup, in display order. */
+  protected readonly probedSurfaces = [
+    { key: 'projects', label: 'Projects' },
+    { key: 'artifacts', label: 'Artifacts' },
+    { key: 'analytics', label: 'Analytics' },
+  ] as const;
   protected readonly entityLabel = ENTITY_LABEL;
 
   /** The one health detail the deck's workspace panel does not already show. */

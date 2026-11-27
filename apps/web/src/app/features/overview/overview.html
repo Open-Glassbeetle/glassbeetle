@@ -216,17 +216,33 @@
           </span>
         </li>
 
-        @for (missing of plannedSurfaces; track missing) {
-          <li class="capability capability--planned">
-            <span class="capability__name">{{ missing }}</span>
-            <span class="pill pill--idle">no endpoint</span>
+        @for (surface of probedSurfaces; track surface.key) {
+          <li class="capability">
+            <span class="capability__name">{{ surface.label }}</span>
+            <span
+              class="pill"
+              [class.pill--ok]="capabilities.surfaces()[surface.key] === 'available'"
+              [class.pill--idle]="capabilities.surfaces()[surface.key] !== 'available'"
+            >
+              @switch (capabilities.surfaces()[surface.key]) {
+                @case ('available') {
+                  available
+                }
+                @case ('missing') {
+                  no endpoint
+                }
+                @default {
+                  unknown
+                }
+              }
+            </span>
           </li>
         }
       </ul>
 
       <p class="note">
-        Agents cannot be assigned a model and nothing can be run until the provider and inference
-        modules ship. Everything else on this screen is live.
+        The API for projects, artifacts, analytics, providers and models is in place. The screens
+        for providers, credentials and models are not built yet.
       </p>
     </gb-panel>
   </div>

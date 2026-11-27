@@ -17,6 +17,18 @@ import { ApiClient } from '../api/api-base';
  * the backend has not shipped. The probe lets the UI say the true thing
  * instead.
  */
+/** API surfaces besides the model catalogue that the Overview reports on. */
+export type ProbedSurface = 'projects' | 'artifacts' | 'analytics';
+
+/** `unknown` covers "not probed yet" and any failure that is not a definitive 404. */
+export type SurfaceState = 'unknown' | 'available' | 'missing';
+
+const SURFACE_PATHS: Record<ProbedSurface, string> = {
+  projects: '/projects',
+  artifacts: '/artifacts',
+  analytics: '/analytics/usage',
+};
+
 @Injectable({ providedIn: 'root' })
 export class CapabilitiesService extends ApiClient {
   private readonly _modelsAvailable = signal(false);
@@ -25,6 +37,15 @@ export class CapabilitiesService extends ApiClient {
   /** True once a models endpoint answers, so agents can be given a model. */
   readonly modelsAvailable = this._modelsAvailable.asReadonly();
   readonly probed = this._probed.asReadonly();
+
+  private readonly _surfaces = signal<Record<ProbedSurface, SurfaceState>>({
+    projects: 'unknown',
+    artifacts: 'unknown',
+    analytics: 'unknown',
+  });
+
+  /** Probed state of each surface: only a 2xx is `available`, only a 404 is `missing`. */
+  readonly surfaces = this._surfaces.asReadonly();
 
   /**
    * Probes once at startup.
@@ -35,6 +56,10 @@ export class CapabilitiesService extends ApiClient {
    * missing feature.
    */
   probe(): void {
+    for (const surface of Object.keys(SURFACE_PATHS) as ProbedSurface[]) {
+      this.probeSurface(surface);
+    }
+
     this.http.get(this.url('/models'), { params: { limit: 1 } }).subscribe({
       next: () => {
         this._modelsAvailable.set(true);
@@ -49,5 +74,21 @@ export class CapabilitiesService extends ApiClient {
         this._probed.set(status === 404);
       },
     });
+  }
+
+  private probeSurface(surface: ProbedSurface): void {
+    this.http.get(this.url(SURFACE_PATHS[surface]), { params: { limit: 1 } }).subscribe({
+      next: () => this.setSurface(surface, 'available'),
+      error: (error: unknown) => {
+        const status = error instanceof HttpErrorResponse ? error.status : undefined;
+        // Same rule as the model probe: a network failure or a 5xx says nothing
+        // about whether the module exists, so only a 404 counts as missing.
+        this.setSurface(surface, status === 404 ? 'missing' : 'unknown');
+      },
+    });
+  }
+
+  private setSurface(surface: ProbedSurface, state: SurfaceState): void {
+    this._surfaces.update((current) => ({ ...current, [surface]: state }));
   }
 }

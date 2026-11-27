@@ -105,13 +105,26 @@ function page(items: unknown[]) {
  * The catalogue asks for a full page, which is what tells it apart from the
  * capability probe against the same URL.
  */
+/** Answers the single-row probes the capability service fires for projects, artifacts and analytics. */
+function answerSurfaceProbes(httpMock: HttpTestingController) {
+  for (const path of ['/projects', '/artifacts', '/analytics/usage']) {
+    httpMock
+      .expectOne(
+        (req) => req.url === `${environment.apiBaseUrl}${path}` && req.params.get('limit') === '1',
+      )
+      .flush({ items: [], total: 0, limit: 1, offset: 0 });
+  }
+}
+
 function answerRail(
   httpMock: HttpTestingController,
   options: { chats?: unknown[]; teams?: unknown[]; projects?: unknown[] } = {},
 ) {
   httpMock.expectOne((req) => req.url === CHATS_URL).flush(page(options.chats ?? []));
   httpMock.expectOne((req) => req.url === TEAMS_URL).flush(page(options.teams ?? []));
-  httpMock.expectOne((req) => req.url === PROJECTS_URL).flush(page(options.projects ?? []));
+  httpMock
+    .expectOne((req) => req.url === PROJECTS_URL && req.params.get('limit') !== '1')
+    .flush(page(options.projects ?? []));
   httpMock
     .expectOne((req) => req.url === MODELS_URL && req.params.get('limit') === '100')
     .flush(page([]));
@@ -148,6 +161,7 @@ describe('App shell', () => {
    * empty controller, which is what the UI has to behave correctly for.
    */
   function answerProbe(modelsAvailable = false) {
+    answerSurfaceProbes(httpMock);
     const request = httpMock.expectOne(
       (req) => req.url === MODELS_URL && req.params.get('limit') === '1',
     );
@@ -507,6 +521,7 @@ describe('App shell on a platform whose controls sit on the right', () => {
     fixture.detectChanges();
 
     httpMock.expectOne(HEALTH_URL).flush(HEALTHY);
+    answerSurfaceProbes(httpMock);
     httpMock
       .expectOne((request) => request.url === MODELS_URL && request.params.get('limit') === '1')
       .flush({}, { status: 404, statusText: 'Not Found' });

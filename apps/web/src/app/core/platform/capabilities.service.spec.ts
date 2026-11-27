@@ -23,9 +23,20 @@ function probeRequest(httpMock: HttpTestingController) {
   return httpMock.expectOne((request) => request.url === MODELS_URL);
 }
 
+const SURFACE_URLS = {
+  projects: `${environment.apiBaseUrl}/projects`,
+  artifacts: `${environment.apiBaseUrl}/artifacts`,
+  analytics: `${environment.apiBaseUrl}/analytics/usage`,
+} as const;
+
 describe('CapabilitiesService', () => {
   afterEach(() => {
-    TestBed.inject(HttpTestingController).verify();
+    const httpMock = TestBed.inject(HttpTestingController);
+    // Every probe() also asks about the other surfaces; answer whatever a test left open.
+    for (const url of Object.values(SURFACE_URLS)) {
+      httpMock.match((request) => request.url === url).forEach((r) => r.flush({ data: [] }));
+    }
+    httpMock.verify();
   });
 
   it('reports nothing as available before the probe runs', () => {
@@ -117,5 +128,51 @@ describe('CapabilitiesService', () => {
 
     expect(capabilities.modelsAvailable()).toBe(false);
     expect(capabilities.probed()).toBe(true);
+  });
+
+  describe('surfaces', () => {
+    it('start unknown before the probe runs', () => {
+      const { capabilities } = setup();
+
+      expect(capabilities.surfaces()).toEqual({
+        projects: 'unknown',
+        artifacts: 'unknown',
+        analytics: 'unknown',
+      });
+    });
+
+    it('probes each surface with a single-row GET', () => {
+      const { capabilities, httpMock } = setup();
+
+      capabilities.probe();
+
+      for (const url of Object.values(SURFACE_URLS)) {
+        const request = httpMock.expectOne((r) => r.url === url);
+        expect(request.request.method).toBe('GET');
+        expect(request.request.params.get('limit')).toBe('1');
+        request.flush({ data: [] });
+      }
+      probeRequest(httpMock).flush({ data: [], total: 0 });
+    });
+
+    it('marks a surface available on 2xx and missing only on a definitive 404', () => {
+      const { capabilities, httpMock } = setup();
+
+      capabilities.probe();
+      httpMock.expectOne((r) => r.url === SURFACE_URLS.projects).flush({ data: [] });
+      httpMock
+        .expectOne((r) => r.url === SURFACE_URLS.artifacts)
+        .flush(null, { status: 404, statusText: 'Not Found' });
+      httpMock
+        .expectOne((r) => r.url === SURFACE_URLS.analytics)
+        .flush(null, { status: 503, statusText: 'Service Unavailable' });
+      probeRequest(httpMock).flush({ data: [], total: 0 });
+
+      expect(capabilities.surfaces()).toEqual({
+        projects: 'available',
+        artifacts: 'missing',
+        analytics: 'unknown',
+      });
+    });
   });
 });
