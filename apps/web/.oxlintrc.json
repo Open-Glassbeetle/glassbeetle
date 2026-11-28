@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/crates/oxc_linter/src/rules.rs",
+  "rules": {
+    // Disabled for parity with apps/api and because external Angular CDK / event interfaces occasionally require `any`
+    "@typescript-eslint/no-explicit-any": "off"
+  },
+  "env": {
+    "browser": true
+  }
+}
