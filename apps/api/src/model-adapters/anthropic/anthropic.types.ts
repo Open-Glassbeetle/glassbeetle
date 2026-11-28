@@ -58,7 +58,7 @@ export interface AnthropicMessagesResponse {
     | 'max_tokens'
     | 'stop_sequence'
     | 'tool_use'
-    | string
+    | (string & {})
     | null;
   stop_sequence: string | null;
   usage: AnthropicUsage;

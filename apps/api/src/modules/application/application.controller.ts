@@ -98,9 +98,6 @@ Explicit confirmation is mandatory. Supply \`?confirm=true\` (or \`?confirm=RESE
       });
     }
 
-    return this.applicationService.reset({
-      ...body,
-      confirm,
-    });
+    return this.applicationService.reset(Object.assign({}, body, { confirm }));
   }
 }

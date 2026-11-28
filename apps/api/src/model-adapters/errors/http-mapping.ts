@@ -228,7 +228,12 @@ export function normalizeProviderError(
     typeof cause === 'object' && cause !== null
       ? (cause as { code?: unknown }).code
       : undefined;
-  const causeMsg = cause instanceof Error ? cause.message : String(cause ?? '');
+  const causeMsg =
+    cause instanceof Error
+      ? cause.message
+      : typeof cause === 'string'
+        ? cause
+        : '';
 
   if (
     causeCode === 'ECONNREFUSED' ||

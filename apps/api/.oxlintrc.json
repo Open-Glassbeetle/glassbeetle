@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/crates/oxc_linter/src/rules.rs",
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-floating-promises": "warn"
+  },
+  "env": {
+    "node": true
+  },
+  "overrides": [
+    {
+      "files": ["**/*.spec.ts"],
+      "rules": {
+        // vi.mocked(...) and expect(...).toHaveBeenCalledWith(...) reference
+        // methods unbound all over the test suite (179 findings, all in specs,
+        // none in source). That idiom is safe for mocks, so keep the rule on
+        // for source files and switch it off for specs instead of rewriting
+        // every mock.
+        "typescript/unbound-method": "off",
+      }
+    }
+  ]
+}

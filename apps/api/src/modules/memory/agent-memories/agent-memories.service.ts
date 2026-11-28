@@ -131,10 +131,9 @@ export class AgentMemoriesService {
     const countRow = this.db.get<{ total: number }>(countSql, filterParams);
     const total = countRow?.total ?? 0;
 
-    const paginationQuery: PaginationQueryDto = {
-      ...query,
+    const paginationQuery: PaginationQueryDto = Object.assign({}, query, {
       sort: query.sort ?? query.sortBy,
-    };
+    });
 
     const pagination = buildPaginationSqlFragment({
       query: paginationQuery,

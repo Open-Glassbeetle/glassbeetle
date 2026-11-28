@@ -47,10 +47,11 @@ describe('AgentsController', () => {
             create: vi.fn().mockResolvedValue(mockAgent),
             update: vi.fn().mockResolvedValue(mockAgent),
             delete: vi.fn().mockResolvedValue(undefined),
-            uploadPicture: vi.fn().mockResolvedValue({
-              ...mockAgent,
-              hasPicture: true,
-            }),
+            uploadPicture: vi.fn().mockResolvedValue(
+              Object.assign({}, mockAgent, {
+                hasPicture: true,
+              }),
+            ),
             deletePicture: vi.fn().mockResolvedValue(undefined),
           },
         },

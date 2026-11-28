@@ -186,6 +186,7 @@ describe('ModelAdapterError Taxonomy', () => {
       expect(Object.keys(error)).not.toContain('cause');
 
       // 3. Object spread {...error} does NOT copy cause
+      // eslint-disable-next-line typescript/no-misused-spread -- the spread is the behaviour under test here
       const shallowCopy = { ...error };
       expect('cause' in shallowCopy).toBe(false);
 

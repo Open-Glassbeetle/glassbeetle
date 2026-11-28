@@ -25,7 +25,8 @@ export class AdapterFactoryService {
    * @param creator - Factory function that constructs the {@link ModelAdapter}.
    */
   register(
-    kind: ProviderKind | string | readonly (ProviderKind | string)[],
+    kind:
+      ProviderKind | (string & {}) | readonly (ProviderKind | (string & {}))[],
     creator: ModelAdapterCreator,
   ): this {
     const kinds = Array.isArray(kind) ? kind : [kind];
@@ -38,7 +39,7 @@ export class AdapterFactoryService {
   /**
    * Unregisters an adapter creator for a provider kind.
    */
-  unregister(kind: ProviderKind | string): boolean {
+  unregister(kind: ProviderKind | (string & {})): boolean {
     return this.registry.delete(kind);
   }
 

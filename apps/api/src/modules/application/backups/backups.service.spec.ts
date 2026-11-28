@@ -1217,7 +1217,7 @@ describe('BackupsService', () => {
         fs.unlinkSync(escapedFile);
       }
 
-      await createTraversalArchive(archiveFile, '../evil.txt');
+      createTraversalArchive(archiveFile, '../evil.txt');
 
       dbService.run(
         `INSERT INTO backups (id, file_path, size_bytes, trigger, created_at)

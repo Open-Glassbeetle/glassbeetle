@@ -241,7 +241,7 @@ export function buildTagFilterPredicate(
  * it is bound as a parameter.
  */
 export function getDistinctTagsQuery(
-  tableName: 'agent_memories' | 'shared_memories' | string,
+  tableName: 'agent_memories' | 'shared_memories',
   options?: { readonly agentId?: string },
 ): { sql: string; params: readonly unknown[] } {
   const params: unknown[] = [];
