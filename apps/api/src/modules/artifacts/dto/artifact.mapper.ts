@@ -58,7 +58,9 @@ export function mapArtifactRowToResponse(
 ): ArtifactResponseDto {
   const includeContent = options?.includeContent ?? true;
 
-  const base: ArtifactResponseDto = {
+  // Plain object literal, not a class instance: spreading it here is safe,
+  // and keeping it untyped lets the linter see that.
+  const base = {
     id: row.id,
     projectId: row.project_id ?? null,
     chatId: row.chat_id ?? null,
