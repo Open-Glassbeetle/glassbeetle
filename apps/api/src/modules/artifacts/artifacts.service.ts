@@ -456,7 +456,10 @@ export class ArtifactsService {
       const row = mapCreateArtifactDtoToRow(
         normalizedFilePath === null
           ? dto
-          : { ...dto, filePath: normalizedFilePath, file_path: null },
+          : Object.assign({}, dto, {
+              filePath: normalizedFilePath,
+              file_path: null,
+            }),
       );
 
       this.db.run(
@@ -567,7 +570,10 @@ export class ArtifactsService {
       existing,
       normalizedFilePath === undefined
         ? dto
-        : { ...dto, filePath: normalizedFilePath, file_path: null },
+        : Object.assign({}, dto, {
+            filePath: normalizedFilePath,
+            file_path: null,
+          }),
     );
 
     if (!updateResult.hasChanges) {
