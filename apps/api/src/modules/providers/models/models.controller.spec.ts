@@ -107,7 +107,7 @@ describe('ModelsController', () => {
         displayName: 'Updated Claude',
         enabled: false,
       };
-      const updatedModel = { ...sampleModel, ...dto };
+      const updatedModel = Object.assign({}, sampleModel, dto);
       mockModelsService.update.mockReturnValueOnce(updatedModel);
 
       const result = controller.update(modelId, dto);
