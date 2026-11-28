@@ -1227,10 +1227,9 @@ export class InferenceService {
     }
 
     const lastMessage = completedMessages[completedMessages.length - 1];
-    return {
-      ...lastMessage,
+    return Object.assign({}, lastMessage, {
       messages: completedMessages,
-    };
+    });
   }
 
   /**
@@ -1324,10 +1323,9 @@ If you can answer directly without delegation, provide your response directly.`
     }
 
     const lastMessage = completedMessages[completedMessages.length - 1];
-    return {
-      ...lastMessage,
+    return Object.assign({}, lastMessage, {
       messages: completedMessages,
-    };
+    });
   }
 
   /**
@@ -1386,10 +1384,9 @@ If you can answer directly without delegation, provide your response directly.`
     }
 
     const lastMessage = completedMessages[completedMessages.length - 1];
-    return {
-      ...lastMessage,
+    return Object.assign({}, lastMessage, {
       messages: completedMessages,
-    };
+    });
   }
 
   /**
@@ -1499,10 +1496,9 @@ When the task is complete and no further response is needed, end with:
     }
 
     const lastMessage = completedMessages[completedMessages.length - 1];
-    return {
-      ...lastMessage,
+    return Object.assign({}, lastMessage, {
       messages: completedMessages,
-    };
+    });
   }
 
   /**
