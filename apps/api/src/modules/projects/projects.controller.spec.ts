@@ -49,7 +49,9 @@ describe('ProjectsController', () => {
             delete: vi.fn().mockResolvedValue(undefined),
             uploadImage: vi
               .fn()
-              .mockResolvedValue({ ...mockProject, hasImage: true }),
+              .mockResolvedValue(
+                Object.assign({}, mockProject, { hasImage: true }),
+              ),
             openImage: vi.fn(),
             deleteImage: vi.fn().mockResolvedValue(undefined),
           },
@@ -141,7 +143,9 @@ describe('ProjectsController', () => {
       const result = await controller.uploadImage(mockProject.id, mockFile);
 
       expect(service.uploadImage).toHaveBeenCalledWith(mockProject.id, mockFile);
-      expect(result).toEqual({ ...mockProject, hasImage: true });
+      expect(result).toEqual(
+        Object.assign({}, mockProject, { hasImage: true }),
+      );
     });
 
     it('throws BadRequestException if no file is uploaded or buffer is empty', async () => {
